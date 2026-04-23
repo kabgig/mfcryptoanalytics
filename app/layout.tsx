@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { headers } from "next/headers";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
+import { ReownProvider } from "@/components/providers/ReownProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -18,11 +20,14 @@ export const metadata: Metadata = {
   description: "Track your PnL across multiple crypto exchanges in one dashboard",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const headersObj = await headers();
+  const cookies = headersObj.get("cookie");
+
   return (
     <html
       lang="en"
@@ -30,7 +35,9 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">
-        <ThemeProvider>{children}</ThemeProvider>
+        <ReownProvider cookies={cookies}>
+          <ThemeProvider>{children}</ThemeProvider>
+        </ReownProvider>
       </body>
     </html>
   );

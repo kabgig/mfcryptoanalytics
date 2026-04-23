@@ -1,6 +1,5 @@
-import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "./ThemeToggle"
-import { Wallet } from "lucide-react"
+import { WalletButton } from "./WalletButton"
 
 export function Navbar() {
   return (
@@ -12,10 +11,7 @@ export function Navbar() {
 
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <Button variant="outline" size="sm" className="gap-2">
-            <Wallet className="h-4 w-4" />
-            Connect Wallet
-          </Button>
+          <WalletButton />
         </div>
       </div>
     </header>
