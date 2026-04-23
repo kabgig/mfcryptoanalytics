@@ -29,12 +29,12 @@ export function LandingPage() {
     <main className="flex-1 flex flex-col">
       {/* Hero */}
       <section className="flex flex-1 flex-col items-center justify-center text-center px-4 py-24 gap-6">
-        <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/50 px-4 py-1.5 text-sm text-muted-foreground">
+        <div className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-1.5 text-sm text-muted-foreground">
           <BarChart2 className="h-3.5 w-3.5" />
           Crypto PnL Analytics
         </div>
 
-        <h1 className="max-w-2xl text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
+        <h1 className="max-w-2xl text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
           Track your trading performance{' '}
           <span className="text-emerald-500">across every exchange</span>
         </h1>
@@ -51,14 +51,14 @@ export function LandingPage() {
       </section>
 
       {/* Features */}
-      <section className="border-t border-border/60 bg-muted/30 px-4 py-16">
-        <div className="mx-auto grid max-w-5xl grid-cols-1 gap-8 sm:grid-cols-3">
+      <section className="border-t border-border/30 bg-muted/20 px-4 py-16">
+        <div className="mx-auto grid max-w-5xl grid-cols-1 gap-5 sm:grid-cols-3">
           {features.map(({ icon: Icon, title, description }) => (
-            <div key={title} className="flex flex-col gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-border/60 bg-background">
-                <Icon className="h-5 w-5 text-emerald-500" />
+            <div key={title} className="flex flex-col gap-3 rounded-2xl bg-card p-6">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted">
+                <Icon className="h-4 w-4" />
               </div>
-              <h3 className="font-semibold">{title}</h3>
+              <h3 className="font-medium">{title}</h3>
               <p className="text-sm text-muted-foreground">{description}</p>
             </div>
           ))}
