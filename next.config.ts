@@ -10,6 +10,7 @@ const nextConfig: NextConfig = {
       'porto': false,
       'porto/internal': false,
       '@walletconnect/ethereum-provider': false,
+      '@base-org/account': false,
     }
     return config
   },
