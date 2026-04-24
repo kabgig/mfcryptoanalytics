@@ -42,12 +42,12 @@ export function TradesTable({ trades }: TradesTableProps) {
               <TableRow>
                 <TableHead>Exchange</TableHead>
                 <TableHead>Ticker</TableHead>
+                <TableHead className="text-right">PnL</TableHead>
                 <TableHead className="text-right">Position Size</TableHead>
                 <TableHead className="text-right">TP</TableHead>
                 <TableHead className="text-right">SL</TableHead>
                 <TableHead>Open Time</TableHead>
                 <TableHead>Close Time</TableHead>
-                <TableHead className="text-right">PnL</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -70,6 +70,17 @@ export function TradesTable({ trades }: TradesTableProps) {
                     <TableCell className="font-mono font-medium">
                       {trade.ticker}
                     </TableCell>
+                    <TableCell
+                      className={`text-right font-mono font-semibold ${
+                        isProfit ? "text-emerald-500" : "text-red-500"
+                      }`}
+                    >
+                      {isProfit ? "+" : ""}
+                      {trade.pnl.toLocaleString("en-US", {
+                        style: "currency",
+                        currency: "USD",
+                      })}
+                    </TableCell>
                     <TableCell className="text-right font-mono">
                       {trade.positionSize === 0 ? "—" : trade.positionSize.toLocaleString("en-US")}
                     </TableCell>
@@ -84,17 +95,6 @@ export function TradesTable({ trades }: TradesTableProps) {
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {formatDate(trade.closeTime)}
-                    </TableCell>
-                    <TableCell
-                      className={`text-right font-mono font-semibold ${
-                        isProfit ? "text-emerald-500" : "text-red-500"
-                      }`}
-                    >
-                      {isProfit ? "+" : ""}
-                      {trade.pnl.toLocaleString("en-US", {
-                        style: "currency",
-                        currency: "USD",
-                      })}
                     </TableCell>
                   </TableRow>
                 )
