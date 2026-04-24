@@ -67,7 +67,7 @@ export async function fetchFuturesTrades(
 
       trades.push({
         id: `bingx-futures-${r.tranId}-${r.tradeId}`,
-        exchange: "BingX Futures",
+        exchange: "BingX",
         ticker: r.symbol.replace("-", ""),
         positionSize: 0,
         tp: null,

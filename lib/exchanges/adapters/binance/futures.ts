@@ -67,7 +67,7 @@ export async function fetchFuturesTrades(
     .filter((r) => r.symbol !== "") // skip non-trade entries
     .map((r) => ({
       id: `binance-futures-${r.tranId}`,
-      exchange: "Binance Futures",
+      exchange: "Binance",
       ticker: r.symbol,
       positionSize: 0,     // not available from income endpoint
       tp: null,

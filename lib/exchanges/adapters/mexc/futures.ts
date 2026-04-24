@@ -56,7 +56,7 @@ export async function fetchFuturesTrades(
     .filter((p) => parseFloat(p.realised) !== 0)
     .map((p) => ({
       id: `mexc-futures-${p.positionId}`,
-      exchange: "MEXC Futures",
+      exchange: "MEXC",
       ticker: p.symbol.replace("_", ""),
       positionSize: parseFloat(p.openVol) || 0,
       tp: null,

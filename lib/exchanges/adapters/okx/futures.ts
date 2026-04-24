@@ -66,7 +66,7 @@ export async function fetchFuturesTrades(
     .filter((p) => parseFloat(p.pnl) !== 0)
     .map((p) => ({
       id: `okx-futures-${p.posId}`,
-      exchange: "OKX Futures",
+      exchange: "OKX",
       // instId is "BTC-USDT-SWAP" or "BTC-USDT-231229" — strip the suffix
       ticker: p.instId.split("-").slice(0, 2).join(""),
       positionSize: parseFloat(p.openMaxPos) || 0,

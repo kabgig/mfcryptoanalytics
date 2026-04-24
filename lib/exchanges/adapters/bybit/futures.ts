@@ -61,7 +61,7 @@ export async function fetchFuturesTrades(
       for (const r of data.result.list) {
         trades.push({
           id: `bybit-futures-${r.orderId}`,
-          exchange: "Bybit Futures",
+          exchange: "Bybit",
           ticker: r.symbol,
           positionSize: parseFloat(r.closedSize),
           tp: null,
