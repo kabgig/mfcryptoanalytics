@@ -71,7 +71,7 @@ export function TradesTable({ trades }: TradesTableProps) {
                       {trade.ticker}
                     </TableCell>
                     <TableCell className="text-right font-mono">
-                      {trade.positionSize.toLocaleString("en-US")}
+                      {trade.positionSize === 0 ? "—" : trade.positionSize.toLocaleString("en-US")}
                     </TableCell>
                     <TableCell className="text-right font-mono">
                       {formatPrice(trade.tp)}
