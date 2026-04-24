@@ -1,10 +1,35 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getAllTrades } from "@/lib/services/tradesService"
+import { registry } from "@/lib/exchanges"
 
-export async function GET(request: NextRequest) {
-  const { searchParams } = request.nextUrl
-  const address = searchParams.get("address") ?? undefined
+export const dynamic = "force-dynamic"
 
-  const trades = await getAllTrades(address)
-  return NextResponse.json(trades)
+export async function GET() {
+  const encoder = new TextEncoder()
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      for (const adapter of registry) {
+        try {
+          const trades = await adapter.fetchTrades()
+          controller.enqueue(
+            encoder.encode(JSON.stringify({ exchange: adapter.name, trades }) + "\n")
+          )
+        } catch (err) {
+          controller.enqueue(
+            encoder.encode(
+              JSON.stringify({ exchange: adapter.name, trades: [], error: String(err) }) + "\n"
+            )
+          )
+        }
+      }
+      controller.close()
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson",
+      "Cache-Control": "no-store",
+      "X-Accel-Buffering": "no",
+    },
+  })
 }

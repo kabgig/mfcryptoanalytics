@@ -1,16 +1,19 @@
 import { Trade } from "@/types"
 import { buildSignedQuery } from "./auth"
-import { BingXPositionHistoryResponse } from "./types"
+import { BingXIncomeResponse } from "./types"
 
 const BASE_URL = "https://open-api.bingx.com"
 const LOOKBACK_DAYS = 90
 const WINDOW_MS = 7 * 24 * 60 * 60 * 1000
-const PAGE_SIZE = 100
+const LIMIT = 1000
+const DELAY_MS = 250 // stay within 5 req/s rate limit
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /**
- * Fetches all closed perpetual futures positions from BingX for the past 90 days.
- * Uses GET /openApi/swap/v1/trade/positionHistory, paginated with pageIndex.
- * Iterates in 7-day windows to stay within the API's time range limits.
+ * Fetches all realized PnL entries from BingX perpetual futures for the past 90 days.
+ * Uses GET /openApi/swap/v2/user/income with incomeType=REALIZED_PNL.
+ * Iterates in 7-day windows with limit=1000 per window.
  */
 export async function fetchFuturesTrades(
   apiKey: string,
@@ -19,70 +22,64 @@ export async function fetchFuturesTrades(
   const now = Date.now()
   const start = now - LOOKBACK_DAYS * 24 * 60 * 60 * 1000
 
-  const windows: Array<{ startTs: number; endTs: number }> = []
+  const windows: Array<{ startTime: number; endTime: number }> = []
   let cursor = start
   while (cursor < now) {
-    const endTs = Math.min(cursor + WINDOW_MS, now)
-    windows.push({ startTs: cursor, endTs })
-    cursor = endTs + 1
+    const endTime = Math.min(cursor + WINDOW_MS, now)
+    windows.push({ startTime: cursor, endTime })
+    cursor = endTime + 1
   }
 
   const trades: Trade[] = []
 
   for (const window of windows) {
-    let pageIndex = 1
-    let hasMore = true
+    const query = buildSignedQuery(
+      {
+        incomeType: "REALIZED_PNL",
+        startTime: String(window.startTime),
+        endTime: String(window.endTime),
+        limit: String(LIMIT),
+      },
+      apiSecret
+    )
 
-    while (hasMore) {
-      const query = buildSignedQuery(
-        {
-          startTs: String(window.startTs),
-          endTs: String(window.endTs),
-          pageIndex: String(pageIndex),
-          pageSize: String(PAGE_SIZE),
-        },
-        apiSecret
-      )
+    const res = await fetch(
+      `${BASE_URL}/openApi/swap/v2/user/income?${query}`,
+      { headers: { "X-BX-APIKEY": apiKey } }
+    )
 
-      const res = await fetch(
-        `${BASE_URL}/openApi/swap/v1/trade/positionHistory?${query}`,
-        { headers: { "X-BX-APIKEY": apiKey } }
-      )
-
-      if (!res.ok) {
-        const body = await res.text()
-        throw new Error(`BingX positionHistory error ${res.status}: ${body}`)
-      }
-
-      const data: BingXPositionHistoryResponse = await res.json()
-
-      if (data.code !== 0) {
-        throw new Error(`BingX positionHistory API error ${data.code}: ${data.msg}`)
-      }
-
-      const records = data.data?.positionHistoryVoList ?? []
-
-      for (const r of records) {
-        const pnl = parseFloat(r.realisedPnl)
-        if (isNaN(pnl)) continue
-
-        trades.push({
-          id: `bingx-futures-${r.positionId}`,
-          exchange: "BingX Futures",
-          ticker: r.symbol.replace("-", ""),
-          positionSize: Math.abs(parseFloat(r.positionAmt)),
-          tp: null,
-          sl: null,
-          openTime: new Date(r.openTime).toISOString(),
-          closeTime: new Date(r.closeTime).toISOString(),
-          pnl,
-          market: "futures" as const,
-        })
-      }
-
-      hasMore = records.length === PAGE_SIZE
-      pageIndex++
+    if (!res.ok) {
+      const body = await res.text()
+      throw new Error(`BingX user/income error ${res.status}: ${body}`)
     }
+
+    const data: BingXIncomeResponse = await res.json()
+
+    if (data.code !== 0) {
+      throw new Error(`BingX user/income API error ${data.code}: ${data.msg}`)
+    }
+
+    const records = data.data ?? []
+
+    for (const r of records) {
+      const pnl = parseFloat(r.income)
+      if (isNaN(pnl)) continue
+
+      trades.push({
+        id: `bingx-futures-${r.tranId}-${r.tradeId}`,
+        exchange: "BingX Futures",
+        ticker: r.symbol.replace("-", ""),
+        positionSize: 0,
+        tp: null,
+        sl: null,
+        openTime: new Date(r.time).toISOString(),
+        closeTime: new Date(r.time).toISOString(),
+        pnl,
+        market: "futures" as const,
+      })
+    }
+
+    await sleep(DELAY_MS)
   }
 
   return trades

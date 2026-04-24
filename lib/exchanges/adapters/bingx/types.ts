@@ -1,24 +1,18 @@
-export interface BingXPositionRecord {
-  positionId: string
+export interface BingXIncomeRecord {
   symbol: string
-  currency: string
-  positionAmt: string     // position size (base asset)
-  realisedPnl: string     // realised PnL in quote
-  openPrice: string
-  closePrice: string
-  openTime: number        // Unix ms
-  closeTime: number       // Unix ms
-  positionSide: string    // LONG | SHORT
-  leverage: string
+  incomeType: string      // REALIZED_PNL, FUNDING_FEE, etc.
+  income: string          // signed PnL amount
+  asset: string           // USDT
+  time: number            // Unix ms
+  info: string
+  tranId: string
+  tradeId: string
 }
 
-export interface BingXPositionHistoryResponse {
+export interface BingXIncomeResponse {
   code: number
   msg: string
-  data: {
-    positionHistoryVoList: BingXPositionRecord[]
-    total: number
-  }
+  data: BingXIncomeRecord[]
 }
 
 export interface BingXSpotOrder {
