@@ -14,6 +14,7 @@ export function HomeView() {
   const [trades, setTrades] = useState<Trade[]>([])
   const [loadedExchanges, setLoadedExchanges] = useState<string[]>([])
   const [pendingExchanges, setPendingExchanges] = useState<string[]>([])
+  const [exchangeErrors, setExchangeErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -23,6 +24,7 @@ export function HomeView() {
     setTrades([])
     setLoadedExchanges([])
     setPendingExchanges([])
+    setExchangeErrors({})
     setLoading(true)
 
     async function fetchStream() {
@@ -44,7 +46,10 @@ export function HomeView() {
         for (const line of lines) {
           if (!line.trim()) continue
           try {
-            const { exchange, trades: newTrades }: { exchange: string; trades: Trade[] } = JSON.parse(line)
+            const { exchange, trades: newTrades, error }: { exchange: string; trades: Trade[]; error?: string } = JSON.parse(line)
+            if (error) {
+              setExchangeErrors((prev) => ({ ...prev, [exchange]: error }))
+            }
             setTrades((prev) => {
               const merged = [...prev, ...newTrades]
               merged.sort((a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime())
@@ -80,6 +85,14 @@ export function HomeView() {
             ? 'Loading trades…'
             : `Loaded: ${loadedExchanges.join(', ')} — fetching more…`}
         </p>
+      )}
+      {Object.entries(exchangeErrors).length > 0 && (
+        <div className="text-xs text-destructive space-y-1 border border-destructive/30 rounded p-3 bg-destructive/5">
+          <p className="font-semibold">Exchange errors:</p>
+          {Object.entries(exchangeErrors).map(([exchange, err]) => (
+            <p key={exchange}><span className="font-medium">{exchange}:</span> {err}</p>
+          ))}
+        </div>
       )}
     </main>
   )
