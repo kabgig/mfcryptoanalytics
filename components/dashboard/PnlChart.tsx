@@ -39,11 +39,11 @@ export function PnlChart({ chartData }: PnlChartProps) {
           <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="pnlGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0} />
+                <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.9} />
+                <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0.08} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
+            <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
             <XAxis
               dataKey="date"
               tick={{ fontSize: 11 }}
@@ -76,7 +76,7 @@ export function PnlChart({ chartData }: PnlChartProps) {
               type="monotone"
               dataKey="cumulativePnl"
               stroke="hsl(var(--chart-1))"
-              strokeWidth={2}
+              strokeWidth={4}
               fill="url(#pnlGradient)"
               dot={false}
               activeDot={{ r: 4 }}

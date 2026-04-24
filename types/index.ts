@@ -8,6 +8,7 @@ export interface Trade {
   openTime: string  // ISO string
   closeTime: string // ISO string
   pnl: number
+  market?: "spot" | "futures"
 }
 
 export interface ExchangeAdapter {

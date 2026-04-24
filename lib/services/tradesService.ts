@@ -14,7 +14,7 @@ export async function getAllTrades(walletAddress?: string): Promise<Trade[]> {
 
   const merged = results.flat()
   merged.sort(
-    (a, b) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime()
+    (a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime()
   )
 
   return merged
