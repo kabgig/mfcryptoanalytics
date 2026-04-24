@@ -75,7 +75,7 @@ async function fetchAllFillsForSymbol(
     let hasMore = true
 
     while (hasMore) {
-      const query = buildSignedQuery(
+      const query = await buildSignedQuery(
         {
           symbol,
           status: "FILLED",

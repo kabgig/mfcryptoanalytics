@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useUserStore } from '@/lib/store/userStore'
+import { buildClientRegistry } from '@/lib/exchanges/client'
 import { StatsBar } from '@/components/dashboard/StatsBar'
 import { PnlChart } from '@/components/dashboard/PnlChart'
 import { TradesTable } from '@/components/dashboard/TradesTable'
@@ -11,64 +12,49 @@ import type { Trade } from '@/types'
 
 export function HomeView() {
   const walletAddress = useUserStore((s) => s.walletAddress)
+  const apiKeys = useUserStore((s) => s.apiKeys)
   const [trades, setTrades] = useState<Trade[]>([])
   const [loadedExchanges, setLoadedExchanges] = useState<string[]>([])
-  const [pendingExchanges, setPendingExchanges] = useState<string[]>([])
   const [exchangeErrors, setExchangeErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     if (!walletAddress) return
 
+    const adapters = buildClientRegistry(apiKeys)
+    if (adapters.length === 0) return
+
     let cancelled = false
     setTrades([])
     setLoadedExchanges([])
-    setPendingExchanges([])
     setExchangeErrors({})
     setLoading(true)
 
-    async function fetchStream() {
-      const res = await fetch('/api/trades')
-      if (!res.body) return
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done || cancelled) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() ?? ''
-
-        for (const line of lines) {
-          if (!line.trim()) continue
-          try {
-            const { exchange, trades: newTrades, error }: { exchange: string; trades: Trade[]; error?: string } = JSON.parse(line)
-            if (error) {
-              setExchangeErrors((prev) => ({ ...prev, [exchange]: error }))
-            }
-            setTrades((prev) => {
-              const merged = [...prev, ...newTrades]
-              merged.sort((a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime())
-              return merged
-            })
-            setLoadedExchanges((prev) => [...prev, exchange])
-            setPendingExchanges((prev) => prev.filter((e) => e !== exchange))
-          } catch {
-            // malformed line — skip
+    async function fetchAll() {
+      for (const adapter of adapters) {
+        if (cancelled) break
+        try {
+          const newTrades = await adapter.fetchTrades()
+          if (cancelled) break
+          setTrades((prev) => {
+            const merged = [...prev, ...newTrades]
+            merged.sort((a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime())
+            return merged
+          })
+          setLoadedExchanges((prev) => [...prev, adapter.name])
+        } catch (err) {
+          if (!cancelled) {
+            setExchangeErrors((prev) => ({ ...prev, [adapter.name]: String(err) }))
+            setLoadedExchanges((prev) => [...prev, adapter.name])
           }
         }
       }
-
       if (!cancelled) setLoading(false)
     }
 
-    fetchStream()
+    fetchAll()
     return () => { cancelled = true }
-  }, [walletAddress])
+  }, [walletAddress, apiKeys])
 
   if (!walletAddress) return <LandingPage />
 

@@ -1,4 +1,4 @@
-import { createHmac } from "crypto"
+import { hmacHex } from "@/lib/crypto/hmac"
 
 const RECV_WINDOW = "5000"
 
@@ -7,17 +7,15 @@ const RECV_WINDOW = "5000"
  * Signature string: timestamp + apiKey + recvWindow + queryString
  * Returns the four required auth headers.
  */
-export function buildAuthHeaders(
+export async function buildAuthHeaders(
   queryString: string,
   apiKey: string,
   apiSecret: string
-): Record<string, string> {
+): Promise<Record<string, string>> {
   const timestamp = Date.now().toString()
 
   const preSign = `${timestamp}${apiKey}${RECV_WINDOW}${queryString}`
-  const signature = createHmac("sha256", apiSecret)
-    .update(preSign)
-    .digest("hex")
+  const signature = await hmacHex(apiSecret, preSign)
 
   return {
     "X-BAPI-API-KEY": apiKey,

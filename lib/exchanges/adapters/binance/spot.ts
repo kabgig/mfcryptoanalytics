@@ -26,7 +26,7 @@ async function fetchAllFillsForSymbol(
   apiSecret: string,
   symbol: string
 ): Promise<SpotFill[]> {
-  const params = signParams({ symbol, limit: 1000 }, apiSecret)
+  const params = await signParams({ symbol, limit: 1000 }, apiSecret)
 
   const res = await fetch(
     `${SPOT_BASE_URL}/api/v3/myTrades?${params.toString()}`,

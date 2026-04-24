@@ -1,14 +1,14 @@
-import { createHmac } from "crypto"
+import { hmacHex } from "@/lib/crypto/hmac"
 
 /**
  * Signs Binance REST API request parameters with HMAC-SHA256.
  * Appends `timestamp` and `signature` to the provided params.
  * Returns a fully-signed URLSearchParams ready to append to a request URL.
  */
-export function signParams(
+export async function signParams(
   params: Record<string, string | number>,
   secret: string
-): URLSearchParams {
+): Promise<URLSearchParams> {
   const query = new URLSearchParams({
     ...Object.fromEntries(
       Object.entries(params).map(([k, v]) => [k, String(v)])
@@ -16,9 +16,7 @@ export function signParams(
     timestamp: Date.now().toString(),
   })
 
-  const signature = createHmac("sha256", secret)
-    .update(query.toString())
-    .digest("hex")
+  const signature = await hmacHex(secret, query.toString())
 
   query.set("signature", signature)
   return query

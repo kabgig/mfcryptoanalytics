@@ -18,21 +18,11 @@ export class OKXAdapter implements ExchangeAdapter {
   private passphrase: string
   private fetchSpot: boolean
 
-  constructor() {
-    const apiKey = process.env.OKX_API_KEY
-    const apiSecret = process.env.OKX_API_SECRET
-    const passphrase = process.env.OKX_PASSPHRASE
-
-    if (!apiKey || !apiSecret || !passphrase) {
-      throw new Error(
-        "OKXAdapter requires OKX_API_KEY, OKX_API_SECRET and OKX_PASSPHRASE env vars."
-      )
-    }
-
+  constructor(apiKey: string, apiSecret: string, passphrase: string, fetchSpot = false) {
     this.apiKey = apiKey
     this.apiSecret = apiSecret
     this.passphrase = passphrase
-    this.fetchSpot = process.env.OKX_SPOT === "true"
+    this.fetchSpot = fetchSpot
   }
 
   async fetchTrades(_walletAddress?: string): Promise<Trade[]> {

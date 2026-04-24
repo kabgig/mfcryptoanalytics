@@ -39,7 +39,7 @@ async function fetchAllFillsForSymbol(
   while (cursor < now) {
     const endTime = Math.min(cursor + WINDOW_MS, now)
 
-    const params = signSpotParams(
+    const params = await signSpotParams(
       { symbol, startTime: cursor, endTime, limit: 1000 },
       apiSecret
     )

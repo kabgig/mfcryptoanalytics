@@ -33,7 +33,7 @@ export async function fetchFuturesTrades(
   for (const window of windows) {
     let page = 1
     while (true) {
-      const params = signParams(
+      const params = await signParams(
         {
           incomeType: "REALIZED_PNL",
           startTime: window.startTime,

@@ -26,7 +26,7 @@ export async function fetchFuturesTrades(
       page_size: String(PAGE_SIZE),
     }
 
-    const { headers, queryString } = buildFuturesAuth(apiKey, apiSecret, params)
+    const { headers, queryString } = await buildFuturesAuth(apiKey, apiSecret, params)
 
     const res = await fetch(
       `${BASE_URL}/api/v1/private/position/list/history_positions?${queryString}`,

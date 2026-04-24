@@ -58,7 +58,7 @@ async function fetchAllFillsForSymbol(
       if (nextCursor) params.cursor = nextCursor
 
       const queryString = new URLSearchParams(params).toString()
-      const headers = buildAuthHeaders(queryString, apiKey, apiSecret)
+      const headers = await buildAuthHeaders(queryString, apiKey, apiSecret)
 
       const res = await fetch(
         `${BASE_URL}/v5/execution/list?${queryString}`,

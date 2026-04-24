@@ -33,7 +33,7 @@ export async function fetchFuturesTrades(
   const trades: Trade[] = []
 
   for (const window of windows) {
-    const query = buildSignedQuery(
+    const query = await buildSignedQuery(
       {
         incomeType: "REALIZED_PNL",
         startTime: String(window.startTime),

@@ -1,5 +1,6 @@
 import { ThemeToggle } from "./ThemeToggle"
 import { WalletButton } from "./WalletButton"
+import { ApiKeysModal } from "@/components/settings/ApiKeysModal"
 
 export function Navbar() {
   return (
@@ -10,6 +11,7 @@ export function Navbar() {
         </span>
 
         <div className="flex items-center gap-2">
+          <ApiKeysModal />
           <ThemeToggle />
           <WalletButton />
         </div>

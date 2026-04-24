@@ -1,4 +1,4 @@
-import { createHmac } from "crypto"
+import { hmacHex } from "@/lib/crypto/hmac"
 
 /**
  * Builds a signed query string for BingX API requests.
@@ -12,10 +12,10 @@ import { createHmac } from "crypto"
  *
  * The API key is sent in the X-BX-APIKEY header.
  */
-export function buildSignedQuery(
+export async function buildSignedQuery(
   params: Record<string, string>,
   apiSecret: string
-): string {
+): Promise<string> {
   const timestamp = Date.now().toString()
 
   const sorted = Object.keys(params)
@@ -25,9 +25,7 @@ export function buildSignedQuery(
 
   const queryWithTs = sorted ? `${sorted}&timestamp=${timestamp}` : `timestamp=${timestamp}`
 
-  const signature = createHmac("sha256", apiSecret)
-    .update(queryWithTs)
-    .digest("hex")
+  const signature = await hmacHex(apiSecret, queryWithTs)
 
   return `${queryWithTs}&signature=${signature}`
 }

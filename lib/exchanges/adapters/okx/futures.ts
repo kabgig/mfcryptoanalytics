@@ -29,7 +29,7 @@ export async function fetchFuturesTrades(
       }
       if (after) params.after = after
 
-      const { url, headers } = buildOKXRequest(
+      const { url, headers } = await buildOKXRequest(
         "GET",
         "/api/v5/account/positions-history",
         params,

@@ -1,12 +1,12 @@
-import { createHmac } from "crypto"
+import { hmacHex } from "@/lib/crypto/hmac"
 
 // ── Spot (v3) ─────────────────────────────────────────────────────────────────
 // Identical scheme to Binance: append timestamp, HMAC-SHA256 the full query
 // string, append &signature=<hex>. Header: X-MEXC-APIKEY.
-export function signSpotParams(
+export async function signSpotParams(
   params: Record<string, string | number>,
   secret: string
-): URLSearchParams {
+): Promise<URLSearchParams> {
   const query = new URLSearchParams({
     ...Object.fromEntries(
       Object.entries(params).map(([k, v]) => [k, String(v)])
@@ -14,9 +14,7 @@ export function signSpotParams(
     timestamp: Date.now().toString(),
   })
 
-  const signature = createHmac("sha256", secret)
-    .update(query.toString())
-    .digest("hex")
+  const signature = await hmacHex(secret, query.toString())
 
   query.set("signature", signature)
   return query
@@ -25,11 +23,11 @@ export function signSpotParams(
 // ── Futures (v1) ──────────────────────────────────────────────────────────────
 // Signature = HMAC-SHA256 of accessKey + timestamp + sortedQueryString.
 // Delivered in headers: ApiKey, Request-Time, Signature.
-export function buildFuturesAuth(
+export async function buildFuturesAuth(
   accessKey: string,
   secretKey: string,
   params: Record<string, string> = {}
-): { headers: Record<string, string>; queryString: string } {
+): Promise<{ headers: Record<string, string>; queryString: string }> {
   const timestamp = Date.now().toString()
   const queryString = Object.keys(params)
     .sort()
@@ -37,7 +35,7 @@ export function buildFuturesAuth(
     .join("&")
 
   const toSign = accessKey + timestamp + queryString
-  const signature = createHmac("sha256", secretKey).update(toSign).digest("hex")
+  const signature = await hmacHex(secretKey, toSign)
 
   return {
     headers: {

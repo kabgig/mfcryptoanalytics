@@ -16,24 +16,10 @@ export class MEXCAdapter implements ExchangeAdapter {
   private apiSecret: string
   private spotSymbols: string[]
 
-  constructor() {
-    const apiKey = process.env.MEXC_API_KEY
-    const apiSecret = process.env.MEXC_API_SECRET
-
-    if (!apiKey || !apiSecret) {
-      throw new Error(
-        "MEXCAdapter requires MEXC_API_KEY and MEXC_API_SECRET env vars."
-      )
-    }
-
+  constructor(apiKey: string, apiSecret: string, spotSymbols: string[] = []) {
     this.apiKey = apiKey
     this.apiSecret = apiSecret
-
-    const symbolsEnv = process.env.MEXC_SPOT_SYMBOLS ?? ""
-    this.spotSymbols = symbolsEnv
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
+    this.spotSymbols = spotSymbols
   }
 
   async fetchTrades(_walletAddress?: string): Promise<Trade[]> {

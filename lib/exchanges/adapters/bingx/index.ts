@@ -16,24 +16,10 @@ export class BingXAdapter implements ExchangeAdapter {
   private apiSecret: string
   private spotSymbols: string[]
 
-  constructor() {
-    const apiKey = process.env.BINGX_API_KEY
-    const apiSecret = process.env.BINGX_API_SECRET
-
-    if (!apiKey || !apiSecret) {
-      throw new Error(
-        "BingXAdapter requires BINGX_API_KEY and BINGX_API_SECRET env vars."
-      )
-    }
-
+  constructor(apiKey: string, apiSecret: string, spotSymbols: string[] = []) {
     this.apiKey = apiKey
     this.apiSecret = apiSecret
-
-    const symbolsEnv = process.env.BINGX_SPOT_SYMBOLS ?? ""
-    this.spotSymbols = symbolsEnv
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
+    this.spotSymbols = spotSymbols
   }
 
   async fetchTrades(_walletAddress?: string): Promise<Trade[]> {
