@@ -1,6 +1,7 @@
 import { registry } from "@/lib/exchanges"
 
 export const dynamic = "force-dynamic"
+export const preferredRegion = "sin1" // Singapore — avoids Binance/Bybit US geo-blocks
 
 export async function GET() {
   const encoder = new TextEncoder()
