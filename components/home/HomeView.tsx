@@ -112,14 +112,6 @@ export function HomeView() {
     <main className="flex-1 mx-auto w-full max-w-7xl px-4 sm:px-6 py-6 space-y-6">
       <StatsBar stats={stats} />
       <PnlChart chartData={stats.chartData} />
-      <TradesTable trades={trades} />
-      {loading && (
-        <p className="text-sm text-muted-foreground text-center animate-pulse">
-          {loadedExchanges.length === 0
-            ? 'Loading trades…'
-            : `Loaded: ${loadedExchanges.join(', ')} — fetching more…`}
-        </p>
-      )}
       {Object.entries(exchangeErrors).length > 0 && (
         <div className="text-xs text-destructive space-y-1 border border-destructive/30 rounded p-3 bg-destructive/5">
           <p className="font-semibold">Exchange errors:</p>
@@ -127,6 +119,14 @@ export function HomeView() {
             <p key={exchange}><span className="font-medium">{exchange}:</span> {err}</p>
           ))}
         </div>
+      )}
+      <TradesTable trades={trades} />
+      {loading && (
+        <p className="text-sm text-muted-foreground text-center animate-pulse">
+          {loadedExchanges.length === 0
+            ? 'Loading trades…'
+            : `Loaded: ${loadedExchanges.join(', ')} — fetching more…`}
+        </p>
       )}
     </main>
   )
