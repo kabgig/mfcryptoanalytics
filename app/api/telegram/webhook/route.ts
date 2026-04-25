@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql } from '@/lib/db'
+import { getSql } from '@/lib/db'
 import { sendMessage } from '@/lib/telegram/bot'
 import type { TelegramUpdate } from '@/lib/telegram/bot'
 
@@ -14,6 +14,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const telegramId = message.from.id
   const telegramName = message.from.first_name
 
+  const sql = getSql()
   await sql`
     INSERT INTO users (telegram_id, telegram_name)
     VALUES (${telegramId}, ${telegramName})

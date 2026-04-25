@@ -11,13 +11,3 @@ export function getSql(): ReturnType<typeof neon> {
   }
   return _sql
 }
-
-// Convenience re-export for existing callers that use `sql` directly
-export const sql: ReturnType<typeof neon> = new Proxy({} as ReturnType<typeof neon>, {
-  apply(_target, _thisArg, args) {
-    return (getSql() as unknown as (...a: unknown[]) => unknown)(...args)
-  },
-  get(_target, prop) {
-    return (getSql() as unknown as Record<string | symbol, unknown>)[prop]
-  },
-})
