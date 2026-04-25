@@ -47,7 +47,7 @@ export const useUserStore = create<UserStore>()(
       setTelegramUser: (telegramId, telegramName) => set((state) => ({ ...state, telegramId, telegramName })),
       setApiKeys: (keys) =>
         set((state) => ({ ...state, apiKeys: { ...state.apiKeys, ...keys } })),
-      clear: () => set(initialState),
+      clear: () => set((state) => ({ ...initialState, apiKeys: state.apiKeys })),
     }),
     { name: 'mfca-user-store' }
   )
