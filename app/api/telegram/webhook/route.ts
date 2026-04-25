@@ -24,7 +24,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
   const link = `${appUrl}/auth?id=${telegramId}&name=${encodeURIComponent(telegramName)}`
 
-  await sendMessage(message.chat.id, `Go to the app: ${link}\n\nIf the link doesn't work, copy and paste it manually into your browser.`)
+  await sendMessage(message.chat.id, `Go to the app: ${link}\n\nOn mobile, copy and paste it manually into your browser.`)
 
   return NextResponse.json({ ok: true })
 }
