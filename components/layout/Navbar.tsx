@@ -1,7 +1,6 @@
 import { ThemeToggle } from "./ThemeToggle"
 import { WalletButton } from "./WalletButton"
 import { ApiKeysModal } from "@/components/settings/ApiKeysModal"
-import { Button } from "@/components/ui/button"
 
 // Telegram SVG logo
 function TelegramIcon({ className }: { className?: string }) {
@@ -24,12 +23,15 @@ export function Navbar() {
           <ApiKeysModal />
           <ThemeToggle />
           {/* <WalletButton /> */}
-          <Button variant="outline" size="sm" className="gap-1.5" asChild>
-            <a href="https://t.me/mfcryptoanalyticsbot" target="_blank" rel="noopener noreferrer">
-              <TelegramIcon className="h-4 w-4 text-[#2AABEE]" />
-              Login
-            </a>
-          </Button>
+          <a
+            href="https://t.me/mfcryptoanalyticsbot"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground"
+          >
+            <TelegramIcon className="h-4 w-4 text-[#2AABEE]" />
+            Login
+          </a>
         </div>
       </div>
     </header>
