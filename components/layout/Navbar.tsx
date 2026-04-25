@@ -24,9 +24,11 @@ export function Navbar() {
           <ApiKeysModal />
           <ThemeToggle />
           {/* <WalletButton /> */}
-          <Button variant="outline" size="sm" className="gap-1.5">
-            <TelegramIcon className="h-4 w-4 text-[#2AABEE]" />
-            Login
+          <Button variant="outline" size="sm" className="gap-1.5" asChild>
+            <a href="https://t.me/mfcryptoanalyticsbot" target="_blank" rel="noopener noreferrer">
+              <TelegramIcon className="h-4 w-4 text-[#2AABEE]" />
+              Login
+            </a>
           </Button>
         </div>
       </div>

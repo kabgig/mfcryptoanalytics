@@ -7,6 +7,7 @@ import { StatsBar } from '@/components/dashboard/StatsBar'
 import { PnlChart } from '@/components/dashboard/PnlChart'
 import { TradesTable } from '@/components/dashboard/TradesTable'
 import { computeStats } from '@/lib/services/statsService'
+import { LandingPage } from '@/components/home/LandingPage'
 import type { Trade } from '@/types'
 
 async function fetchViaProxy(
@@ -25,7 +26,10 @@ async function fetchViaProxy(
 }
 
 export function HomeView() {
+  const telegramId = useUserStore((s) => s.telegramId)
   const apiKeys = useUserStore((s) => s.apiKeys)
+
+  if (!telegramId) return <LandingPage />
   const [trades, setTrades] = useState<Trade[]>([])
   const [loadedExchanges, setLoadedExchanges] = useState<string[]>([])
   const [exchangeErrors, setExchangeErrors] = useState<Record<string, string>>({})

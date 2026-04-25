@@ -5,11 +5,14 @@ import { ClientApiKeys } from '@/lib/exchanges/client'
 interface UserState {
   userId: string | null
   walletAddress: string | null
+  telegramId: string | null
+  telegramName: string | null
   apiKeys: ClientApiKeys
 }
 
 interface UserStore extends UserState {
   setUser: (data: Partial<UserState>) => void
+  setTelegramUser: (telegramId: string, telegramName: string) => void
   setApiKeys: (keys: Partial<ClientApiKeys>) => void
   clear: () => void
 }
@@ -31,6 +34,8 @@ const emptyKeys: ClientApiKeys = {
 const initialState: UserState = {
   userId: null,
   walletAddress: null,
+  telegramId: null,
+  telegramName: null,
   apiKeys: emptyKeys,
 }
 
@@ -39,6 +44,7 @@ export const useUserStore = create<UserStore>()(
     (set) => ({
       ...initialState,
       setUser: (data) => set((state) => ({ ...state, ...data })),
+      setTelegramUser: (telegramId, telegramName) => set((state) => ({ ...state, telegramId, telegramName })),
       setApiKeys: (keys) =>
         set((state) => ({ ...state, apiKeys: { ...state.apiKeys, ...keys } })),
       clear: () => set(initialState),
