@@ -17,13 +17,27 @@ export interface TelegramUpdate {
   message?: TelegramMessage
 }
 
-export async function sendMessage(chatId: number, text: string): Promise<void> {
+interface InlineKeyboardButton {
+  text: string
+  url?: string
+}
+
+export async function sendMessage(
+  chatId: number,
+  text: string,
+  inlineKeyboard?: InlineKeyboardButton[][],
+): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN
   if (!token) return
+
+  const body: Record<string, unknown> = { chat_id: chatId, text }
+  if (inlineKeyboard) {
+    body.reply_markup = { inline_keyboard: inlineKeyboard }
+  }
 
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text }),
+    body: JSON.stringify(body),
   })
 }

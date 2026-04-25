@@ -24,7 +24,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
   const link = `${appUrl}/auth?id=${telegramId}&name=${encodeURIComponent(telegramName)}`
 
-  await sendMessage(message.chat.id, `Go to the app: ${link}`)
+  await sendMessage(
+    message.chat.id,
+    `Hi ${telegramName}! Tap the button below to open MF Crypto Analytics.\n\n⚠️ If it opens inside Telegram, tap ··· (top-right) → Open in browser — so your saved API keys are available.`,
+    [[{ text: '🚀 Open MF Crypto Analytics', url: link }]],
+  )
 
   return NextResponse.json({ ok: true })
 }
