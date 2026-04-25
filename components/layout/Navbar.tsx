@@ -13,7 +13,7 @@ export function Navbar() {
         <div className="flex items-center gap-2">
           <ApiKeysModal />
           <ThemeToggle />
-          <WalletButton />
+          {/* <WalletButton /> */}
         </div>
       </div>
     </header>

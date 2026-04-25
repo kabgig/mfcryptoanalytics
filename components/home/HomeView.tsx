@@ -6,7 +6,6 @@ import { buildClientRegistry } from '@/lib/exchanges/client'
 import { StatsBar } from '@/components/dashboard/StatsBar'
 import { PnlChart } from '@/components/dashboard/PnlChart'
 import { TradesTable } from '@/components/dashboard/TradesTable'
-import { LandingPage } from '@/components/home/LandingPage'
 import { computeStats } from '@/lib/services/statsService'
 import type { Trade } from '@/types'
 
@@ -26,7 +25,6 @@ async function fetchViaProxy(
 }
 
 export function HomeView() {
-  const walletAddress = useUserStore((s) => s.walletAddress)
   const apiKeys = useUserStore((s) => s.apiKeys)
   const [trades, setTrades] = useState<Trade[]>([])
   const [loadedExchanges, setLoadedExchanges] = useState<string[]>([])
@@ -34,8 +32,6 @@ export function HomeView() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!walletAddress) return
-
     // Client-side adapters (Binance, Bybit, OKX — support browser CORS)
     const clientAdapters = buildClientRegistry({
       ...apiKeys,
@@ -102,9 +98,7 @@ export function HomeView() {
 
     fetchAll()
     return () => { cancelled = true }
-  }, [walletAddress, apiKeys])
-
-  if (!walletAddress) return <LandingPage />
+  }, [apiKeys])
 
   const stats = computeStats(trades)
 
