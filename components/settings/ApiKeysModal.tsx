@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Settings, X } from 'lucide-react'
+import { Settings, X, Eye, EyeOff } from 'lucide-react'
 import { useUserStore } from '@/lib/store/userStore'
 import { ClientApiKeys } from '@/lib/exchanges/client'
 
@@ -53,6 +53,7 @@ export function ApiKeysModal() {
   const [open, setOpen] = useState(false)
   const { apiKeys, setApiKeys } = useUserStore()
   const [draft, setDraft] = useState<ClientApiKeys>(apiKeys)
+  const [revealed, setRevealed] = useState<Partial<Record<keyof ClientApiKeys, boolean>>>({})
 
   function handleOpen() {
     setDraft(apiKeys)
@@ -60,7 +61,10 @@ export function ApiKeysModal() {
   }
 
   function handleSave() {
-    setApiKeys(draft)
+    const trimmed = Object.fromEntries(
+      Object.entries(draft).map(([k, v]) => [k, v.trim()])
+    ) as ClientApiKeys
+    setApiKeys(trimmed)
     setOpen(false)
   }
 
@@ -110,16 +114,28 @@ export function ApiKeysModal() {
                     <label className="text-xs text-muted-foreground block mb-1">
                       {field.label}
                     </label>
-                    <input
-                      type="password"
-                      autoComplete="off"
-                      value={draft[field.key]}
-                      onChange={(e) =>
-                        setDraft((prev) => ({ ...prev, [field.key]: e.target.value }))
-                      }
-                      placeholder={field.placeholder}
-                      className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
-                    />
+                    <div className="relative">
+                      <input
+                        type={revealed[field.key] ? 'text' : 'password'}
+                        autoComplete="off"
+                        value={draft[field.key]}
+                        onChange={(e) =>
+                          setDraft((prev) => ({ ...prev, [field.key]: e.target.value }))
+                        }
+                        placeholder={field.placeholder}
+                        className="w-full rounded-md border border-input bg-background px-3 py-1.5 pr-9 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setRevealed((prev) => ({ ...prev, [field.key]: !prev[field.key] }))}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        tabIndex={-1}
+                      >
+                        {revealed[field.key]
+                          ? <EyeOff className="h-3.5 w-3.5" />
+                          : <Eye className="h-3.5 w-3.5" />}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
