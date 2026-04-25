@@ -56,6 +56,18 @@ export async function fetchFuturesTrades(
     const data: BingXIncomeResponse = await res.json()
 
     if (data.code !== 0) {
+      if (data.code === 100410) {
+        // Rate-limit ban — extract unblock timestamp from the message if present
+        const tsMatch = /after\s+(\d{10,})/i.exec(data.msg ?? '')
+        if (tsMatch) {
+          const unblockMs = Number(tsMatch[1])
+          // BingX returns ms if > 1e12, otherwise seconds
+          const unblockDate = new Date(unblockMs > 1e12 ? unblockMs : unblockMs * 1000)
+          const formatted = unblockDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          throw new Error(`BingX rate limit active — try again after ${formatted}`)
+        }
+        throw new Error('BingX rate limit active — please wait a few minutes and try again')
+      }
       throw new Error(`BingX user/income API error ${data.code}: ${data.msg}`)
     }
 
