@@ -102,7 +102,15 @@ export function HomeView() {
 
     fetchAll()
     return () => { cancelled = true }
-  }, [apiKeys, telegramId])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    telegramId,
+    apiKeys.binanceApiKey, apiKeys.binanceApiSecret,
+    apiKeys.bybitApiKey, apiKeys.bybitApiSecret,
+    apiKeys.bingxApiKey, apiKeys.bingxApiSecret,
+    apiKeys.mexcApiKey, apiKeys.mexcApiSecret,
+    apiKeys.okxApiKey, apiKeys.okxApiSecret, apiKeys.okxPassphrase,
+  ])
 
   const stats = computeStats(trades)
 
