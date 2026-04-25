@@ -1,6 +1,9 @@
+'use client'
+
 import { ThemeToggle } from "./ThemeToggle"
-import { WalletButton } from "./WalletButton"
 import { ApiKeysModal } from "@/components/settings/ApiKeysModal"
+import { useUserStore } from "@/lib/store/userStore"
+import { LogOut } from "lucide-react"
 
 // Telegram SVG logo
 function TelegramIcon({ className }: { className?: string }) {
@@ -12,6 +15,10 @@ function TelegramIcon({ className }: { className?: string }) {
 }
 
 export function Navbar() {
+  const telegramId = useUserStore((s) => s.telegramId)
+  const telegramName = useUserStore((s) => s.telegramName)
+  const clear = useUserStore((s) => s.clear)
+
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/30 bg-background/90 backdrop-blur-sm">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
@@ -20,18 +27,33 @@ export function Navbar() {
         </span>
 
         <div className="flex items-center gap-2">
-          <ApiKeysModal />
           <ThemeToggle />
-          {/* <WalletButton /> */}
-          <a
-            href="https://t.me/mfcryptoanalyticsbot"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground"
-          >
-            <TelegramIcon className="h-4 w-4 text-[#2AABEE]" />
-            Login
-          </a>
+          {telegramId ? (
+            <>
+              <ApiKeysModal />
+              <span className="hidden text-sm text-muted-foreground sm:inline">
+                {telegramName}
+              </span>
+              <button
+                onClick={clear}
+                className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground"
+                title="Logout"
+              >
+                <LogOut className="h-4 w-4" />
+                Logout
+              </button>
+            </>
+          ) : (
+            <a
+              href="https://t.me/mfcryptoanalyticsbot"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground"
+            >
+              <TelegramIcon className="h-4 w-4 text-[#2AABEE]" />
+              Login
+            </a>
+          )}
         </div>
       </div>
     </header>

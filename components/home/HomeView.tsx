@@ -29,13 +29,13 @@ export function HomeView() {
   const telegramId = useUserStore((s) => s.telegramId)
   const apiKeys = useUserStore((s) => s.apiKeys)
 
-  if (!telegramId) return <LandingPage />
   const [trades, setTrades] = useState<Trade[]>([])
   const [loadedExchanges, setLoadedExchanges] = useState<string[]>([])
   const [exchangeErrors, setExchangeErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
+    if (!telegramId) return
     // Client-side adapters (Binance, Bybit, OKX — support browser CORS)
     const clientAdapters = buildClientRegistry({
       ...apiKeys,
@@ -102,9 +102,11 @@ export function HomeView() {
 
     fetchAll()
     return () => { cancelled = true }
-  }, [apiKeys])
+  }, [apiKeys, telegramId])
 
   const stats = computeStats(trades)
+
+  if (!telegramId) return <LandingPage />
 
   return (
     <main className="flex-1 mx-auto w-full max-w-7xl px-4 sm:px-6 py-6 space-y-6">
