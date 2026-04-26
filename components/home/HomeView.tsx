@@ -1,35 +1,52 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useUserStore } from '@/lib/store/userStore'
-import { buildClientRegistry } from '@/lib/exchanges/client'
 import { StatsBar } from '@/components/dashboard/StatsBar'
 import { PnlChart } from '@/components/dashboard/PnlChart'
 import { TradesTable } from '@/components/dashboard/TradesTable'
 import { computeStats } from '@/lib/services/statsService'
 import { fetchAllBalances, type BalanceResult } from '@/lib/services/balanceService'
 import { LandingPage } from '@/components/home/LandingPage'
+import { RefreshCw } from 'lucide-react'
 import type { Trade } from '@/types'
 
 const PERIODS = [
-  { label: '3m', days: 90 },
-  { label: '1m', days: 30 },
-  { label: '2w', days: 14 },
-  { label: '1w', days: 7 },
-  { label: '1d', days: 1 },
+  { label: '1d',  days: 1 },
+  { label: '1w',  days: 7 },
+  { label: '2w',  days: 14 },
+  { label: '1m',  days: 30 },
+  { label: '3m',  days: 90 },
+  { label: '6m',  days: 180 },
+  { label: '1y',  days: 365 },
+  { label: '2y',  days: 730 },
 ] as const
 
 type PeriodLabel = typeof PERIODS[number]['label']
 
-async function fetchViaProxy(
-  exchange: string,
-  apiKey: string,
+interface ExchangeConfig {
+  name: string
+  apiKey: string
   apiSecret: string
+  passphrase?: string
+}
+
+async function fetchExchangeTrades(
+  telegramId: string,
+  cfg: ExchangeConfig,
+  force: boolean
 ): Promise<Trade[]> {
-  const res = await fetch('/api/proxy', {
+  const res = await fetch('/api/trades', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ exchange, apiKey, apiSecret }),
+    body: JSON.stringify({
+      telegramId,
+      exchange: cfg.name,
+      apiKey: cfg.apiKey,
+      apiSecret: cfg.apiSecret,
+      passphrase: cfg.passphrase ?? '',
+      force,
+    }),
   })
   const data = await res.json()
   if (data.error) throw new Error(data.error)
@@ -48,26 +65,32 @@ export function HomeView() {
   const [balanceLoading, setBalanceLoading] = useState(false)
   const [period, setPeriod] = useState<PeriodLabel>('3m')
 
-  useEffect(() => {
-    if (!telegramId) return
-    // Client-side adapters (Binance, Bybit, OKX — support browser CORS)
-    const clientAdapters = buildClientRegistry({
-      ...apiKeys,
-      // Zero out the CORS-blocked exchanges so they don't appear in clientAdapters
-      bingxApiKey: '',
-      bingxApiSecret: '',
-      mexcApiKey: '',
-      mexcApiSecret: '',
-    })
-
-    // Proxied exchanges (BingX, MEXC — no browser CORS support)
-    const proxied: Array<{ name: string; apiKey: string; apiSecret: string }> = []
+  const buildExchangeConfigs = useCallback((): ExchangeConfig[] => {
+    const configs: ExchangeConfig[] = []
+    if (apiKeys.binanceApiKey && apiKeys.binanceApiSecret)
+      configs.push({ name: 'Binance', apiKey: apiKeys.binanceApiKey, apiSecret: apiKeys.binanceApiSecret })
+    if (apiKeys.bybitApiKey && apiKeys.bybitApiSecret)
+      configs.push({ name: 'Bybit', apiKey: apiKeys.bybitApiKey, apiSecret: apiKeys.bybitApiSecret })
+    if (apiKeys.okxApiKey && apiKeys.okxApiSecret && apiKeys.okxPassphrase)
+      configs.push({ name: 'OKX', apiKey: apiKeys.okxApiKey, apiSecret: apiKeys.okxApiSecret, passphrase: apiKeys.okxPassphrase })
     if (apiKeys.bingxApiKey && apiKeys.bingxApiSecret)
-      proxied.push({ name: 'BingX', apiKey: apiKeys.bingxApiKey, apiSecret: apiKeys.bingxApiSecret })
+      configs.push({ name: 'BingX', apiKey: apiKeys.bingxApiKey, apiSecret: apiKeys.bingxApiSecret })
     if (apiKeys.mexcApiKey && apiKeys.mexcApiSecret)
-      proxied.push({ name: 'MEXC', apiKey: apiKeys.mexcApiKey, apiSecret: apiKeys.mexcApiSecret })
+      configs.push({ name: 'MEXC', apiKey: apiKeys.mexcApiKey, apiSecret: apiKeys.mexcApiSecret })
+    return configs
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    apiKeys.binanceApiKey, apiKeys.binanceApiSecret,
+    apiKeys.bybitApiKey, apiKeys.bybitApiSecret,
+    apiKeys.okxApiKey, apiKeys.okxApiSecret, apiKeys.okxPassphrase,
+    apiKeys.bingxApiKey, apiKeys.bingxApiSecret,
+    apiKeys.mexcApiKey, apiKeys.mexcApiSecret,
+  ])
 
-    if (clientAdapters.length === 0 && proxied.length === 0) return
+  const runFetch = useCallback((force: boolean) => {
+    if (!telegramId) return
+    const configs = buildExchangeConfigs()
+    if (configs.length === 0) return
 
     let cancelled = false
     setTrades([])
@@ -84,41 +107,27 @@ export function HomeView() {
       setLoadedExchanges((prev) => [...prev, name])
     }
 
-    async function fetchAll() {
-      // Run client-side and proxied fetches concurrently
-      const clientPromises = clientAdapters.map(async (adapter) => {
+    Promise.all(
+      configs.map(async (cfg) => {
         try {
-          const newTrades = await adapter.fetchTrades()
-          if (!cancelled) addTrades(newTrades, adapter.name)
+          const newTrades = await fetchExchangeTrades(telegramId, cfg, force)
+          if (!cancelled) addTrades(newTrades, cfg.name)
         } catch (err) {
           if (!cancelled) {
-            setExchangeErrors((prev) => ({ ...prev, [adapter.name]: String(err) }))
-            setLoadedExchanges((prev) => [...prev, adapter.name])
+            setExchangeErrors((prev) => ({ ...prev, [cfg.name]: String(err) }))
+            setLoadedExchanges((prev) => [...prev, cfg.name])
           }
         }
       })
+    ).then(() => { if (!cancelled) setLoading(false) })
 
-      const proxyPromises = proxied.map(async ({ name, apiKey, apiSecret }) => {
-        try {
-          const newTrades = await fetchViaProxy(name, apiKey, apiSecret)
-          if (!cancelled) addTrades(newTrades, name)
-        } catch (err) {
-          if (!cancelled) {
-            setExchangeErrors((prev) => ({ ...prev, [name]: String(err) }))
-            setLoadedExchanges((prev) => [...prev, name])
-          }
-        }
-      })
-
-      await Promise.all([...clientPromises, ...proxyPromises])
-      if (!cancelled) setLoading(false)
-    }
-
-    fetchAll()
     return () => { cancelled = true }
+  }, [telegramId, buildExchangeConfigs])
+
+  useEffect(() => {
+    return runFetch(false) ?? undefined
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    telegramId,
+  }, [telegramId,
     apiKeys.binanceApiKey, apiKeys.binanceApiSecret,
     apiKeys.bybitApiKey, apiKeys.bybitApiSecret,
     apiKeys.bingxApiKey, apiKeys.bingxApiSecret,
@@ -185,7 +194,14 @@ export function HomeView() {
             </span>
           </div>
         ) : (
-          <div />
+          <button
+            onClick={() => runFetch(true)}
+            disabled={loading}
+            className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </button>
         )}
         <div className="flex items-center gap-1 rounded-lg border bg-muted/40 p-1">
           {PERIODS.map(({ label }) => (
