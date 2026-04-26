@@ -8,7 +8,7 @@ import { TradesTable } from '@/components/dashboard/TradesTable'
 import { computeStats } from '@/lib/services/statsService'
 import { fetchAllBalances, type BalanceResult } from '@/lib/services/balanceService'
 import { LandingPage } from '@/components/home/LandingPage'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, TriangleAlert } from 'lucide-react'
 import type { Trade } from '@/types'
 
 const PERIODS = [
@@ -175,11 +175,20 @@ export function HomeView() {
   }, [trades, period])
 
   const stats = computeStats(filteredTrades)
+  const hasAnyKey = buildExchangeConfigs().length > 0
 
   if (!telegramId) return <LandingPage />
 
   return (
     <main className="flex-1 mx-auto w-full max-w-7xl px-4 sm:px-6 py-6 space-y-6">
+      {!hasAnyKey && (
+        <div className="flex items-center gap-3 rounded-lg border border-yellow-400/50 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-700 dark:text-yellow-300">
+          <TriangleAlert className="h-4 w-4 shrink-0" />
+          <span>
+            No exchange API keys configured. Open <strong>Settings</strong> and add at least one exchange to start tracking your trades.
+          </span>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         {loading ? (
           <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-2 text-sm text-amber-600 dark:text-amber-400">
