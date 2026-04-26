@@ -35,7 +35,7 @@ export function PnlChart({ chartData }: PnlChartProps) {
         <CardTitle className="text-base">Cumulative PnL Over Time</CardTitle>
       </CardHeader>
       <CardContent>
-        <ChartContainer config={chartConfig} className="h-72 w-full">
+        <ChartContainer config={chartConfig} className="h-[230px] sm:h-72 w-full">
           <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="pnlGradient" x1="0" y1="0" x2="0" y2="1">

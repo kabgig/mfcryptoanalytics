@@ -36,13 +36,13 @@ export function TradesTable({ trades }: TradesTableProps) {
         <CardTitle className="text-base">Trade History</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto pl-2">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Exchange</TableHead>
-                <TableHead>Ticker</TableHead>
                 <TableHead className="text-right">PnL</TableHead>
+                <TableHead>Ticker</TableHead>
+                <TableHead>Exchange</TableHead>
                 <TableHead className="text-right">Position Size</TableHead>
                 <TableHead className="text-right">TP</TableHead>
                 <TableHead className="text-right">SL</TableHead>
@@ -62,14 +62,6 @@ export function TradesTable({ trades }: TradesTableProps) {
                         : "bg-red-500/5 hover:bg-red-500/10"
                     }
                   >
-                    <TableCell>
-                      <Badge variant="secondary" className="text-xs">
-                        {trade.exchange}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-mono font-medium">
-                      {trade.ticker}
-                    </TableCell>
                     <TableCell
                       className={`text-right font-mono font-semibold ${
                         isProfit ? "text-emerald-500" : "text-red-500"
@@ -80,6 +72,14 @@ export function TradesTable({ trades }: TradesTableProps) {
                         style: "currency",
                         currency: "USD",
                       })}
+                    </TableCell>
+                    <TableCell className="font-mono font-medium">
+                      {trade.ticker}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" className="text-xs">
+                        {trade.exchange}
+                      </Badge>
                     </TableCell>
                     <TableCell className="text-right font-mono">
                       {trade.positionSize === 0 ? "—" : trade.positionSize.toLocaleString("en-US")}

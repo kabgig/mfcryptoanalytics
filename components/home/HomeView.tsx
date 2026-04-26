@@ -212,7 +212,25 @@ export function HomeView() {
             Refresh
           </button>
         )}
-        <div className="flex items-center gap-1 rounded-lg border bg-muted/40 p-1">
+        {/* Mobile: dropdown */}
+        <div className="relative sm:hidden overflow-hidden">
+          <select
+            value={period}
+            onChange={(e) => setPeriod(e.target.value as PeriodLabel)}
+            className="appearance-none rounded-lg border bg-muted/40 pl-2 pr-7 py-1.5 text-sm font-medium text-foreground focus:outline-none"
+          >
+            {PERIODS.map(({ label }) => (
+              <option key={label} value={label}>{label}</option>
+            ))}
+          </select>
+          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center">
+            <svg className="h-3.5 w-3.5 text-muted-foreground" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+        </div>
+        {/* Desktop: pill group */}
+        <div className="hidden sm:flex items-center gap-1 rounded-lg border bg-muted/40 p-1">
           {PERIODS.map(({ label }) => (
             <button
               key={label}
