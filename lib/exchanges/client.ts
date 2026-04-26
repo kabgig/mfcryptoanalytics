@@ -4,6 +4,8 @@ import { BybitAdapter } from "./adapters/bybit"
 import { BingXAdapter } from "./adapters/bingx"
 import { MEXCAdapter } from "./adapters/mexc"
 import { OKXAdapter } from "./adapters/okx"
+import { BitunixAdapter } from "./adapters/bitunix"
+import { BYDFiAdapter } from "./adapters/bydfi"
 
 export interface ClientApiKeys {
   binanceApiKey: string
@@ -17,6 +19,10 @@ export interface ClientApiKeys {
   okxApiKey: string
   okxApiSecret: string
   okxPassphrase: string
+  bitunixApiKey: string
+  bitunixApiSecret: string
+  bydfiApiKey: string
+  bydfiApiSecret: string
 }
 
 /** Builds an exchange adapter registry from keys stored client-side (e.g. localStorage). */
@@ -37,6 +43,12 @@ export function buildClientRegistry(keys: ClientApiKeys): ExchangeAdapter[] {
 
   if (keys.okxApiKey && keys.okxApiSecret && keys.okxPassphrase)
     adapters.push(new OKXAdapter(keys.okxApiKey, keys.okxApiSecret, keys.okxPassphrase))
+
+  if (keys.bitunixApiKey && keys.bitunixApiSecret)
+    adapters.push(new BitunixAdapter(keys.bitunixApiKey, keys.bitunixApiSecret))
+
+  if (keys.bydfiApiKey && keys.bydfiApiSecret)
+    adapters.push(new BYDFiAdapter(keys.bydfiApiKey, keys.bydfiApiSecret))
 
   return adapters
 }

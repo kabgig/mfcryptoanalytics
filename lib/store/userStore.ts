@@ -29,6 +29,10 @@ const emptyKeys: ClientApiKeys = {
   okxApiKey: '',
   okxApiSecret: '',
   okxPassphrase: '',
+  bitunixApiKey: '',
+  bitunixApiSecret: '',
+  bydfiApiKey: '',
+  bydfiApiSecret: '',
 }
 
 const initialState: UserState = {

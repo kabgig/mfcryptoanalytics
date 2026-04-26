@@ -47,6 +47,20 @@ const EXCHANGES: ExchangeSection[] = [
       { key: 'okxPassphrase', label: 'Passphrase', placeholder: 'OKX passphrase' },
     ],
   },
+  {
+    label: 'Bitunix',
+    fields: [
+      { key: 'bitunixApiKey', label: 'API Key', placeholder: 'Bitunix API key' },
+      { key: 'bitunixApiSecret', label: 'API Secret', placeholder: 'Bitunix API secret' },
+    ],
+  },
+  {
+    label: 'BYDFi',
+    fields: [
+      { key: 'bydfiApiKey', label: 'API Key', placeholder: 'BYDFi API key' },
+      { key: 'bydfiApiSecret', label: 'API Secret', placeholder: 'BYDFi API secret' },
+    ],
+  },
 ]
 
 export function ApiKeysModal() {
