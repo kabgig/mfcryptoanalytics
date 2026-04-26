@@ -49,6 +49,10 @@ export async function fetchFuturesTrades(
     const { positionList, total } = data.data
 
     for (const r of positionList) {
+      const openDate = r.ctime ? new Date(Number(r.ctime)) : null
+      const closeDate = r.mtime ? new Date(Number(r.mtime)) : null
+      if (!openDate || isNaN(openDate.getTime()) || !closeDate || isNaN(closeDate.getTime())) continue
+
       allTrades.push({
         id: `bitunix-futures-${r.positionId}`,
         exchange: "Bitunix",
@@ -56,8 +60,8 @@ export async function fetchFuturesTrades(
         positionSize: parseFloat(r.maxQty),
         tp: null,
         sl: null,
-        openTime: new Date(r.ctime).toISOString(),
-        closeTime: new Date(r.mtime).toISOString(),
+        openTime: openDate.toISOString(),
+        closeTime: closeDate.toISOString(),
         pnl: parseFloat(r.realizedPNL),
         market: "futures" as const,
       })

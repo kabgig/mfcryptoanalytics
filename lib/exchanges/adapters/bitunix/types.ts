@@ -13,8 +13,8 @@ export interface BitunixPositionRecord {
   funding: string      // funding fees
   realizedPNL: string  // realized PnL (excluding funding and fee)
   liqPrice: string
-  ctime: number        // position open timestamp ms
-  mtime: number        // position close timestamp ms
+  ctime: string | number  // position open timestamp ms (API returns as string)
+  mtime: string | number  // position close timestamp ms (API returns as string)
 }
 
 export interface BitunixPositionHistoryResponse {

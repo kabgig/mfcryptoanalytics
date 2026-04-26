@@ -82,6 +82,10 @@ export function HomeView() {
       configs.push({ name: 'BingX', apiKey: apiKeys.bingxApiKey, apiSecret: apiKeys.bingxApiSecret })
     if (apiKeys.mexcApiKey && apiKeys.mexcApiSecret)
       configs.push({ name: 'MEXC', apiKey: apiKeys.mexcApiKey, apiSecret: apiKeys.mexcApiSecret })
+    if (apiKeys.bitunixApiKey && apiKeys.bitunixApiSecret)
+      configs.push({ name: 'Bitunix', apiKey: apiKeys.bitunixApiKey, apiSecret: apiKeys.bitunixApiSecret })
+    if (apiKeys.bydfiApiKey && apiKeys.bydfiApiSecret)
+      configs.push({ name: 'BYDFi', apiKey: apiKeys.bydfiApiKey, apiSecret: apiKeys.bydfiApiSecret })
     return configs
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -90,6 +94,8 @@ export function HomeView() {
     apiKeys.okxApiKey, apiKeys.okxApiSecret, apiKeys.okxPassphrase,
     apiKeys.bingxApiKey, apiKeys.bingxApiSecret,
     apiKeys.mexcApiKey, apiKeys.mexcApiSecret,
+    apiKeys.bitunixApiKey, apiKeys.bitunixApiSecret,
+    apiKeys.bydfiApiKey, apiKeys.bydfiApiSecret,
   ])
 
   const runFetch = useCallback((force: boolean) => {
@@ -138,6 +144,8 @@ export function HomeView() {
     apiKeys.bingxApiKey, apiKeys.bingxApiSecret,
     apiKeys.mexcApiKey, apiKeys.mexcApiSecret,
     apiKeys.okxApiKey, apiKeys.okxApiSecret, apiKeys.okxPassphrase,
+    apiKeys.bitunixApiKey, apiKeys.bitunixApiSecret,
+    apiKeys.bydfiApiKey, apiKeys.bydfiApiSecret,
   ])
 
   useEffect(() => {
