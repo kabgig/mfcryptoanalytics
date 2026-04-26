@@ -50,6 +50,7 @@ async function fetchExchangeTrades(
   })
   const data = await res.json()
   if (data.error) throw new Error(data.error)
+  console.log(`[HomeView] ${cfg.name} fromCache=${data.fromCache} trades=${data.trades?.length}`)
   return data.trades as Trade[]
 }
 

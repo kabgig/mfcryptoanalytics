@@ -1,36 +1,8 @@
 import { getSql } from "@/lib/db"
 import type { Trade } from "@/types"
 
-const CACHE_TTL_HOURS = 24
-
-/**
- * Returns true if the exchange has a fresh cache entry (within TTL).
- */
-export async function isCacheFresh(telegramId: string, exchange: string): Promise<boolean> {
-  const sql = getSql()
-  const rows = await sql`
-    SELECT fetched_at FROM exchange_fetch_log
-    WHERE telegram_id = ${BigInt(telegramId)}
-      AND exchange = ${exchange}
-      AND fetched_at > NOW() - INTERVAL '24 hours'
-    LIMIT 1
-  ` as Record<string, unknown>[]
-  return rows.length > 0
-}
-
-/**
- * Reads cached trades for a user+exchange from the DB.
- */
-export async function getCachedTrades(telegramId: string, exchange: string): Promise<Trade[]> {
-  const sql = getSql()
-  const rows = await sql`
-    SELECT id, exchange, ticker, position_size, tp, sl, open_time, close_time, pnl, market
-    FROM cached_trades
-    WHERE telegram_id = ${BigInt(telegramId)}
-      AND exchange = ${exchange}
-    ORDER BY close_time DESC
-  ` as Record<string, unknown>[]
-  return rows.map((r) => ({
+function rowToTrade(r: Record<string, unknown>): Trade {
+  return {
     id: r.id as string,
     exchange: r.exchange as string,
     ticker: r.ticker as string,
@@ -41,7 +13,55 @@ export async function getCachedTrades(telegramId: string, exchange: string): Pro
     closeTime: (r.close_time as Date).toISOString(),
     pnl: Number(r.pnl),
     market: r.market as Trade["market"],
-  }))
+  }
+}
+
+/**
+ * Single-query: checks freshness AND returns cached trades together.
+ * Returns { fresh: true, trades } if cache is valid, or { fresh: false } if not.
+ */
+export async function getIfFresh(
+  telegramId: string,
+  exchange: string
+): Promise<{ fresh: true; trades: Trade[] } | { fresh: false }> {
+  const sql = getSql()
+  // LEFT JOIN: if efl row exists & is fresh, ct rows are returned (even if 0 trades stored).
+  // If efl row missing or stale, 0 rows returned.
+  const rows = await sql`
+    SELECT ct.id, ct.exchange, ct.ticker, ct.position_size, ct.tp, ct.sl,
+           ct.open_time, ct.close_time, ct.pnl, ct.market,
+           efl.fetched_at
+    FROM exchange_fetch_log efl
+    LEFT JOIN cached_trades ct
+      ON ct.telegram_id = efl.telegram_id
+     AND ct.exchange    = efl.exchange
+    WHERE efl.telegram_id = ${BigInt(telegramId)}
+      AND efl.exchange    = ${exchange}
+      AND efl.fetched_at  > NOW() - INTERVAL '24 hours'
+    ORDER BY ct.close_time DESC
+  ` as Record<string, unknown>[]
+
+  if (rows.length === 0) return { fresh: false }
+
+  // Filter out the sentinel NULL row (fresh log but 0 trades)
+  const trades = rows.filter((r) => r.id != null).map(rowToTrade)
+  return { fresh: true, trades }
+}
+
+/**
+ * @deprecated Use getIfFresh instead
+ */
+export async function isCacheFresh(telegramId: string, exchange: string): Promise<boolean> {
+  const result = await getIfFresh(telegramId, exchange)
+  return result.fresh
+}
+
+/**
+ * @deprecated Use getIfFresh instead
+ */
+export async function getCachedTrades(telegramId: string, exchange: string): Promise<Trade[]> {
+  const result = await getIfFresh(telegramId, exchange)
+  return result.fresh ? result.trades : []
 }
 
 /**

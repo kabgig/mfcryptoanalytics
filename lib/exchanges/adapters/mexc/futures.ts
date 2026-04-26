@@ -2,7 +2,7 @@ import { Trade } from "@/types"
 import { buildFuturesAuth } from "./auth"
 import { MEXCFuturesPositionPage, MEXCHistoryPosition } from "./types"
 
-const BASE_URL = "https://api.mexc.com"
+const BASE_URL = "https://contract.mexc.com"
 const PAGE_SIZE = 100
 const DELAY_MS = 200
 

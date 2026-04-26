@@ -14,11 +14,11 @@ export interface BalanceResult {
   errors: Record<string, string>
 }
 
-async function fetchViaProxy(exchange: string, apiKey: string, apiSecret: string): Promise<number> {
-  const res = await fetch("/api/proxy", {
+async function fetchViaBalanceRoute(exchange: string, apiKey: string, apiSecret: string): Promise<number> {
+  const res = await fetch("/api/balance", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "balance", exchange, apiKey, apiSecret }),
+    body: JSON.stringify({ exchange, apiKey, apiSecret }),
   })
   const data = await res.json()
   if (data.error) throw new Error(data.error)
@@ -38,10 +38,10 @@ export async function fetchAllBalances(keys: ClientApiKeys): Promise<BalanceResu
     tasks.push({ name: "OKX", fn: () => fetchOKXBalance(keys.okxApiKey, keys.okxApiSecret, keys.okxPassphrase) })
 
   if (keys.bingxApiKey && keys.bingxApiSecret)
-    tasks.push({ name: "BingX", fn: () => fetchViaProxy("BingX", keys.bingxApiKey, keys.bingxApiSecret) })
+    tasks.push({ name: "BingX", fn: () => fetchViaBalanceRoute("BingX", keys.bingxApiKey, keys.bingxApiSecret) })
 
   if (keys.mexcApiKey && keys.mexcApiSecret)
-    tasks.push({ name: "MEXC", fn: () => fetchViaProxy("MEXC", keys.mexcApiKey, keys.mexcApiSecret) })
+    tasks.push({ name: "MEXC", fn: () => fetchViaBalanceRoute("MEXC", keys.mexcApiKey, keys.mexcApiSecret) })
 
   const results = await Promise.allSettled(tasks.map((t) => t.fn()))
 

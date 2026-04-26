@@ -1,6 +1,6 @@
 import { buildFuturesAuth } from "./auth"
 
-const BASE_URL = "https://api.mexc.com"
+const BASE_URL = "https://contract.mexc.com"
 
 export async function fetchBalance(apiKey: string, apiSecret: string): Promise<number> {
   const { headers, queryString } = await buildFuturesAuth(apiKey, apiSecret)
