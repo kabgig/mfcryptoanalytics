@@ -36,8 +36,8 @@ export function LandingPage() {
         </h1>
 
         <p className="max-w-xl text-lg text-muted-foreground">
-          Connect via Telegram to see your unified PnL dashboard — trades, win rate, and equity
-          curve from Binance, Bybit, and more, all in one place.
+          Connect via Telegram to see your unified PnL dashboard — closed trades, win rate, and equity
+          curve from Binance, Bybit, BingX, MEXC and more, all in one place.
         </p>
 
         <a
