@@ -7,6 +7,7 @@ import { StatsBar } from '@/components/dashboard/StatsBar'
 import { PnlChart } from '@/components/dashboard/PnlChart'
 import { TradesTable } from '@/components/dashboard/TradesTable'
 import { computeStats } from '@/lib/services/statsService'
+import { fetchAllBalances, type BalanceResult } from '@/lib/services/balanceService'
 import { LandingPage } from '@/components/home/LandingPage'
 import type { Trade } from '@/types'
 
@@ -33,6 +34,8 @@ export function HomeView() {
   const [loadedExchanges, setLoadedExchanges] = useState<string[]>([])
   const [exchangeErrors, setExchangeErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
+  const [balanceResult, setBalanceResult] = useState<BalanceResult | null>(null)
+  const [balanceLoading, setBalanceLoading] = useState(false)
 
   useEffect(() => {
     if (!telegramId) return
@@ -112,6 +115,39 @@ export function HomeView() {
     apiKeys.okxApiKey, apiKeys.okxApiSecret, apiKeys.okxPassphrase,
   ])
 
+  useEffect(() => {
+    if (!telegramId) return
+    const hasAnyKey = (
+      (apiKeys.binanceApiKey && apiKeys.binanceApiSecret) ||
+      (apiKeys.bybitApiKey && apiKeys.bybitApiSecret) ||
+      (apiKeys.okxApiKey && apiKeys.okxApiSecret && apiKeys.okxPassphrase) ||
+      (apiKeys.bingxApiKey && apiKeys.bingxApiSecret) ||
+      (apiKeys.mexcApiKey && apiKeys.mexcApiSecret)
+    )
+    if (!hasAnyKey) return
+
+    let cancelled = false
+    setBalanceResult(null)
+    setBalanceLoading(true)
+
+    fetchAllBalances(apiKeys).then((result) => {
+      if (!cancelled) {
+        setBalanceResult(result)
+        setBalanceLoading(false)
+      }
+    })
+
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    telegramId,
+    apiKeys.binanceApiKey, apiKeys.binanceApiSecret,
+    apiKeys.bybitApiKey, apiKeys.bybitApiSecret,
+    apiKeys.bingxApiKey, apiKeys.bingxApiSecret,
+    apiKeys.mexcApiKey, apiKeys.mexcApiSecret,
+    apiKeys.okxApiKey, apiKeys.okxApiSecret, apiKeys.okxPassphrase,
+  ])
+
   const stats = computeStats(trades)
 
   if (!telegramId) return <LandingPage />
@@ -131,7 +167,7 @@ export function HomeView() {
           </span>
         </div>
       )}
-      <StatsBar stats={stats} />
+      <StatsBar stats={stats} balanceResult={balanceResult} balanceLoading={balanceLoading} />
       <PnlChart chartData={stats.chartData} />
       {Object.entries(exchangeErrors).length > 0 && (
         <div className="text-xs text-destructive space-y-1 border border-destructive/30 rounded p-3 bg-destructive/5">
