@@ -27,7 +27,7 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
         </CardHeader>
         <CardContent>
           <p
-            className={`text-2xl font-bold ${
+            className={`text-sm sm:text-2xl font-bold ${
               pnlPositive ? "text-emerald-500" : "text-red-500"
             }`}
           >
@@ -49,7 +49,7 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
           <Trophy className="h-4 w-4 text-amber-500" />
         </CardHeader>
         <CardContent>
-          <p className="text-2xl font-bold">{stats.winRate}%</p>
+          <p className="text-sm sm:text-2xl font-bold">{stats.winRate}%</p>
           <p className="text-xs text-muted-foreground mt-1">Profitable trades</p>
         </CardContent>
       </Card>
@@ -62,7 +62,7 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
           <BarChart2 className="h-4 w-4 text-blue-500" />
         </CardHeader>
         <CardContent>
-          <p className="text-2xl font-bold">{stats.tradeCount}</p>
+          <p className="text-sm sm:text-2xl font-bold">{stats.tradeCount}</p>
           <p className="text-xs text-muted-foreground mt-1">Across all exchanges</p>
         </CardContent>
       </Card>
@@ -82,7 +82,7 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
             </>
           ) : balanceResult ? (
             <>
-              <p className="text-2xl font-bold">
+              <p className="text-sm sm:text-2xl font-bold">
                 {balanceResult.total.toLocaleString("en-US", {
                   style: "currency",
                   currency: "USD",
@@ -100,7 +100,7 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
             </>
           ) : (
             <>
-              <p className="text-2xl font-bold text-muted-foreground">—</p>
+              <p className="text-sm sm:text-2xl font-bold text-muted-foreground">—</p>
               <p className="text-xs text-muted-foreground mt-1">No keys configured</p>
             </>
           )}
