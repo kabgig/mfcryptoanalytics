@@ -14,7 +14,7 @@ export async function isCacheFresh(telegramId: string, exchange: string): Promis
       AND exchange = ${exchange}
       AND fetched_at > NOW() - INTERVAL '24 hours'
     LIMIT 1
-  `
+  ` as Record<string, unknown>[]
   return rows.length > 0
 }
 
@@ -29,7 +29,7 @@ export async function getCachedTrades(telegramId: string, exchange: string): Pro
     WHERE telegram_id = ${BigInt(telegramId)}
       AND exchange = ${exchange}
     ORDER BY close_time DESC
-  `
+  ` as Record<string, unknown>[]
   return rows.map((r) => ({
     id: r.id as string,
     exchange: r.exchange as string,
@@ -92,6 +92,6 @@ export async function deleteOldTrades(): Promise<number> {
   const result = await sql`
     DELETE FROM cached_trades
     WHERE close_time < NOW() - INTERVAL '2 years'
-  `
+  ` as Record<string, unknown>[]
   return result.length
 }
