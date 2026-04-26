@@ -6,10 +6,7 @@ import { MEXCAdapter } from "@/lib/exchanges/adapters/mexc"
 import { getIfFresh, upsertTrades } from "@/lib/db/trades"
 import type { Trade } from "@/types"
 
-export const dynamic = "force-dynamic"
-export const preferredRegion = "sin1" // Singapore — avoids geo-blocks for BingX/MEXC
-
-interface TradesRequestBody {
+export interface TradesRequestBody {
   telegramId: string
   exchange: string
   apiKey: string
@@ -30,7 +27,7 @@ async function fetchFromExchange(body: TradesRequestBody): Promise<Trade[]> {
   }
 }
 
-export async function POST(request: Request) {
+export async function handleTradesRequest(request: Request): Promise<Response> {
   let body: TradesRequestBody
 
   try {
@@ -46,7 +43,6 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Single query: check freshness + fetch cached trades
     const t0 = Date.now()
     const cached = await getIfFresh(telegramId, exchange)
     console.log(`[trades] ${exchange} getIfFresh=${cached.fresh} (${Date.now() - t0}ms)`)
@@ -56,13 +52,11 @@ export async function POST(request: Request) {
       return Response.json({ trades: cached.trades, fromCache: true })
     }
 
-    // Fetch live from exchange
     try {
       const t2 = Date.now()
       const trades = await fetchFromExchange(body)
       console.log(`[trades] ${exchange} fetched ${trades.length} trades FROM EXCHANGE (${Date.now() - t2}ms)`)
 
-      // Ensure user row exists before writing to FK-constrained tables
       const sql = (await import("@/lib/db")).getSql()
       await sql`
         INSERT INTO users (telegram_id, telegram_name)
@@ -77,7 +71,6 @@ export async function POST(request: Request) {
       return Response.json({ trades, fromCache: false })
     } catch (fetchErr) {
       console.warn(`[trades] ${exchange} live fetch failed:`, fetchErr)
-      // Fall back to cached data if available, even on forced refresh
       if (cached.fresh) {
         console.log(`[trades] ${exchange} falling back to ${cached.trades.length} cached trades`)
         return Response.json({ trades: cached.trades, fromCache: true, stale: true })
@@ -89,4 +82,3 @@ export async function POST(request: Request) {
     return Response.json({ error: String(err) }, { status: 502 })
   }
 }
-

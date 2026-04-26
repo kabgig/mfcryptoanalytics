@@ -31,12 +31,16 @@ interface ExchangeConfig {
   passphrase?: string
 }
 
+// Exchanges that require Singapore region (geo-blocked from US/EU)
+const ASIA_EXCHANGES = new Set(['BingX', 'MEXC'])
+
 async function fetchExchangeTrades(
   telegramId: string,
   cfg: ExchangeConfig,
   force: boolean
 ): Promise<Trade[]> {
-  const res = await fetch('/api/trades', {
+  const endpoint = ASIA_EXCHANGES.has(cfg.name) ? '/api/trades-asia' : '/api/trades-global'
+  const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
