@@ -9,7 +9,7 @@ interface TooltipProps {
   side?: "top" | "bottom"
 }
 
-export function Tooltip({ content, children, className, side = "top" }: TooltipProps) {
+export function Tooltip({ content, children, className, side = "bottom" }: TooltipProps) {
   return (
     <span className={cn("relative group/tip", className)}>
       {children}

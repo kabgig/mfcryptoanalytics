@@ -93,7 +93,7 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
             RRR / Max DD
-            <InfoTooltip content="RRR: average winning trade ÷ average losing trade. Max Drawdown: largest peak-to-trough decline in cumulative PnL. Both indicate risk efficiency." />
+            <InfoTooltip content="RRR — how much you earn on average per winning trade relative to what you lose on a losing one. E.g. RRR 2x means your average win is twice your average loss. Max DD — the deepest dip your account ever took from a peak before recovering (or not). Shows worst-case pain." />
           </CardTitle>
           <Activity className="h-4 w-4 text-violet-500" />
         </CardHeader>
@@ -101,11 +101,11 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
           <div className="flex items-baseline gap-2">
             <span className="flex items-center gap-0.5">
               <p className="text-sm sm:text-xl font-bold">{rrrDisplay}</p>
-              <InfoTooltip content="Risk/Reward Ratio: average profit per winning trade ÷ average loss per losing trade. Higher is better. ∞ means no losing trades." />
+              <InfoTooltip content="Risk/Reward Ratio = avg. win ÷ avg. loss. RRR 2x means every winning trade returns twice what a losing trade costs. Combined with Win Rate it determines whether the strategy is profitable long-term. ∞ = no losing trades yet." />
             </span>
             <span className="flex items-center gap-0.5 text-xs font-medium">
               <span className="text-red-500">-{ddDisplay}</span>
-              <InfoTooltip content="Max Drawdown: the largest drop from a peak to a subsequent trough in cumulative PnL. Shows worst-case loss from a high point." />
+              <InfoTooltip content="Max Drawdown = the biggest drop your cumulative PnL has taken from any peak before reaching a new high (or today). E.g. if your PnL hit +$1 000 then fell to +$600, the drawdown is $400. Measures the worst losing streak in dollar terms." />
             </span>
           </div>
           <p className="text-xs text-muted-foreground mt-1">Risk metrics</p>
