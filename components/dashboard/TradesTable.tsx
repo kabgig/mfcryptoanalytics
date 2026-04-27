@@ -41,8 +41,8 @@ export function TradesTable({ trades }: TradesTableProps) {
             <TableHeader>
               <TableRow>
                 <TableHead className="text-right">PnL</TableHead>
-                <TableHead>Ticker</TableHead>
-                <TableHead>Exchange</TableHead>
+                <TableHead className="w-24">Ticker</TableHead>
+                <TableHead className="w-24">Exchange</TableHead>
                 <TableHead className="text-right">Position Size</TableHead>
                 <TableHead className="text-right">TP</TableHead>
                 <TableHead className="text-right">SL</TableHead>
@@ -73,8 +73,8 @@ export function TradesTable({ trades }: TradesTableProps) {
                         currency: "USD",
                       })}
                     </TableCell>
-                    <TableCell className="font-mono font-medium">
-                      {trade.ticker}
+                    <TableCell className="w-24 max-w-[6rem] font-mono font-medium">
+                      <span className="block truncate" title={trade.ticker}>{trade.ticker}</span>
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary" className="text-xs">
