@@ -1,7 +1,7 @@
 import { StatsResult } from "@/types"
 import type { BalanceResult } from "@/lib/services/balanceService"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tooltip } from "@/components/ui/tooltip"
+import { InfoTooltip } from "@/components/ui/tooltip"
 import { TrendingUp, TrendingDown, BarChart2, Trophy, Wallet, Activity } from "lucide-react"
 
 interface StatsBarProps {
@@ -26,10 +26,9 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
       {/* Total PnL */}
       <Card className="overflow-visible">
         <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">
-            <Tooltip content="Sum of all realized PnL across every connected exchange and market.">
-              Total PnL
-            </Tooltip>
+          <CardTitle className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
+            Total PnL
+            <InfoTooltip content="Sum of all realized PnL across every connected exchange and market." />
           </CardTitle>
           {pnlPositive ? (
             <TrendingUp className="h-4 w-4 text-emerald-500" />
@@ -56,17 +55,19 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
       {/* Win Rate + Profit Factor */}
       <Card className="overflow-visible">
         <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">
-            <Tooltip content="Win Rate: % of trades closed in profit. Profit Factor (PF): total gross profit ÷ total gross loss. PF > 1 means the strategy is profitable overall.">
-              Win Rate
-            </Tooltip>
+          <CardTitle className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
+            Win Rate
+            <InfoTooltip content="Percentage of trades closed with a positive PnL. Formula: winning trades ÷ total trades × 100." />
           </CardTitle>
           <Trophy className="h-4 w-4 text-amber-500" />
         </CardHeader>
         <CardContent>
           <div className="flex items-baseline gap-2">
             <p className="text-sm sm:text-2xl font-bold">{stats.winRate}%</p>
-            <p className="text-xs text-muted-foreground font-medium">PF {pfDisplay}</p>
+            <span className="flex items-center gap-0.5 text-xs text-muted-foreground font-medium">
+              PF {pfDisplay}
+              <InfoTooltip content="Profit Factor: total gross profit ÷ total gross loss. A value > 1 means the strategy earns more than it loses. ∞ means no losing trades." />
+            </span>
           </div>
           <p className="text-xs text-muted-foreground mt-1">Profitable trades</p>
         </CardContent>
@@ -75,10 +76,9 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
       {/* Total Trades */}
       <Card className="overflow-visible">
         <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">
-            <Tooltip content="Total number of closed trades across all connected exchanges.">
-              Total Trades
-            </Tooltip>
+          <CardTitle className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
+            Total Trades
+            <InfoTooltip content="Total number of closed trades fetched across all connected exchanges." />
           </CardTitle>
           <BarChart2 className="h-4 w-4 text-blue-500" />
         </CardHeader>
@@ -91,19 +91,22 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
       {/* RRR + Max Drawdown */}
       <Card className="overflow-visible">
         <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">
-            <Tooltip content="RRR (Risk/Reward Ratio): average winning trade ÷ average losing trade. Max Drawdown: largest peak-to-trough decline in cumulative PnL over the period.">
-              RRR / Max DD
-            </Tooltip>
+          <CardTitle className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
+            RRR / Max DD
+            <InfoTooltip content="RRR: average winning trade ÷ average losing trade. Max Drawdown: largest peak-to-trough decline in cumulative PnL. Both indicate risk efficiency." />
           </CardTitle>
           <Activity className="h-4 w-4 text-violet-500" />
         </CardHeader>
         <CardContent>
           <div className="flex items-baseline gap-2">
-            <p className="text-sm sm:text-xl font-bold">{rrrDisplay}</p>
-            <p className="text-xs text-muted-foreground font-medium">
+            <span className="flex items-center gap-0.5">
+              <p className="text-sm sm:text-xl font-bold">{rrrDisplay}</p>
+              <InfoTooltip content="Risk/Reward Ratio: average profit per winning trade ÷ average loss per losing trade. Higher is better. ∞ means no losing trades." />
+            </span>
+            <span className="flex items-center gap-0.5 text-xs font-medium">
               <span className="text-red-500">-{ddDisplay}</span>
-            </p>
+              <InfoTooltip content="Max Drawdown: the largest drop from a peak to a subsequent trough in cumulative PnL. Shows worst-case loss from a high point." />
+            </span>
           </div>
           <p className="text-xs text-muted-foreground mt-1">Risk metrics</p>
         </CardContent>
@@ -112,10 +115,9 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
       {/* Total Balance */}
       <Card className="overflow-visible">
         <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">
-            <Tooltip content="Current sum of all exchange wallet balances fetched via API.">
-              Total Balance
-            </Tooltip>
+          <CardTitle className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
+            Total Balance
+            <InfoTooltip content="Current combined wallet balance across all exchanges, fetched live via API keys. Updates on page load." />
           </CardTitle>
           <Wallet className="h-4 w-4 text-emerald-500" />
         </CardHeader>
