@@ -38,7 +38,7 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
         </CardHeader>
         <CardContent>
           <p
-            className={`text-2xl font-bold ${
+            className={`text-lg font-bold ${
               pnlPositive ? "text-emerald-500" : "text-red-500"
             }`}
           >
@@ -65,7 +65,7 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
           <Trophy className="h-4 w-4 text-amber-500" />
         </CardHeader>
         <CardContent>
-          <p className="text-2xl font-bold">{stats.winRate}%</p>
+          <p className="text-lg font-bold">{stats.winRate}%</p>
           <p className="flex items-center gap-0.5 text-xs text-muted-foreground mt-1">
             PF {pfDisplay}
             <InfoTooltip content="Profit Factor: total gross profit ÷ total gross loss. A value > 1 means the strategy earns more than it loses. ∞ means no losing trades." />
@@ -83,7 +83,7 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
           <Activity className="h-4 w-4 text-violet-500" />
         </CardHeader>
         <CardContent>
-          <p className="flex items-center gap-0.5 text-2xl font-bold">
+          <p className="flex items-center gap-0.5 text-lg font-bold">
             {rrrDisplay}
             <InfoTooltip content="Risk/Reward Ratio = avg. win ÷ avg. loss. RRR 2x means every winning trade returns twice what a losing trade costs. Combined with Win Rate it determines whether the strategy is profitable long-term. ∞ = no losing trades yet." />
           </p>
@@ -111,7 +111,7 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
             </>
           ) : balanceResult ? (
             <>
-              <p className="text-2xl font-bold">
+              <p className="text-lg font-bold">
                 {balanceResult.total.toLocaleString("en-US", {
                   style: "currency",
                   currency: "USD",
