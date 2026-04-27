@@ -55,7 +55,6 @@ export async function fetchFuturesTrades(
       }
 
       const records: BinanceFuturesIncomeRecord[] = await res.json()
-      console.log(`[Binance] window=${new Date(window.startTime).toISOString()} page=${page} type=${Array.isArray(records) ? 'array' : typeof records} count/raw=${Array.isArray(records) ? records.length : JSON.stringify(records).slice(0, 300)}`)
       allRecords.push(...records)
 
       // If fewer than 1000 records were returned, this window is exhausted

@@ -10,6 +10,8 @@ import { fetchAllBalances, type BalanceResult } from '@/lib/services/balanceServ
 import { LandingPage } from '@/components/home/LandingPage'
 import { RefreshCw, TriangleAlert } from 'lucide-react'
 import type { Trade } from '@/types'
+import { fetchFuturesTrades as fetchBinanceFutures } from '@/lib/exchanges/adapters/binance/futures'
+import { fetchFuturesTrades as fetchBybitFutures } from '@/lib/exchanges/adapters/bybit/futures'
 
 const PERIODS = [
   { label: '1d',  days: 1 },
@@ -34,11 +36,57 @@ interface ExchangeConfig {
 // Exchanges that require Singapore region (geo-blocked from US/EU)
 const ASIA_EXCHANGES = new Set(['BingX', 'MEXC'])
 
+// Exchanges geo-blocked on Vercel servers — fetch directly from the browser instead
+const CLIENT_FETCH_EXCHANGES = new Set(['Binance', 'Bybit'])
+
+async function fetchExchangeTradesClientSide(
+  telegramId: string,
+  cfg: ExchangeConfig,
+  force: boolean
+): Promise<Trade[]> {
+  // 1. Check for a fresh cache first
+  if (!force) {
+    const cacheRes = await fetch('/api/trades-cache', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ telegramId, exchange: cfg.name }),
+    })
+    const cacheData = await cacheRes.json()
+    if (cacheData.fresh) {
+      console.log(`[HomeView] ${cfg.name} fromCache=true trades=${cacheData.trades.length}`)
+      return cacheData.trades as Trade[]
+    }
+  }
+
+  // 2. Fetch directly from the exchange in the browser (bypasses Vercel geo-blocks)
+  let trades: Trade[]
+  if (cfg.name === 'Binance') {
+    trades = await fetchBinanceFutures(cfg.apiKey, cfg.apiSecret)
+  } else if (cfg.name === 'Bybit') {
+    trades = await fetchBybitFutures(cfg.apiKey, cfg.apiSecret)
+  } else {
+    throw new Error(`Unexpected client-fetch exchange: ${cfg.name}`)
+  }
+  console.log(`[HomeView] ${cfg.name} fromCache=false trades=${trades.length} (client-side)`)
+
+  // 3. Store to DB in background (don't block the UI)
+  fetch('/api/trades-store', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ telegramId, exchange: cfg.name, trades }),
+  }).catch((err) => console.warn(`[HomeView] ${cfg.name} store failed:`, err))
+
+  return trades
+}
+
 async function fetchExchangeTrades(
   telegramId: string,
   cfg: ExchangeConfig,
   force: boolean
 ): Promise<Trade[]> {
+  if (CLIENT_FETCH_EXCHANGES.has(cfg.name)) {
+    return fetchExchangeTradesClientSide(telegramId, cfg, force)
+  }
   const endpoint = ASIA_EXCHANGES.has(cfg.name) ? '/api/trades-asia' : '/api/trades-global'
   const res = await fetch(endpoint, {
     method: 'POST',
