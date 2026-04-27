@@ -32,7 +32,7 @@ export function PnlChart({ chartData }: PnlChartProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Cumulative PnL Over Time</CardTitle>
+        <CardTitle className="text-base">Cumulative PnL</CardTitle>
       </CardHeader>
       <CardContent>
         <ChartContainer config={chartConfig} className="h-[230px] sm:h-72 w-full">
