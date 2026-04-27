@@ -53,6 +53,7 @@ export async function fetchFuturesTrades(
       }
 
       const data: BybitClosedPnlResponse = await res.json()
+      console.log(`[Bybit] window=${new Date(window.startTime).toISOString()} retCode=${data.retCode} retMsg=${data.retMsg} count=${data.result?.list?.length ?? 'no-list'}`)
 
       if (data.retCode !== 0) {
         throw new Error(`Bybit closed-pnl API error ${data.retCode}: ${data.retMsg}`)
