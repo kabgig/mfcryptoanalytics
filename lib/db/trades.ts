@@ -104,6 +104,23 @@ export async function upsertTrades(telegramId: string, exchange: string, trades:
 }
 
 /**
+ * Returns the Unix ms timestamp of the most recent cached trade close_time
+ * for a given user + exchange, or null if no trades are cached.
+ */
+export async function getLatestCloseTime(telegramId: string, exchange: string): Promise<number | null> {
+  const sql = getSql()
+  const rows = await sql`
+    SELECT MAX(close_time) AS latest
+    FROM cached_trades
+    WHERE telegram_id = ${BigInt(telegramId)}
+      AND exchange    = ${exchange}
+  ` as Record<string, unknown>[]
+  const latest = rows[0]?.latest
+  if (!latest) return null
+  return (latest as Date).getTime()
+}
+
+/**
  * Deletes trades older than 2 years across all users.
  * Intended for cron cleanup.
  */

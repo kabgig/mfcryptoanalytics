@@ -12,13 +12,15 @@ const WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 /**
  * Fetches all REALIZED_PNL income records from Binance USDM Futures
  * for the past 90 days (paginated in 7-day windows).
+ * Pass `since` (Unix ms) to only fetch records newer than the latest cached trade.
  */
 export async function fetchFuturesTrades(
   apiKey: string,
-  apiSecret: string
+  apiSecret: string,
+  since?: number
 ): Promise<Trade[]> {
   const now = Date.now()
-  const start = now - LOOKBACK_DAYS * 24 * 60 * 60 * 1000
+  const start = since ?? now - LOOKBACK_DAYS * 24 * 60 * 60 * 1000
 
   const windows: Array<{ startTime: number; endTime: number }> = []
   let cursor = start
