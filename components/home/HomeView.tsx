@@ -59,57 +59,22 @@ async function fetchExchangeTradesClientSide(
   }
 
   // 2. Fetch directly from the exchange in the browser (bypasses Vercel geo-blocks)
-  let since: number | undefined
-
+  let trades: Trade[]
   if (cfg.name === 'Binance') {
-    // Only fetch trades newer than the latest cached one to minimise requests
-    try {
-      const latestRes = await fetch('/api/trades-latest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegramId, exchange: cfg.name }),
-      })
-      const latestData = await latestRes.json()
-      if (typeof latestData.latestMs === 'number') since = latestData.latestMs
-    } catch { /* ignore — fall back to full lookback */ }
-  }
-
-  // Fetch new trades from exchange + existing cached trades in parallel
-  const [newTrades, cachedResult] = await Promise.all([
-    cfg.name === 'Binance'
-      ? fetchBinanceFutures(cfg.apiKey, cfg.apiSecret, since)
-      : fetchBybitFutures(cfg.apiKey, cfg.apiSecret),
-    since != null
-      ? fetch('/api/trades-cache', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ telegramId, exchange: cfg.name }),
-        }).then((r) => r.json()).then((d) => (d.trades ?? []) as Trade[]).catch(() => [] as Trade[])
-      : Promise.resolve([] as Trade[]),
-  ])
-
-  // Merge: cached trades + newly fetched, deduplicated by id
-  const idSet = new Set(cachedResult.map((t: Trade) => t.id))
-  const dedupedNew = newTrades.filter((t) => !idSet.has(t.id))
-  const trades = [...cachedResult, ...dedupedNew]
-
-  console.log(`[HomeView] ${cfg.name} cached=${cachedResult.length} new=${dedupedNew.length} total=${trades.length} (client-side)`)
-
-  // 3. Store only the new trades to DB in background (don't block the UI)
-  if (dedupedNew.length > 0) {
-    fetch('/api/trades-store', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ telegramId, exchange: cfg.name, trades: dedupedNew }),
-    }).catch((err) => console.warn(`[HomeView] ${cfg.name} store failed:`, err))
+    trades = await fetchBinanceFutures(cfg.apiKey, cfg.apiSecret)
+  } else if (cfg.name === 'Bybit') {
+    trades = await fetchBybitFutures(cfg.apiKey, cfg.apiSecret)
   } else {
-    // No new trades — still update the fetch log so cache freshness resets
-    fetch('/api/trades-store', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ telegramId, exchange: cfg.name, trades: [] }),
-    }).catch((err) => console.warn(`[HomeView] ${cfg.name} store failed:`, err))
+    throw new Error(`Unexpected client-fetch exchange: ${cfg.name}`)
   }
+  console.log(`[HomeView] ${cfg.name} fromCache=false trades=${trades.length} (client-side)`)
+
+  // 3. Store to DB in background (don't block the UI)
+  fetch('/api/trades-store', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ telegramId, exchange: cfg.name, trades }),
+  }).catch((err) => console.warn(`[HomeView] ${cfg.name} store failed:`, err))
 
   return trades
 }
