@@ -1,9 +1,13 @@
 'use client'
 
+import { useState } from "react"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
+import { useTheme } from "next-themes"
 import { ThemeToggle } from "./ThemeToggle"
 import { ApiKeysModal } from "@/components/settings/ApiKeysModal"
 import { useUserStore } from "@/lib/store/userStore"
-import { LogOut } from "lucide-react"
+import { LogOut, Settings, Moon, Sun, Menu, X } from "lucide-react"
 
 // Telegram SVG logo
 function TelegramIcon({ className }: { className?: string }) {
@@ -14,24 +18,68 @@ function TelegramIcon({ className }: { className?: string }) {
   )
 }
 
+// Shared nav link list — used by both desktop and mobile
+interface NavLink { label: string; href: string; adminOnly?: boolean }
+const NAV_LINKS: NavLink[] = [
+  { label: "Main",  href: "/" },
+  { label: "WMon",  href: "/wmon" },
+  { label: "admin", href: "/admin", adminOnly: true },
+]
+
+function MobileThemeToggle() {
+  const { theme, setTheme } = useTheme()
+  return (
+    <button
+      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+      className="flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-accent rounded-md transition-colors"
+    >
+      {theme === "dark"
+        ? <Sun className="h-4 w-4 shrink-0" />
+        : <Moon className="h-4 w-4 shrink-0" />}
+      Dark mode
+    </button>
+  )
+}
+
 export function Navbar() {
+  const pathname = usePathname()
   const telegramId = useUserStore((s) => s.telegramId)
   const telegramName = useUserStore((s) => s.telegramName)
+  const role = useUserStore((s) => s.role)
   const clear = useUserStore((s) => s.clear)
+  const [mobileOpen, setMobileOpen] = useState(false)
+
+  const visibleLinks = NAV_LINKS.filter((l) => !l.adminOnly || role === "ADMIN")
+
+  const linkClass = (href: string) =>
+    `text-sm font-medium transition-colors hover:text-foreground ${
+      pathname === href ? "text-foreground" : "text-muted-foreground"
+    }`
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/30 bg-background/90 backdrop-blur-sm">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
-        <span className="text-sm font-medium tracking-tight sm:text-lg">
-          MF Crypto Analytics
-        </span>
+        {/* Brand + nav links (left side) */}
+        <div className="flex items-center gap-6">
+          <span className="text-sm font-medium tracking-tight sm:text-lg shrink-0">
+            MF Crypto Analytics
+          </span>
+          <nav className="hidden sm:flex items-center gap-5">
+            {visibleLinks.map((l) => (
+              <Link key={l.href} href={l.href} className={linkClass(l.href)}>
+                {l.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
 
-        <div className="flex items-center gap-2">
+        {/* Desktop right controls */}
+        <div className="hidden sm:flex items-center gap-2">
           <ThemeToggle />
           {telegramId ? (
             <>
               <ApiKeysModal />
-              <span className="hidden text-sm text-muted-foreground sm:inline">
+              <span className="text-sm text-muted-foreground hidden md:inline">
                 {telegramName}
               </span>
               <button
@@ -55,7 +103,87 @@ export function Navbar() {
             </a>
           )}
         </div>
+
+        {/* Mobile hamburger */}
+        <button
+          className="sm:hidden inline-flex items-center justify-center rounded-md p-2 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          onClick={() => setMobileOpen((o) => !o)}
+          aria-label="Toggle menu"
+        >
+          {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </button>
       </div>
+
+      {/* Mobile dropdown */}
+      {mobileOpen && (
+        <div className="sm:hidden border-t border-border/30 bg-background/95 backdrop-blur-sm px-4 py-3 flex flex-col gap-1">
+          {/* Nav links */}
+          {visibleLinks.map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              onClick={() => setMobileOpen(false)}
+              className={`flex items-center px-4 py-2.5 text-sm font-medium rounded-md transition-colors hover:bg-accent ${
+                pathname === l.href ? "text-foreground bg-accent/50" : "text-muted-foreground"
+              }`}
+            >
+              {l.label}
+            </Link>
+          ))}
+
+          <div className="my-1.5 h-px bg-border/50" />
+
+          {/* Settings */}
+          {telegramId && (
+            <div className="px-1">
+              <ApiKeysModal
+                trigger={
+                  <button className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-muted-foreground hover:bg-accent rounded-md transition-colors">
+                    <Settings className="h-4 w-4 shrink-0" />
+                    Settings
+                  </button>
+                }
+              />
+            </div>
+          )}
+
+          {/* Dark mode */}
+          <div className="px-1">
+            <MobileThemeToggle />
+          </div>
+
+          <div className="my-1.5 h-px bg-border/50" />
+
+          {/* Auth */}
+          <div className="px-1">
+            {telegramId ? (
+              <>
+                {telegramName && (
+                  <p className="px-4 py-1.5 text-xs text-muted-foreground">{telegramName}</p>
+                )}
+                <button
+                  onClick={() => { clear(); setMobileOpen(false) }}
+                  className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-muted-foreground hover:bg-accent rounded-md transition-colors"
+                >
+                  <LogOut className="h-4 w-4 shrink-0" />
+                  Logout
+                </button>
+              </>
+            ) : (
+              <a
+                href="https://t.me/mfcryptoanalyticsbot"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setMobileOpen(false)}
+                className="flex items-center gap-3 px-4 py-2.5 text-sm text-muted-foreground hover:bg-accent rounded-md transition-colors"
+              >
+                <TelegramIcon className="h-4 w-4 text-[#2AABEE] shrink-0" />
+                Login with Telegram
+              </a>
+            )}
+          </div>
+        </div>
+      )}
     </header>
   )
 }

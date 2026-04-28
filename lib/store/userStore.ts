@@ -7,12 +7,14 @@ interface UserState {
   walletAddress: string | null
   telegramId: string | null
   telegramName: string | null
+  role: 'ADMIN' | 'USER' | null
   apiKeys: ClientApiKeys
 }
 
 interface UserStore extends UserState {
   setUser: (data: Partial<UserState>) => void
   setTelegramUser: (telegramId: string, telegramName: string) => void
+  setRole: (role: 'ADMIN' | 'USER') => void
   setApiKeys: (keys: Partial<ClientApiKeys>) => void
   clear: () => void
 }
@@ -40,6 +42,7 @@ const initialState: UserState = {
   walletAddress: null,
   telegramId: null,
   telegramName: null,
+  role: null,
   apiKeys: emptyKeys,
 }
 
@@ -49,6 +52,7 @@ export const useUserStore = create<UserStore>()(
       ...initialState,
       setUser: (data) => set((state) => ({ ...state, ...data })),
       setTelegramUser: (telegramId, telegramName) => set((state) => ({ ...state, telegramId, telegramName })),
+      setRole: (role) => set((state) => ({ ...state, role })),
       setApiKeys: (keys) =>
         set((state) => ({ ...state, apiKeys: { ...state.apiKeys, ...keys } })),
       clear: () => set((state) => ({ ...initialState, apiKeys: state.apiKeys })),

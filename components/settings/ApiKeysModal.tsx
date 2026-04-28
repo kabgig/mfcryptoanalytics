@@ -63,7 +63,7 @@ const EXCHANGES: ExchangeSection[] = [
   },
 ]
 
-export function ApiKeysModal() {
+export function ApiKeysModal({ trigger }: { trigger?: React.ReactNode }) {
   const [open, setOpen] = useState(false)
   const { apiKeys, setApiKeys } = useUserStore()
   const [draft, setDraft] = useState<ClientApiKeys>(apiKeys)
@@ -88,6 +88,9 @@ export function ApiKeysModal() {
   }
 
   if (!open) {
+    if (trigger) {
+      return <span onClick={handleOpen} className="contents">{trigger}</span>
+    }
     return (
       <button
         onClick={handleOpen}
