@@ -2,36 +2,46 @@ import type { Trade } from "@/types"
 
 export const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const
 
-export interface WeekdaySeries {
-  /** Full weekday name */
-  day: string
-  /** Cumulative PnL after the nth trade on this weekday (1-indexed occurrences) */
-  data: number[]
+export interface WeekdayChartPoint {
+  date: string // e.g. "Apr 1"
+  [day: string]: string | number
 }
 
 /**
- * Groups trades by weekday of closeTime, sorts each group chronologically,
- * and builds a cumulative PnL series per weekday.
- *
- * Returns 7 series in Sun–Sat order. Series with no trades have data=[].
+ * Builds a time-series dataset where each point is a calendar date.
+ * Each weekday key holds the cumulative PnL of ALL trades that closed on
+ * that weekday, from the beginning of history up to and including that date.
+ * Values are carried forward on dates that don't belong to that weekday,
+ * producing a step-function per weekday line.
  */
-export function computeWeeklyPnl(trades: Trade[]): WeekdaySeries[] {
-  const buckets: Trade[][] = Array.from({ length: 7 }, () => [])
+export function computeWeeklyPnl(trades: Trade[]): WeekdayChartPoint[] {
+  if (trades.length === 0) return []
 
+  // Sum PnL per calendar date (YYYY-MM-DD)
+  const dailyPnl = new Map<string, number>()
   for (const trade of trades) {
-    const day = new Date(trade.closeTime).getDay() // 0=Sun … 6=Sat
-    buckets[day].push(trade)
+    const day = trade.closeTime.slice(0, 10)
+    dailyPnl.set(day, (dailyPnl.get(day) ?? 0) + trade.pnl)
   }
 
-  return buckets.map((bucket, i) => {
-    bucket.sort((a, b) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime())
+  // Sorted unique dates
+  const dates = Array.from(dailyPnl.keys()).sort()
 
-    let running = 0
-    const data = bucket.map((t) => {
-      running += t.pnl
-      return parseFloat(running.toFixed(2))
-    })
+  // Running cumulative per weekday (all start at 0)
+  const running: Record<string, number> = {}
+  for (const d of DAY_NAMES) running[d] = 0
 
-    return { day: DAY_NAMES[i], data }
+  const fmt = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" })
+
+  return dates.map((isoDate) => {
+    const d = new Date(isoDate + "T00:00:00")
+    const weekday = DAY_NAMES[d.getDay()]
+    running[weekday] = parseFloat((running[weekday] + (dailyPnl.get(isoDate) ?? 0)).toFixed(2))
+
+    const point: WeekdayChartPoint = { date: fmt.format(d) }
+    for (const name of DAY_NAMES) {
+      point[name] = running[name]
+    }
+    return point
   })
 }

@@ -32,6 +32,19 @@ const DAY_COLORS = [
   "#2dd4bf", // Sat – teal
 ]
 
+const PERIODS = [
+  { label: "1d",  days: 1 },
+  { label: "1w",  days: 7 },
+  { label: "2w",  days: 14 },
+  { label: "1m",  days: 30 },
+  { label: "3m",  days: 90 },
+  { label: "6m",  days: 180 },
+  { label: "1y",  days: 365 },
+  { label: "2y",  days: 730 },
+] as const
+
+type PeriodLabel = typeof PERIODS[number]["label"]
+
 interface ExchangeConfig {
   name: string
   apiKey: string
@@ -110,7 +123,7 @@ function WMonTooltip({ active, payload, label }: {
   if (!active || !payload?.length) return null
   return (
     <div className="rounded-lg border border-border bg-background px-3 py-2 text-xs shadow-md">
-      <p className="mb-1 font-medium text-muted-foreground">Trade #{label}</p>
+      <p className="mb-1 font-medium text-muted-foreground">{label}</p>
       {payload.map((entry) => (
         <div key={entry.name} className="flex items-center gap-2">
           <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
@@ -133,6 +146,7 @@ export function WMonView() {
   const [loading, setLoading] = useState(false)
   const [loadedExchanges, setLoadedExchanges] = useState<string[]>([])
   const [exchangeErrors, setExchangeErrors] = useState<Record<string, string>>({})
+  const [period, setPeriod] = useState<PeriodLabel>("3m")
 
   const buildExchangeConfigs = useCallback((): ExchangeConfig[] => {
     const configs: ExchangeConfig[] = []
@@ -213,19 +227,13 @@ export function WMonView() {
   const hasAnyKey = buildExchangeConfigs().length > 0
   const errorEntries = Object.entries(exchangeErrors)
 
-  // Build chart data: array of { trade: n, Sunday: x, Monday: x, ... }
-  const chartData = useMemo(() => {
-    const series = computeWeeklyPnl(trades)
-    const maxLen = Math.max(...series.map((s) => s.data.length), 0)
-    if (maxLen === 0) return []
-    return Array.from({ length: maxLen }, (_, i) => {
-      const row: Record<string, number | string> = { trade: i + 1 }
-      series.forEach((s) => {
-        if (i < s.data.length) row[s.day] = s.data[i]
-      })
-      return row
-    })
-  }, [trades])
+  const filteredTrades = useMemo(() => {
+    const days = PERIODS.find((p) => p.label === period)?.days ?? 90
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
+    return trades.filter((t) => new Date(t.closeTime).getTime() >= cutoff)
+  }, [trades, period])
+
+  const chartData = useMemo(() => computeWeeklyPnl(filteredTrades), [filteredTrades])
 
   if (!telegramId) return <LandingPage />
 
@@ -250,36 +258,71 @@ export function WMonView() {
 
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <h1 className="text-xl font-semibold tracking-tight">Weekday PnL Monitor</h1>
-        {loading ? (
-          <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-2 text-sm text-amber-600 dark:text-amber-400">
-            <span className="relative flex h-2.5 w-2.5 shrink-0">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
-            </span>
-            <span className="font-medium">
-              {loadedExchanges.length === 0
-                ? "Loading…"
-                : `Loading… (${loadedExchanges.join(", ")} ready)`}
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Period selector – mobile */}
+          <div className="relative sm:hidden overflow-hidden">
+            <select
+              value={period}
+              onChange={(e) => setPeriod(e.target.value as PeriodLabel)}
+              className="appearance-none rounded-lg border bg-muted/40 pl-2 pr-7 py-1.5 text-sm font-medium text-foreground focus:outline-none"
+            >
+              {PERIODS.map(({ label }) => (
+                <option key={label} value={label}>{label}</option>
+              ))}
+            </select>
+            <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center">
+              <svg className="h-3.5 w-3.5 text-muted-foreground" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </span>
           </div>
-        ) : (
-          <button
-            onClick={() => runFetch(true)}
-            disabled={loading}
-            className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Refresh
-          </button>
-        )}
+          {/* Period selector – desktop */}
+          <div className="hidden sm:flex items-center gap-1 rounded-lg border bg-muted/40 p-1">
+            {PERIODS.map(({ label }) => (
+              <button
+                key={label}
+                onClick={() => setPeriod(label)}
+                className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
+                  period === label
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {loading ? (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-2 text-sm text-amber-600 dark:text-amber-400">
+              <span className="relative flex h-2.5 w-2.5 shrink-0">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
+              </span>
+              <span className="font-medium">
+                {loadedExchanges.length === 0
+                  ? "Loading…"
+                  : `Loading… (${loadedExchanges.join(", ")} ready)`}
+              </span>
+            </div>
+          ) : (
+            <button
+              onClick={() => runFetch(true)}
+              disabled={loading}
+              className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Refresh
+            </button>
+          )}
+        </div>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Cumulative PnL by Weekday</CardTitle>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Each line accumulates the PnL of all trades that closed on that weekday, in chronological order.
-            X-axis = the nth trade on that day of the week.
+            Each line shows the running total PnL of all trades on that weekday over time.
+            A line only steps on dates that belong to its weekday; it stays flat otherwise.
           </p>
         </CardHeader>
         <CardContent>
@@ -292,12 +335,11 @@ export function WMonView() {
               <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
                 <XAxis
-                  dataKey="trade"
+                  dataKey="date"
                   tick={{ fontSize: 11 }}
                   tickLine={false}
                   axisLine={false}
-                  label={{ value: "nth trade on that weekday", position: "insideBottom", offset: -2, fontSize: 11, fill: "currentColor", opacity: 0.5 }}
-                  height={36}
+                  interval="preserveStartEnd"
                   className="fill-muted-foreground"
                 />
                 <YAxis
@@ -316,13 +358,13 @@ export function WMonView() {
                 {DAY_NAMES.map((day, i) => (
                   <Line
                     key={day}
-                    type="monotone"
+                    type="stepAfter"
                     dataKey={day}
                     stroke={DAY_COLORS[i]}
                     strokeWidth={2}
                     dot={false}
                     activeDot={{ r: 4 }}
-                    connectNulls={false}
+                    connectNulls
                   />
                 ))}
               </LineChart>
@@ -331,27 +373,29 @@ export function WMonView() {
         </CardContent>
       </Card>
 
-      {trades.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-          {computeWeeklyPnl(trades).map((s, i) => {
-            const final = s.data[s.data.length - 1] ?? 0
-            const positive = final >= 0
-            return (
-              <Card key={s.day} className="text-center">
-                <CardContent className="pt-4 pb-3 px-3">
-                  <div className="mb-1 h-2 w-2 rounded-full mx-auto" style={{ backgroundColor: DAY_COLORS[i] }} />
-                  <p className="text-xs font-medium text-muted-foreground">{s.day.slice(0, 3)}</p>
-                  <p className={`mt-0.5 text-sm font-semibold tabular-nums ${positive ? "text-emerald-500" : "text-red-500"}`}>
-                    {positive ? "+" : ""}
-                    {final.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground">{s.data.length} trades</p>
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
-      )}
+      {chartData.length > 0 && (() => {
+        const last = chartData[chartData.length - 1]
+        return (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+            {DAY_NAMES.map((day, i) => {
+              const final = (last[day] as number) ?? 0
+              const positive = final >= 0
+              return (
+                <Card key={day} className="text-center">
+                  <CardContent className="pt-4 pb-3 px-3">
+                    <div className="mb-1 h-2 w-2 rounded-full mx-auto" style={{ backgroundColor: DAY_COLORS[i] }} />
+                    <p className="text-xs font-medium text-muted-foreground">{day.slice(0, 3)}</p>
+                    <p className={`mt-0.5 text-sm font-semibold tabular-nums ${positive ? "text-emerald-500" : "text-red-500"}`}>
+                      {positive ? "+" : ""}
+                      {final.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
+                    </p>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+        )
+      })()}
     </main>
   )
 }
