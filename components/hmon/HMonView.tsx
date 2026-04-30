@@ -152,7 +152,7 @@ export function HMonView() {
   const [loadedExchanges, setLoadedExchanges] = useState<string[]>([])
   const [exchangeErrors, setExchangeErrors] = useState<Record<string, string>>({})
   const [period, setPeriod] = useState<PeriodLabel>("3m")
-  const [timeField, setTimeField] = useState<"closeTime" | "openTime">("openTime")
+  const [timeField, setTimeField] = useState<"closeTime" | "openTime">("closeTime")
   const [viewMode, setViewMode] = useState<"hours" | "sessions">("sessions")
 
   const buildExchangeConfigs = useCallback((): ExchangeConfig[] => {
@@ -240,11 +240,25 @@ export function HMonView() {
     return trades.filter((t) => new Date(t.closeTime).getTime() >= cutoff)
   }, [trades, period])
 
+  // When grouping by open time, exclude trades where openTime === closeTime
+  // (Binance & BingX income endpoint only provides one timestamp)
+  const noOpenTimeExchanges = useMemo(() => {
+    if (timeField !== "openTime") return []
+    return Array.from(
+      new Set(filteredTrades.filter((t) => t.openTime === t.closeTime).map((t) => t.exchange))
+    ).sort()
+  }, [filteredTrades, timeField])
+
+  const chartTrades = useMemo(() => {
+    if (timeField !== "openTime") return filteredTrades
+    return filteredTrades.filter((t) => t.openTime !== t.closeTime)
+  }, [filteredTrades, timeField])
+
   const chartData = useMemo(
     () => viewMode === "sessions"
-      ? computeSessionPnl(filteredTrades, timeField)
-      : computeHourlyPnl(filteredTrades, timeField),
-    [filteredTrades, timeField, viewMode]
+      ? computeSessionPnl(chartTrades, timeField)
+      : computeHourlyPnl(chartTrades, timeField),
+    [chartTrades, timeField, viewMode]
   )
 
   const activeKeys   = viewMode === "sessions" ? [...SESSION_NAMES] : HOUR_NAMES
@@ -270,6 +284,18 @@ export function HMonView() {
           {errorEntries.map(([name, msg]) => (
             <span key={name}><strong>{name}:</strong> {msg}</span>
           ))}
+        </div>
+      )}
+
+      {noOpenTimeExchanges.length > 0 && (
+        <div className="flex items-start gap-3 rounded-lg border border-yellow-400/50 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-700 dark:text-yellow-300">
+          <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
+            <strong>{noOpenTimeExchanges.join(", ")}</strong>{" "}
+            {noOpenTimeExchanges.length === 1 ? "does" : "do"} not provide open time data and{" "}
+            {noOpenTimeExchanges.length === 1 ? "is" : "are"} excluded when grouping by open time.
+            Switch to <strong>Close time</strong> to include all exchanges.
+          </span>
         </div>
       )}
 
