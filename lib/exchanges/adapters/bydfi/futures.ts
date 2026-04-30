@@ -61,6 +61,7 @@ export async function fetchFuturesTrades(
         closeTime: new Date(r.createTime).toISOString(),  // createTime = close (per docs)
         pnl: parseFloat(r.positionProfits),
         market: "futures" as const,
+        side: r.positionSide === "LONG" ? "long" : r.positionSide === "SHORT" ? "short" : undefined,
       })
     }
   }

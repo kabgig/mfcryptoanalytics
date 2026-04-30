@@ -13,6 +13,7 @@ function rowToTrade(r: Record<string, unknown>): Trade {
     closeTime: (r.close_time as Date).toISOString(),
     pnl: Number(r.pnl),
     market: r.market as Trade["market"],
+    side: (r.side as Trade["side"]) ?? undefined,
   }
 }
 
@@ -29,7 +30,7 @@ export async function getIfFresh(
   // If efl row missing or stale, 0 rows returned.
   const rows = await sql`
     SELECT ct.id, ct.exchange, ct.ticker, ct.position_size, ct.tp, ct.sl,
-           ct.open_time, ct.close_time, ct.pnl, ct.market,
+           ct.open_time, ct.close_time, ct.pnl, ct.market, ct.side,
            efl.fetched_at
     FROM exchange_fetch_log efl
     LEFT JOIN cached_trades ct
@@ -76,12 +77,12 @@ export async function upsertTrades(telegramId: string, exchange: string, trades:
     for (const t of trades) {
       await sql`
         INSERT INTO cached_trades
-          (id, telegram_id, exchange, ticker, position_size, tp, sl, open_time, close_time, pnl, market)
+          (id, telegram_id, exchange, ticker, position_size, tp, sl, open_time, close_time, pnl, market, side)
         VALUES (
           ${t.id}, ${tid}, ${t.exchange}, ${t.ticker},
           ${t.positionSize}, ${t.tp ?? null}, ${t.sl ?? null},
           ${t.openTime}::timestamptz, ${t.closeTime}::timestamptz,
-          ${t.pnl}, ${t.market ?? null}
+          ${t.pnl}, ${t.market ?? null}, ${t.side ?? null}
         )
         ON CONFLICT (telegram_id, id) DO UPDATE SET
           ticker        = EXCLUDED.ticker,
@@ -91,7 +92,8 @@ export async function upsertTrades(telegramId: string, exchange: string, trades:
           open_time     = EXCLUDED.open_time,
           close_time    = EXCLUDED.close_time,
           pnl           = EXCLUDED.pnl,
-          market        = EXCLUDED.market
+          market        = EXCLUDED.market,
+          side          = EXCLUDED.side
       `
     }
   }

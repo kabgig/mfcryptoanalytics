@@ -9,6 +9,7 @@ export interface Trade {
   closeTime: string // ISO string
   pnl: number
   market?: "spot" | "futures"
+  side?: "long" | "short"
 }
 
 export interface ExchangeAdapter {

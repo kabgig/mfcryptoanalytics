@@ -26,6 +26,7 @@ const NAV_LINKS: NavLink[] = [
   { label: "HMon",  href: "/hmon" },
   { label: "TMon",  href: "/tmon" },
   { label: "EMon",  href: "/emon" },
+  { label: "LvsS",  href: "/lvs" },
   { label: "admin", href: "/admin", adminOnly: true },
 ]
 

@@ -64,6 +64,7 @@ export async function fetchFuturesTrades(
         closeTime: closeDate.toISOString(),
         pnl: parseFloat(r.realizedPNL),
         market: "futures" as const,
+        side: r.side === "LONG" ? "long" : r.side === "SHORT" ? "short" : undefined,
       })
     }
 
