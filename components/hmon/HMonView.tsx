@@ -2,7 +2,10 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { useUserStore } from "@/lib/store/userStore"
-import { computeHourlyPnl, HOUR_NAMES } from "@/lib/services/hmonService"
+import {
+  computeHourlyPnl, computeSessionPnl,
+  HOUR_NAMES, SESSION_NAMES, SESSION_COLORS,
+} from "@/lib/services/hmonService"
 import { LandingPage } from "@/components/home/LandingPage"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { InfoTooltip } from "@/components/ui/tooltip"
@@ -150,6 +153,7 @@ export function HMonView() {
   const [exchangeErrors, setExchangeErrors] = useState<Record<string, string>>({})
   const [period, setPeriod] = useState<PeriodLabel>("3m")
   const [timeField, setTimeField] = useState<"closeTime" | "openTime">("openTime")
+  const [viewMode, setViewMode] = useState<"hours" | "sessions">("sessions")
 
   const buildExchangeConfigs = useCallback((): ExchangeConfig[] => {
     const configs: ExchangeConfig[] = []
@@ -237,9 +241,16 @@ export function HMonView() {
   }, [trades, period])
 
   const chartData = useMemo(
-    () => computeHourlyPnl(filteredTrades, timeField),
-    [filteredTrades, timeField]
+    () => viewMode === "sessions"
+      ? computeSessionPnl(filteredTrades, timeField)
+      : computeHourlyPnl(filteredTrades, timeField),
+    [filteredTrades, timeField, viewMode]
   )
+
+  const activeKeys   = viewMode === "sessions" ? [...SESSION_NAMES] : HOUR_NAMES
+  const activeColors = viewMode === "sessions"
+    ? SESSION_NAMES.map((s) => SESSION_COLORS[s])
+    : HOUR_COLORS
 
   if (!telegramId) return <LandingPage />
 
@@ -323,6 +334,39 @@ export function HMonView() {
         </div>
       </div>
 
+      {/* View mode + time field toggles */}
+      <div className="flex flex-wrap items-center gap-4">
+        {/* Hours / Sessions */}
+        <div className="flex items-center gap-2">
+          <span className="flex items-center gap-1 text-sm text-muted-foreground">
+            View:
+            <InfoTooltip
+              content={
+                <>
+                  <strong>24h</strong> — shows one line per hour (00h–23h). Best for finding specific peak hours.
+                  <br /><br />
+                  <strong>Sessions</strong> — collapses hours into 4 blocks: Night (00–05), Morning (06–11), Afternoon (12–17), Evening (18–23). Easier to spot broad patterns.
+                </>
+              }
+            />
+          </span>
+          <div className="flex items-center gap-1 rounded-lg border bg-muted/40 p-1">
+            {(["hours", "sessions"] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className={`rounded-md px-3 py-1 text-sm font-medium capitalize transition-colors ${
+                  viewMode === mode
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {mode === "hours" ? "24h" : "Sessions"}
+              </button>
+            ))}
+          </div>
+        </div>
+
       {/* Time field toggle */}
       <div className="flex items-center gap-3">
         <span className="flex items-center gap-1 text-sm text-muted-foreground">
@@ -353,14 +397,21 @@ export function HMonView() {
           ))}
         </div>
       </div>
+      </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Cumulative PnL by Hour of Day (UTC)</CardTitle>
+          <CardTitle className="text-base">
+            {viewMode === "sessions"
+              ? "Cumulative PnL by Trading Session (UTC)"
+              : "Cumulative PnL by Hour of Day (UTC)"}
+          </CardTitle>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Each line shows the running total PnL for trades that{" "}
-            {timeField === "closeTime" ? "closed" : "opened"} during that UTC hour.
-            A line only steps on dates that have trades in its hour; it stays flat otherwise.
+            {viewMode === "sessions" ? (
+              <>Each line is a 6-hour session: Night 00–05, Morning 06–11, Afternoon 12–17, Evening 18–23 (all UTC). Bucketed by {timeField === "closeTime" ? "close" : "open"} time.</>
+            ) : (
+              <>Each line shows the running total PnL for trades that {timeField === "closeTime" ? "closed" : "opened"} during that UTC hour. A line only steps on dates that have trades in its hour; it stays flat otherwise.</>
+            )}
           </p>
         </CardHeader>
         <CardContent>
@@ -393,13 +444,13 @@ export function HMonView() {
                   wrapperStyle={{ fontSize: 11, paddingTop: 12 }}
                   formatter={(value) => <span className="text-foreground">{value}</span>}
                 />
-                {HOUR_NAMES.map((hour, i) => (
+                {activeKeys.map((key, i) => (
                   <Line
-                    key={hour}
+                    key={key}
                     type="stepAfter"
-                    dataKey={hour}
-                    stroke={HOUR_COLORS[i]}
-                    strokeWidth={1.5}
+                    dataKey={key}
+                    stroke={activeColors[i]}
+                    strokeWidth={viewMode === "sessions" ? 2 : 1.5}
                     dot={false}
                     activeDot={{ r: 3 }}
                     connectNulls
@@ -413,7 +464,26 @@ export function HMonView() {
 
       {chartData.length > 0 && (() => {
         const last = chartData[chartData.length - 1]
-        return (
+        return viewMode === "sessions" ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {SESSION_NAMES.map((s) => {
+              const final = (last[s] as number) ?? 0
+              const positive = final >= 0
+              return (
+                <Card key={s} className="text-center">
+                  <CardContent className="pt-4 pb-3 px-3">
+                    <div className="mb-1 h-2 w-2 rounded-full mx-auto" style={{ backgroundColor: SESSION_COLORS[s] }} />
+                    <p className="text-xs font-medium text-muted-foreground">{s}</p>
+                    <p className={`mt-0.5 text-sm font-semibold tabular-nums ${positive ? "text-emerald-500" : "text-red-500"}`}>
+                      {positive ? "+" : ""}
+                      {final.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
+                    </p>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+        ) : (
           <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-12">
             {HOUR_NAMES.map((hour, i) => {
               const final = (last[hour] as number) ?? 0

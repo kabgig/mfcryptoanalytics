@@ -9,6 +9,75 @@ export interface HourlyChartPoint {
   [hour: string]: string | number
 }
 
+// ── Session view ──────────────────────────────────────────────────────────────
+
+export const SESSION_NAMES = ["Night", "Morning", "Afternoon", "Evening"] as const
+export type SessionName = typeof SESSION_NAMES[number]
+
+export const SESSION_HOURS: Record<SessionName, number[]> = {
+  Night:     [0, 1, 2, 3, 4, 5],
+  Morning:   [6, 7, 8, 9, 10, 11],
+  Afternoon: [12, 13, 14, 15, 16, 17],
+  Evening:   [18, 19, 20, 21, 22, 23],
+}
+
+// Map each hour → its session name for fast lookup
+const HOUR_TO_SESSION: SessionName[] = Array.from({ length: 24 }, (_, h) => {
+  for (const [name, hours] of Object.entries(SESSION_HOURS) as [SessionName, number[]][]) {
+    if (hours.includes(h)) return name
+  }
+  return "Night"
+})
+
+export const SESSION_COLORS: Record<SessionName, string> = {
+  Night:     "#6366f1",
+  Morning:   "#f59e0b",
+  Afternoon: "#22c55e",
+  Evening:   "#f87171",
+}
+
+/**
+ * Same step-function algorithm as computeHourlyPnl, but collapses hours
+ * into 4 session buckets (Night / Morning / Afternoon / Evening).
+ */
+export function computeSessionPnl(
+  trades: Trade[],
+  timeField: "closeTime" | "openTime"
+): HourlyChartPoint[] {
+  if (trades.length === 0) return []
+
+  const dailySession = new Map<string, Map<SessionName, number>>()
+  for (const trade of trades) {
+    const iso = trade[timeField]
+    const date = iso.slice(0, 10)
+    const hour = parseInt(iso.slice(11, 13), 10)
+    const session = HOUR_TO_SESSION[hour]
+    if (!dailySession.has(date)) dailySession.set(date, new Map())
+    const sessionMap = dailySession.get(date)!
+    sessionMap.set(session, (sessionMap.get(session) ?? 0) + trade.pnl)
+  }
+
+  const dates = Array.from(dailySession.keys()).sort()
+
+  const running: Record<string, number> = {}
+  for (const s of SESSION_NAMES) running[s] = 0
+
+  const fmt = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" })
+
+  return dates.map((isoDate) => {
+    const sessionMap = dailySession.get(isoDate)!
+    for (const [session, pnl] of sessionMap.entries()) {
+      running[session] = parseFloat((running[session] + pnl).toFixed(2))
+    }
+
+    const point: HourlyChartPoint = { date: fmt.format(new Date(isoDate + "T00:00:00")) }
+    for (const s of SESSION_NAMES) {
+      point[s] = running[s]
+    }
+    return point
+  })
+}
+
 /**
  * Builds a time-series dataset where each point is a calendar date.
  * Each hour key (00h–23h) holds the cumulative PnL of ALL trades whose
