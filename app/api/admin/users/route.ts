@@ -11,8 +11,9 @@ export async function GET() {
         u.telegram_name,
         u.role,
         u.created_at,
-        COUNT(ct.id)::int          AS trade_count,
-        COUNT(DISTINCT ct.exchange) AS exchange_count
+        COUNT(ct.id)::int           AS trade_count,
+        COUNT(DISTINCT ct.exchange)  AS exchange_count,
+        COALESCE(SUM(ct.pnl), 0)     AS total_pnl
       FROM users u
       LEFT JOIN cached_trades ct ON ct.telegram_id = u.telegram_id
       GROUP BY u.telegram_id, u.telegram_name, u.role, u.created_at
@@ -24,6 +25,7 @@ export async function GET() {
       created_at: Date
       trade_count: number
       exchange_count: number
+      total_pnl: string
     }[]
 
     return NextResponse.json(
@@ -34,6 +36,7 @@ export async function GET() {
         createdAt: r.created_at.toISOString(),
         tradeCount: Number(r.trade_count),
         exchangeCount: Number(r.exchange_count),
+        totalPnl: parseFloat(r.total_pnl as unknown as string),
       }))
     )
   } catch (err) {

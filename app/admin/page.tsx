@@ -14,6 +14,7 @@ interface UserRow {
   createdAt: string
   tradeCount: number
   exchangeCount: number
+  totalPnl: number
 }
 
 function fmtDate(iso: string) {
@@ -131,6 +132,7 @@ export default function AdminPage() {
                       <th className="px-4 py-2.5 font-medium">Telegram ID</th>
                       <th className="px-4 py-2.5 font-medium">Role</th>
                       <th className="px-4 py-2.5 font-medium">Joined</th>
+                      <th className="px-4 py-2.5 font-medium text-right">Total PnL</th>
                       <th className="px-4 py-2.5 font-medium text-right">Trades</th>
                       <th className="px-4 py-2.5 font-medium text-right">Exchanges</th>
                     </tr>
@@ -150,6 +152,9 @@ export default function AdminPage() {
                           </span>
                         </td>
                         <td className="px-4 py-2.5 text-muted-foreground">{fmtDate(u.createdAt)}</td>
+                        <td className={`px-4 py-2.5 text-right tabular-nums font-medium ${u.totalPnl >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                          {u.totalPnl >= 0 ? "+" : ""}{u.totalPnl.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
+                        </td>
                         <td className="px-4 py-2.5 text-right tabular-nums">{u.tradeCount.toLocaleString()}</td>
                         <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{u.exchangeCount}</td>
                       </tr>
