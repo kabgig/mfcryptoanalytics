@@ -1,6 +1,4 @@
 
-3. Exchange Comparison — "EMon"
-Same wMon-style line chart but each line = one exchange. Shows if you're systematically better on one platform.X-axis is time(according to filter above the chart), y-axis is $, chart lines are exchanges
 
 4. Win/Loss Streak tracker
 Timeline of consecutive wins and losses. Bar chart of streak lengths. Shows psychological risk — if you're prone to revenge trading after a streak.
@@ -8,5 +6,3 @@ Timeline of consecutive wins and losses. Bar chart of streak lengths. Shows psyc
 5. Trade Duration vs PnL scatter plot
 X = hold duration (minutes/hours), Y = PnL. Color = win/loss. Answers "should I hold longer or cut faster?"
 
-7. Long vs Short performance
-Side-by-side: total PnL, win rate, trade count split by long/short. Shows directional bias.
