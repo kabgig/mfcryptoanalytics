@@ -23,6 +23,7 @@ interface NavLink { label: string; href: string; adminOnly?: boolean }
 const NAV_LINKS: NavLink[] = [
   { label: "Main",  href: "/" },
   { label: "WMon",  href: "/wmon" },
+  { label: "HMon",  href: "/hmon" },
   { label: "admin", href: "/admin", adminOnly: true },
 ]
 
