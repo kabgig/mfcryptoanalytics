@@ -28,7 +28,7 @@ const NAV_LINKS: NavLink[] = [
   { label: "EMon",  href: "/emon" },
   { label: "LvsS",  href: "/lvs" },
   { label: "DPnL",  href: "/dpnl" },
-  { label: "admin", href: "/admin", adminOnly: true },
+  { label: "Admin", href: "/admin", adminOnly: true },
 ]
 
 function MobileThemeToggle() {
