@@ -1,8 +1,0 @@
-
-
-4. Win/Loss Streak tracker
-Timeline of consecutive wins and losses. Bar chart of streak lengths. Shows psychological risk — if you're prone to revenge trading after a streak.
-
-make admin page with the list of all users.
-
-
