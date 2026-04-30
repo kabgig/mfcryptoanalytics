@@ -1,9 +1,4 @@
 
-1. Ticker PnL page — "TMon"
-Bar chart ranking every symbol by total cumulative PnL. X-axis is time(according to filter above the chart), y-axis is $, chart lines are tickers
-
-
-
 3. Exchange Comparison — "EMon"
 Same wMon-style line chart but each line = one exchange. Shows if you're systematically better on one platform.X-axis is time(according to filter above the chart), y-axis is $, chart lines are exchanges
 
