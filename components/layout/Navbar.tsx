@@ -1,13 +1,13 @@
 'use client'
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useTheme } from "next-themes"
 import { ThemeToggle } from "./ThemeToggle"
 import { ApiKeysModal } from "@/components/settings/ApiKeysModal"
 import { useUserStore } from "@/lib/store/userStore"
-import { LogOut, Settings, Moon, Sun, Menu, X } from "lucide-react"
+import { LogOut, Settings, Moon, Sun, Menu, X, Upload, ChevronDown } from "lucide-react"
 
 // Telegram SVG logo
 function TelegramIcon({ className }: { className?: string }) {
@@ -30,6 +30,54 @@ const NAV_LINKS: NavLink[] = [
   { label: "DPnL",  href: "/dpnl" },
   { label: "Admin", href: "/admin", adminOnly: true },
 ]
+
+const IMPORT_ITEMS = [
+  { label: "Jupiter Dex", href: "/import/jupiter" },
+]
+
+function ImportDropdown({ pathname }: { pathname: string }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const isActive = pathname.startsWith("/import")
+
+  return (
+    <div
+      ref={ref}
+      className="relative"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        className={`flex items-center gap-1 text-sm font-medium transition-colors hover:text-foreground ${
+          isActive ? "text-foreground" : "text-muted-foreground"
+        }`}
+      >
+        <Upload className="h-3.5 w-3.5" />
+        Import
+        <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full pt-1 z-50 min-w-[160px]">
+          <div className="rounded-md border border-border bg-background shadow-md py-1">
+            {IMPORT_ITEMS.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setOpen(false)}
+                className={`flex items-center px-3 py-2 text-sm transition-colors hover:bg-accent ${
+                  pathname === item.href ? "text-foreground font-medium" : "text-muted-foreground"
+                }`}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function MobileThemeToggle() {
   const { theme, setTheme } = useTheme()
@@ -75,6 +123,7 @@ export function Navbar() {
                 {l.label}
               </Link>
             ))}
+            <ImportDropdown pathname={pathname} />
           </nav>
         </div>
 
@@ -133,6 +182,24 @@ export function Navbar() {
               }`}
             >
               {l.label}
+            </Link>
+          ))}
+
+          {/* Import sub-items */}
+          <div className="flex items-center gap-2 px-4 py-1.5">
+            <Upload className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Import</span>
+          </div>
+          {IMPORT_ITEMS.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={() => setMobileOpen(false)}
+              className={`flex items-center pl-9 pr-4 py-2 text-sm rounded-md transition-colors hover:bg-accent ${
+                pathname === item.href ? "text-foreground bg-accent/50 font-medium" : "text-muted-foreground"
+              }`}
+            >
+              {item.label}
             </Link>
           ))}
 

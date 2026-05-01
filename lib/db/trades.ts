@@ -18,6 +18,23 @@ function rowToTrade(r: Record<string, unknown>): Trade {
 }
 
 /**
+ * Returns all stored trades for a user+exchange with no freshness check.
+ * Used for manual imports (e.g. Jupiter Perps) that never expire.
+ */
+export async function getStoredTrades(telegramId: string, exchange: string): Promise<Trade[]> {
+  const sql = getSql()
+  const rows = await sql`
+    SELECT id, exchange, ticker, position_size, tp, sl,
+           open_time, close_time, pnl, market, side
+    FROM cached_trades
+    WHERE telegram_id = ${BigInt(telegramId)}
+      AND exchange    = ${exchange}
+    ORDER BY close_time DESC
+  ` as Record<string, unknown>[]
+  return rows.map(rowToTrade)
+}
+
+/**
  * Single-query: checks freshness AND returns cached trades together.
  * Returns { fresh: true, trades } if cache is valid, or { fresh: false } if not.
  */
@@ -103,6 +120,45 @@ export async function upsertTrades(telegramId: string, exchange: string, trades:
     VALUES (${tid}, ${exchange}, NOW())
     ON CONFLICT (telegram_id, exchange) DO UPDATE SET fetched_at = NOW()
   `
+}
+
+/**
+ * Inserts a batch of imported trades, skipping any that already exist (DO NOTHING).
+ * Returns the number of rows actually inserted.
+ * Also upserts the exchange_fetch_log so the import is tracked.
+ */
+export async function insertTradesSkipExisting(
+  telegramId: string,
+  exchange: string,
+  trades: Trade[]
+): Promise<number> {
+  const sql = getSql()
+  const tid = BigInt(telegramId)
+  let saved = 0
+
+  for (const t of trades) {
+    const result = await sql`
+      INSERT INTO cached_trades
+        (id, telegram_id, exchange, ticker, position_size, tp, sl, open_time, close_time, pnl, market, side)
+      VALUES (
+        ${t.id}, ${tid}, ${t.exchange}, ${t.ticker},
+        ${t.positionSize}, ${t.tp ?? null}, ${t.sl ?? null},
+        ${t.openTime}::timestamptz, ${t.closeTime}::timestamptz,
+        ${t.pnl}, ${t.market ?? null}, ${t.side ?? null}
+      )
+      ON CONFLICT (telegram_id, id) DO NOTHING
+    ` as unknown[]
+    // postgres.js returns the affected rows count via result.count
+    if ((result as unknown as { count: number }).count > 0) saved++
+  }
+
+  await sql`
+    INSERT INTO exchange_fetch_log (telegram_id, exchange, fetched_at)
+    VALUES (${tid}, ${exchange}, NOW())
+    ON CONFLICT (telegram_id, exchange) DO UPDATE SET fetched_at = NOW()
+  `
+
+  return saved
 }
 
 /**

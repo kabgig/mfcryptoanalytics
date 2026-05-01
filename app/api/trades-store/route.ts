@@ -1,15 +1,16 @@
 import { getSql } from "@/lib/db"
-import { upsertTrades } from "@/lib/db/trades"
+import { upsertTrades, insertTradesSkipExisting } from "@/lib/db/trades"
 import type { Trade } from "@/types"
 
 export const dynamic = "force-dynamic"
 
 export async function POST(request: Request) {
   try {
-    const { telegramId, exchange, trades } = await request.json() as {
+    const { telegramId, exchange, trades, skipExisting } = await request.json() as {
       telegramId: string
       exchange: string
       trades: Trade[]
+      skipExisting?: boolean
     }
 
     if (!telegramId || !exchange || !Array.isArray(trades)) {
@@ -22,6 +23,11 @@ export async function POST(request: Request) {
       VALUES (${BigInt(telegramId)}, ${'unknown'})
       ON CONFLICT (telegram_id) DO NOTHING
     `
+
+    if (skipExisting) {
+      const saved = await insertTradesSkipExisting(telegramId, exchange, trades)
+      return Response.json({ ok: true, saved })
+    }
 
     await upsertTrades(telegramId, exchange, trades)
     return Response.json({ ok: true })

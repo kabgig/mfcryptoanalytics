@@ -151,6 +151,7 @@ export function TMonView() {
   const apiKeys = useUserStore((s) => s.apiKeys)
 
   const [trades, setTrades] = useState<Trade[]>([])
+  const [jupiterTrades, setJupiterTrades] = useState<Trade[]>([])
   const [loading, setLoading] = useState(false)
   const [loadedExchanges, setLoadedExchanges] = useState<string[]>([])
   const [exchangeErrors, setExchangeErrors] = useState<Record<string, string>>({})
@@ -233,14 +234,31 @@ export function TMonView() {
     apiKeys.bydfiApiKey, apiKeys.bydfiApiSecret,
   ])
 
+  // Load Jupiter Perps imported trades (no expiry — always show all stored)
+  useEffect(() => {
+    if (!telegramId) return
+    let cancelled = false
+    fetch("/api/import/trades", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ telegramId, exchange: "Jupiter Perps" }),
+    })
+      .then((r) => r.json())
+      .then((data) => { if (!cancelled && data.trades) setJupiterTrades(data.trades as Trade[]) })
+      .catch(() => { /* non-critical */ })
+    return () => { cancelled = true }
+  }, [telegramId])
+
   const hasAnyKey = buildExchangeConfigs().length > 0
   const errorEntries = Object.entries(exchangeErrors)
 
   const filteredTrades = useMemo(() => {
     const days = PERIODS.find((p) => p.label === period)?.days ?? 90
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
-    return trades.filter((t) => new Date(t.closeTime).getTime() >= cutoff)
-  }, [trades, period])
+    const all = [...trades, ...jupiterTrades]
+    all.sort((a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime())
+    return all.filter((t) => new Date(t.closeTime).getTime() >= cutoff)
+  }, [trades, jupiterTrades, period])
 
   const { points: chartData, tickers } = useMemo(
     () => computeTickerPnl(filteredTrades, topN),
@@ -251,11 +269,13 @@ export function TMonView() {
 
   return (
     <main className="flex-1 mx-auto w-full max-w-7xl px-4 sm:px-6 py-6 space-y-6">
-      {!hasAnyKey && (
+      {!hasAnyKey && jupiterTrades.length === 0 && (
         <div className="flex items-center gap-3 rounded-lg border border-yellow-400/50 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-700 dark:text-yellow-300">
           <TriangleAlert className="h-4 w-4 shrink-0" />
           <span>
-            No exchange API keys configured. Open <strong>Settings</strong> and add at least one exchange to start tracking your trades.
+            No data yet. Open <strong>Settings</strong> to add exchange API keys, or use{" "}
+            <a href="/import/jupiter" className="underline underline-offset-2 hover:opacity-80">Import → Jupiter Dex</a>{" "}
+            to upload a trade history CSV.
           </span>
         </div>
       )}
