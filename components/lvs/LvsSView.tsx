@@ -191,7 +191,7 @@ export function LvsSView() {
   const apiKeys = useUserStore((s) => s.apiKeys)
 
   const [trades, setTrades] = useState<Trade[]>([])
-  const [jupiterTrades, setJupiterTrades] = useState<Trade[]>([])
+  const [importedTrades, setImportedTrades] = useState<Trade[]>([])
   const [loading, setLoading] = useState(false)
   const [loadedExchanges, setLoadedExchanges] = useState<string[]>([])
   const [exchangeErrors, setExchangeErrors] = useState<Record<string, string>>({})
@@ -273,17 +273,26 @@ export function LvsSView() {
     apiKeys.bydfiApiKey, apiKeys.bydfiApiSecret,
   ])
 
-  // Load Jupiter Perps imported trades (no expiry — always show all stored)
+  // Load manually-imported trades (no expiry — always show all stored)
   useEffect(() => {
     if (!telegramId) return
     let cancelled = false
-    fetch("/api/import/trades", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ telegramId, exchange: "Jupiter Perps" }),
-    })
-      .then((r) => r.json())
-      .then((data) => { if (!cancelled && data.trades) setJupiterTrades(data.trades as Trade[]) })
+    const IMPORTED_EXCHANGES = ["Jupiter Perps", "bluefin"]
+    Promise.all(
+      IMPORTED_EXCHANGES.map((exchange) =>
+        fetch("/api/import/trades", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ telegramId, exchange }),
+        }).then((r) => r.json())
+      )
+    )
+      .then((results) => {
+        if (!cancelled) {
+          const merged = results.flatMap((data) => (data.trades ?? []) as Trade[])
+          setImportedTrades(merged)
+        }
+      })
       .catch(() => { /* non-critical */ })
     return () => { cancelled = true }
   }, [telegramId])
@@ -294,10 +303,10 @@ export function LvsSView() {
   const filteredTrades = useMemo(() => {
     const days = PERIODS.find((p) => p.label === period)?.days ?? 90
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
-    const all = [...trades, ...jupiterTrades]
+    const all = [...trades, ...importedTrades]
     all.sort((a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime())
     return all.filter((t) => new Date(t.closeTime).getTime() >= cutoff)
-  }, [trades, jupiterTrades, period])
+  }, [trades, importedTrades, period])
 
   const result = useMemo(() => computeLvsS(filteredTrades), [filteredTrades])
 
@@ -305,7 +314,7 @@ export function LvsSView() {
 
   return (
     <main className="flex-1 mx-auto w-full max-w-7xl px-4 sm:px-6 py-6 space-y-6">
-      {!hasAnyKey && jupiterTrades.length === 0 && (
+      {!hasAnyKey && importedTrades.length === 0 && (
         <div className="flex items-center gap-3 rounded-lg border border-yellow-400/50 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-700 dark:text-yellow-300">
           <TriangleAlert className="h-4 w-4 shrink-0" />
           <span>
