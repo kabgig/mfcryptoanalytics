@@ -208,7 +208,7 @@ export function JupiterImportView() {
       {hasData && (
         <>
           <StatsBar stats={stats} />
-          <PnlChart chartData={stats.chartData} />
+          <PnlChart chartData={stats.chartData} trades={trades} />
           <TradesTable trades={trades} />
 
           {/* Save / Clear controls */}

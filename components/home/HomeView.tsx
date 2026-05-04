@@ -337,7 +337,7 @@ export function HomeView() {
         </div>
       </div>
       <StatsBar stats={stats} balanceResult={balanceResult} balanceLoading={balanceLoading} />
-      <PnlChart chartData={stats.chartData} />
+      <PnlChart chartData={stats.chartData} trades={filteredTrades} />
       {Object.entries(exchangeErrors).length > 0 && (
         <div className="text-xs text-destructive space-y-1 border border-destructive/30 rounded p-3 bg-destructive/5">
           <p className="font-semibold">Exchange errors:</p>
