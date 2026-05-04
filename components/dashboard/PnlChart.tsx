@@ -27,13 +27,6 @@ const chartConfig: ChartConfig = {
   },
 }
 
-// Build a Set of indexes that are the last trade of each unique date
-function buildLastPerDayIndexes(data: StatsResult["chartData"]): Set<number> {
-  const lastIndex = new Map<string, number>()
-  data.forEach((point, i) => lastIndex.set(point.date, i))
-  return new Set(lastIndex.values())
-}
-
 // Group trades by date (YYYY-MM-DD of closeTime)
 function groupTradesByDate(trades: Trade[]): Map<string, Trade[]> {
   const map = new Map<string, Trade[]>()
@@ -62,10 +55,7 @@ function DayTooltip({ active, payload, tradesByDate }: any) {
         </span>
       </p>
       {dayTrades.length > 0 && (
-        <div className="space-y-1">
-          <p className="text-muted-foreground font-medium border-t pt-1">
-            {dayTrades.length} trade{dayTrades.length > 1 ? "s" : ""} closed:
-          </p>
+        <div className="space-y-1 border-t pt-1">
           {dayTrades.map((t) => (
             <div key={t.id} className="flex items-center justify-between gap-2">
               <span className="text-foreground font-medium truncate">{t.ticker}</span>
@@ -87,25 +77,7 @@ function DayTooltip({ active, payload, tradesByDate }: any) {
 }
 
 export function PnlChart({ chartData, trades }: PnlChartProps) {
-  const lastPerDayIndexes = buildLastPerDayIndexes(chartData)
   const tradesByDate = trades ? groupTradesByDate(trades) : undefined
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const renderDot = (props: any) => {
-    const { cx, cy, index } = props
-    if (!lastPerDayIndexes.has(index)) return <g key={index} />
-    return (
-      <circle
-        key={index}
-        cx={cx}
-        cy={cy}
-        r={3}
-        fill="#3b82f6"
-        fillOpacity={0.85}
-        strokeWidth={0}
-      />
-    )
-  }
 
   return (
     <Card>
@@ -146,7 +118,7 @@ export function PnlChart({ chartData, trades }: PnlChartProps) {
               stroke="#3b82f6"
               strokeWidth={2.5}
               fill="url(#pnlGradient)"
-              dot={renderDot}
+              dot={{ r: 3, fill: "#3b82f6", strokeWidth: 0, fillOpacity: 0.85 }}
               activeDot={{ r: 5, fill: "#3b82f6" }}
             />
           </AreaChart>
