@@ -113,7 +113,7 @@ export function PnlChart({ chartData, trades }: PnlChartProps) {
         <CardTitle className="text-base">Cumulative PnL</CardTitle>
       </CardHeader>
       <CardContent>
-        <ChartContainer config={chartConfig} className="h-[230px] sm:h-72 w-full">
+        <ChartContainer config={chartConfig} className="h-[230px] sm:h-72 w-full [&_.recharts-tooltip-cursor]:hidden [&_.recharts-rectangle.recharts-tooltip-cursor]:hidden">
           <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="pnlGradient" x1="0" y1="0" x2="0" y2="1">
@@ -138,7 +138,7 @@ export function PnlChart({ chartData, trades }: PnlChartProps) {
             />
             <Tooltip
               content={(props) => <DayTooltip {...props} tradesByDate={tradesByDate} />}
-              cursor={{ stroke: "currentColor", strokeOpacity: 0.15, strokeWidth: 1 }}
+              cursor={false}
             />
             <Area
               type="monotone"
