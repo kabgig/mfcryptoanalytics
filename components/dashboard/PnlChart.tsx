@@ -89,6 +89,24 @@ function DayTooltip({ active, payload, tradesByDate }: any) {
 export function PnlChart({ chartData, trades }: PnlChartProps) {
   const tradesByDate = trades ? groupTradesByDate(trades) : undefined
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const renderDot = (props: any) => {
+    const { cx, cy, payload } = props
+    const dayTrades: Trade[] = tradesByDate?.get(payload.date) ?? []
+    const dayPnl = dayTrades.reduce((sum, t) => sum + t.pnl, 0)
+    const fill = dayTrades.length === 0 ? "#3b82f6" : dayPnl >= 0 ? "#22c55e" : "#ef4444"
+    return <circle key={payload.date} cx={cx} cy={cy} r={3} fill={fill} fillOpacity={0.9} strokeWidth={0} />
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const renderActiveDot = (props: any) => {
+    const { cx, cy, payload } = props
+    const dayTrades: Trade[] = tradesByDate?.get(payload.date) ?? []
+    const dayPnl = dayTrades.reduce((sum, t) => sum + t.pnl, 0)
+    const fill = dayTrades.length === 0 ? "#3b82f6" : dayPnl >= 0 ? "#22c55e" : "#ef4444"
+    return <circle key={payload.date} cx={cx} cy={cy} r={5} fill={fill} strokeWidth={0} />
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -128,8 +146,8 @@ export function PnlChart({ chartData, trades }: PnlChartProps) {
               stroke="#3b82f6"
               strokeWidth={2.5}
               fill="url(#pnlGradient)"
-              dot={{ r: 3, fill: "#3b82f6", strokeWidth: 0, fillOpacity: 0.85 }}
-              activeDot={{ r: 5, fill: "#3b82f6" }}
+              dot={renderDot}
+              activeDot={renderActiveDot}
             />
           </AreaChart>
         </ChartContainer>
