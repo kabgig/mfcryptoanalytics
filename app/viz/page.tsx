@@ -505,7 +505,7 @@ export default function VizPage() {
         )
 
         return (
-          <div className="hidden md:flex absolute right-5 top-16 bottom-20 z-10 gap-2 select-none pointer-events-auto">
+          <div className="hidden md:flex absolute right-5 top-16 bottom-20 z-10 gap-0.5 select-none pointer-events-auto">
 
             {/* Column 1: Balance · Metrics · Sessions · Weekdays */}
             <div className="w-48 h-full overflow-y-auto flex flex-col gap-[3px] pr-1">
@@ -659,13 +659,13 @@ export default function VizPage() {
           </p>
         ) : (
           <>
-            <div className="flex items-center justify-center gap-2 sm:gap-4">
-              <p className={`font-mono text-[13px] sm:text-[25px] font-bold tracking-[0.18em] uppercase ${darkMode ? 'text-white/50' : 'text-black/40'}`}>PNL</p>
-              <p className={`text-2xl sm:text-6xl font-bold font-mono tracking-tight tabular-nums transition-colors duration-700 ${ui.pnl}`}>
+            <div className="flex items-center justify-center gap-1.5 sm:gap-3">
+              <p className={`font-mono text-[11px] sm:text-[18px] font-bold tracking-[0.18em] uppercase ${darkMode ? 'text-white/50' : 'text-black/40'}`}>PNL</p>
+              <p className={`text-xl sm:text-4xl font-bold font-mono tracking-tight tabular-nums transition-colors duration-700 ${ui.pnl}`}>
                 {pnlPositive ? '+' : ''}{pnlFormatted}
               </p>
             </div>
-            <p className={`mt-1 sm:mt-2 ${ui.subtext} font-mono text-[9px] sm:text-xs tracking-[0.25em] uppercase`}>
+            <p className={`mt-0.5 sm:mt-1 ${ui.subtext} font-mono text-[9px] sm:text-xs tracking-[0.25em] uppercase`}>
               {period} · {periodTrades.length} trade{periodTrades.length !== 1 ? 's' : ''}
             </p>
           </>
