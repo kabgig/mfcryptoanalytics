@@ -87,8 +87,8 @@ export function ShareModal({ trigger }: ShareModalProps) {
       )}
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="relative w-full max-w-md rounded-lg border border-border bg-background p-6 shadow-xl mx-4">
+        <div className="fixed inset-x-0 bottom-0 top-14 z-40 flex items-start justify-center pt-6 px-4">
+          <div className="relative z-[41] w-full max-w-md rounded-lg border border-border bg-background p-6 shadow-xl">
             {/* Header */}
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
