@@ -9,6 +9,8 @@ import { useUserStore } from '@/lib/store/userStore'
 import type { ClientApiKeys } from '@/lib/exchanges/client'
 import type { Trade } from '@/types'
 import { computeStats } from '@/lib/services/statsService'
+import { fetchAllBalances } from '@/lib/services/balanceService'
+import type { BalanceResult } from '@/lib/services/balanceService'
 import { Tooltip } from '@/components/ui/tooltip'
 
 const PnLWireframe = dynamic(
@@ -56,6 +58,13 @@ export default function VizPage() {
   const [trades, setTrades] = useState<Trade[]>([])
   const [loading, setLoading]   = useState(true)
   const [period, setPeriod]     = useState<PeriodLabel>('1m')
+  const [balanceResult, setBalanceResult] = useState<BalanceResult | null>(null)
+
+  // Fetch balances on mount
+  useEffect(() => {
+    if (!apiKeys) return
+    fetchAllBalances(apiKeys).then(setBalanceResult).catch(() => {})
+  }, [apiKeys])
 
   // Fetch all cached trades on mount
   useEffect(() => {
@@ -278,19 +287,19 @@ export default function VizPage() {
         const pfDisplay  = stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : '∞'
         const rrrDisplay = stats.rrr          !== null ? `${stats.rrr.toFixed(2)}x`    : '∞'
         const ddDisplay  = stats.maxDrawdown.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
-        const dim  = `font-mono text-[13px] tracking-[0.15em] uppercase ${darkMode ? 'text-white' : 'text-black'}`
-        const head = `font-mono text-[11px] tracking-[0.22em] uppercase mb-1 ${darkMode ? 'text-white/50' : 'text-black/50'}`
-        const val  = `font-mono text-[17px] font-semibold tabular-nums ${darkMode ? 'text-white' : 'text-black'}`
+        const dim  = `font-mono text-[17px] tracking-[0.15em] uppercase ${darkMode ? 'text-white' : 'text-black'}`
+        const head = `font-mono text-[15px] tracking-[0.22em] uppercase mb-1 ${darkMode ? 'text-white/50' : 'text-black/50'}`
+        const val  = `font-mono text-[20px] font-semibold tabular-nums ${darkMode ? 'text-white' : 'text-black'}`
         const pval = (v: number) => v >= 0
-          ? `font-mono text-[17px] font-semibold tabular-nums ${darkMode ? 'text-emerald-400' : 'text-emerald-700'}`
-          : `font-mono text-[17px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-700'}`
+          ? `font-mono text-[20px] font-semibold tabular-nums ${darkMode ? 'text-emerald-400' : 'text-emerald-700'}`
+          : `font-mono text-[20px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-700'}`
         const fmt  = (v: number) => (v >= 0 ? '+' : '') + v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
         const divider = <div className={`my-2 border-t ${darkMode ? 'border-white/10' : 'border-black/10'}`} />
         const SESSION_ORDER = ['Morning','Afternoon','Evening','Night'] as const
         const row = (label: string, v: string, cls: string, tip?: string) => (
           <div key={label} className="flex justify-between items-baseline gap-2 mb-0.5">
             {tip
-              ? <Tooltip content={tip} side="top"><span className={`${dim} cursor-help`}>{label}</span></Tooltip>
+              ? <Tooltip content={tip} side="bottom"><span className={`${dim} cursor-help`}>{label}</span></Tooltip>
               : <span className={dim}>{label}</span>}
             <span className={cls}>{v}</span>
           </div>
@@ -299,29 +308,60 @@ export default function VizPage() {
         return (
           <div className="absolute right-5 top-16 bottom-20 z-10 flex gap-5 select-none pointer-events-auto">
 
-            {/* Column 1: Metrics · Sessions · Weekdays */}
+            {/* Column 1: Balance · Metrics · Sessions · Weekdays */}
             <div className="w-48 h-full overflow-y-auto flex flex-col gap-[3px] pr-1">
-              <div className={head}>METRICS · {period}</div>
+
+              {balanceResult && (() => {
+                const fmtBal = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+                return (
+                  <>
+                    <Tooltip content="Live total balance across all connected exchanges" side="bottom">
+                      <div className={`${head} cursor-help inline-block`}>BALANCE</div>
+                    </Tooltip>
+                    <div className="flex justify-between items-baseline gap-2 mb-0.5">
+                      <span className={dim}>TOTAL</span>
+                      <span className={`font-mono text-[20px] font-semibold tabular-nums ${darkMode ? 'text-white' : 'text-black'}`}>{fmtBal(balanceResult.total)}</span>
+                    </div>
+                    {balanceResult.exchanges.filter(e => e.balance > 1).map(e => (
+                      <div key={e.exchange} className="flex justify-between items-baseline gap-2 mb-0.5">
+                        <span className={dim}>{e.exchange.toUpperCase()}</span>
+                        <span className={`font-mono text-[20px] tabular-nums ${darkMode ? 'text-white/70' : 'text-black/70'}`}>{fmtBal(e.balance)}</span>
+                      </div>
+                    ))}
+                    {divider}
+                  </>
+                )
+              })()}
+
+              <Tooltip content="Win rate, profit factor, RRR, max drawdown and total trades for the selected period" side="bottom">
+                <div className={`${head} cursor-help inline-block`}>METRICS · {period}</div>
+              </Tooltip>
               {row('WIN RATE',      `${stats.winRate.toFixed(1)}%`, val, 'Winning trades ÷ total trades')}
               {row('PROFIT FACTOR', pfDisplay,                       val, 'Gross profit ÷ gross loss. ∞ = no losing trades')}
               {row('RRR',           rrrDisplay,                      val, 'Avg win ÷ avg loss')}
               {row('TRADES',        String(stats.tradeCount),        val, 'Total closed trades in period')}
-              {row('MAX DD', `-${ddDisplay}`, `font-mono text-[17px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-600'}`, 'Largest peak-to-trough drop in cumulative PnL')}
+              {row('MAX DD', `-${ddDisplay}`, `font-mono text-[20px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-600'}`, 'Largest peak-to-trough drop in cumulative PnL')}
 
               {divider}
 
-              <div className={head}>SESSION PNL</div>
+              <Tooltip content="Cumulative PnL grouped by time of day: Morning 06–11h · Afternoon 12–17h · Evening 18–23h · Night 00–05h" side="bottom">
+                <div className={`${head} cursor-help inline-block`}>SESSION PNL</div>
+              </Tooltip>
               {SESSION_ORDER.map((s) => row(s.toUpperCase(), fmt(sessionPnl[s] ?? 0), pval(sessionPnl[s] ?? 0)))}
 
               {divider}
 
-              <div className={head}>WEEKDAY PNL</div>
+              <Tooltip content="Cumulative PnL grouped by day of the week trades were closed" side="bottom">
+                <div className={`${head} cursor-help inline-block`}>WEEKDAY PNL</div>
+              </Tooltip>
               {WD_NAMES.map((wd) => row(wd.toUpperCase(), fmt(weekdayPnl[wd] ?? 0), pval(weekdayPnl[wd] ?? 0)))}
             </div>
 
             {/* Column 2: Top Tickers · By Exchange */}
             <div className="w-52 h-full overflow-y-auto flex flex-col gap-[3px] pr-1">
-              <div className={head}>TOP TICKERS</div>
+              <Tooltip content="Top 20 tickers ranked by absolute cumulative PnL in the selected period" side="bottom">
+                <div className={`${head} cursor-help inline-block`}>TOP TICKERS</div>
+              </Tooltip>
               {tickerPnl.map(([ticker, v]) => (
                 <div key={ticker} className="flex justify-between items-baseline gap-2 mb-0.5">
                   <span className={`${dim} truncate max-w-[116px]`}>{ticker}</span>
@@ -331,7 +371,9 @@ export default function VizPage() {
 
               {divider}
 
-              <div className={head}>BY EXCHANGE</div>
+              <Tooltip content="Cumulative PnL per connected exchange in the selected period" side="bottom">
+                <div className={`${head} cursor-help inline-block`}>BY EXCHANGE</div>
+              </Tooltip>
               {exchangePnl.map(([ex, v]) => (
                 <div key={ex} className="flex justify-between items-baseline gap-2 mb-0.5">
                   <span className={`${dim} truncate max-w-[116px]`}>{ex.toUpperCase()}</span>
@@ -354,6 +396,7 @@ export default function VizPage() {
           </p>
         ) : (
           <>
+            <p className={`font-mono text-[11px] tracking-[0.25em] uppercase mb-1 ${darkMode ? 'text-white/50' : 'text-black/50'}`}>PNL</p>
             <p className={`text-5xl sm:text-6xl font-bold font-mono tracking-tight tabular-nums transition-colors duration-700 ${ui.pnl}`}
             >
               {pnlPositive ? '+' : ''}{pnlFormatted}
