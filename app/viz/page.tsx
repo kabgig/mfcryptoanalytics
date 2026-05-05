@@ -296,7 +296,7 @@ export default function VizPage() {
 
       {/* Left side — terminal trade feed */}
       {periodTrades.length > 0 && (
-        <div className="absolute left-5 top-16 bottom-20 z-10 w-80 overflow-hidden select-none">
+        <div className="hidden md:block absolute left-5 top-16 bottom-20 z-10 w-80 overflow-hidden select-none">
         <div ref={setTradeScrollRef} onWheel={onUserWheel} className="h-full overflow-hidden pointer-events-auto">
           <div ref={tradeInnerRef} className="flex flex-col gap-[3px] pr-1" style={{willChange:'transform'}}>
             {/* header */}
@@ -355,7 +355,7 @@ export default function VizPage() {
         )
 
         return (
-          <div className="absolute right-5 top-16 bottom-20 z-10 flex gap-5 select-none pointer-events-auto">
+          <div className="hidden md:flex absolute right-5 top-16 bottom-20 z-10 gap-5 select-none pointer-events-auto">
 
             {/* Column 1: Balance · Metrics · Sessions · Weekdays */}
             <div className="w-48 h-full overflow-y-auto flex flex-col gap-[3px] pr-1">
