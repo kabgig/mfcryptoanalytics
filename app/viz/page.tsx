@@ -486,12 +486,12 @@ export default function VizPage() {
         const pfDisplay  = stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : '∞'
         const rrrDisplay = stats.rrr          !== null ? `${stats.rrr.toFixed(2)}x`    : '∞'
         const ddDisplay  = stats.maxDrawdown.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
-        const dim  = `font-mono text-[7px] tracking-[0.12em] uppercase ${darkMode ? 'text-white' : 'text-black'}`
-        const head = `font-mono text-[7px] tracking-[0.18em] uppercase mb-1 ${darkMode ? 'text-white/50' : 'text-black/50'}`
-        const val  = `font-mono text-[7px] font-semibold tabular-nums ${darkMode ? 'text-white' : 'text-black'}`
+        const dim  = `font-mono text-[17px] tracking-[0.15em] uppercase ${darkMode ? 'text-white' : 'text-black'}`
+        const head = `font-mono text-[15px] tracking-[0.22em] uppercase mb-1 ${darkMode ? 'text-white/50' : 'text-black/50'}`
+        const val  = `font-mono text-[20px] font-semibold tabular-nums ${darkMode ? 'text-white' : 'text-black'}`
         const pval = (v: number) => v >= 0
-          ? `font-mono text-[7px] font-semibold tabular-nums ${darkMode ? 'text-emerald-400' : 'text-emerald-700'}`
-          : `font-mono text-[7px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-700'}`
+          ? `font-mono text-[20px] font-semibold tabular-nums ${darkMode ? 'text-emerald-400' : 'text-emerald-700'}`
+          : `font-mono text-[20px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-700'}`
         const fmt  = (v: number) => (v >= 0 ? '+' : '') + v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
         const divider = <div className={`my-2 border-t ${darkMode ? 'border-white/10' : 'border-black/10'}`} />
         const SESSION_ORDER = ['Morning','Afternoon','Evening','Night'] as const
@@ -505,7 +505,7 @@ export default function VizPage() {
         )
 
         return (
-          <div className="hidden md:flex absolute right-5 top-16 bottom-20 z-10 gap-2 select-none pointer-events-auto">
+          <div className="hidden md:flex absolute right-5 top-16 bottom-20 z-10 gap-5 select-none pointer-events-auto">
 
             {/* Column 1: Balance · Metrics · Sessions · Weekdays */}
             <div className="w-48 h-full overflow-y-auto flex flex-col gap-[3px] pr-1">
