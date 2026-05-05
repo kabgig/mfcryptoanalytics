@@ -269,6 +269,35 @@ export default function VizPage() {
     mobileRafRef.current = requestAnimationFrame(tick)
   }, [])
 
+  // ── Mobile stats scroll (separate refs) ──────────────────────────────────
+  const mobileStatsScrollRef = useRef<HTMLDivElement>(null)
+  const mobileStatsInnerRef  = useRef<HTMLDivElement>(null)
+  const mobileStatsOffsetRef = useRef(0)
+  const mobileStatsRafRef    = useRef<number | null>(null)
+
+  const setMobileStatsScrollRef = useCallback((el: HTMLDivElement | null) => {
+    if (mobileStatsRafRef.current !== null) { cancelAnimationFrame(mobileStatsRafRef.current); mobileStatsRafRef.current = null }
+    ;(mobileStatsScrollRef as React.MutableRefObject<HTMLDivElement | null>).current = el
+    if (!el) return
+    const PX_PER_MS = 0.03
+    let last = performance.now()
+    const tick = (now: number) => {
+      const dt = Math.min(now - last, 50)
+      last = now
+      const inner = mobileStatsInnerRef.current
+      if (inner) {
+        const maxOffset = Math.max(0, inner.scrollHeight - el.clientHeight)
+        if (maxOffset > 0) {
+          mobileStatsOffsetRef.current += PX_PER_MS * dt
+          if (mobileStatsOffsetRef.current >= maxOffset) mobileStatsOffsetRef.current = 0
+          inner.style.transform = `translateY(-${mobileStatsOffsetRef.current}px)`
+        }
+      }
+      mobileStatsRafRef.current = requestAnimationFrame(tick)
+    }
+    mobileStatsRafRef.current = requestAnimationFrame(tick)
+  }, [])
+
   const pnlPositive = pnl >= 0
   const pnlFormatted = pnl.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
@@ -287,6 +316,8 @@ export default function VizPage() {
       {/* ── Desktop top bar ────────────────────────────────────────────── */}
       {/* Top-left — back link + shape picker */}
       <div className="hidden md:flex absolute top-5 left-5 z-10 items-center gap-3">
+        <span className={`text-sm font-semibold font-mono tracking-tight ${darkMode ? 'text-white' : 'text-black'}`}>MF Crypto Analytics</span>
+        <span className={`${darkMode ? 'text-white/20' : 'text-black/20'}`}>·</span>
         <Link
           href="/"
           className={`flex items-center gap-1.5 text-xs font-mono ${ui.text} ${ui.textHover} transition-colors tracking-widest uppercase`}
@@ -326,6 +357,9 @@ export default function VizPage() {
       </div>
 
       {/* ── Mobile sandwich menu ──────────────────────────────────────────── */}
+      <div className="md:hidden absolute top-4 left-4 z-20">
+        <span className={`text-[11px] font-semibold font-mono tracking-tight ${darkMode ? 'text-white/70' : 'text-black/70'}`}>MF Crypto Analytics</span>
+      </div>
       <div className="md:hidden absolute top-4 right-4 z-20">
         <button
           onClick={() => setMenuOpen((o) => !o)}
@@ -434,7 +468,7 @@ export default function VizPage() {
               {periodTrades.slice().sort((a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime()).map((t, i) => {
                 const pos = t.pnl >= 0
                 return (
-                  <div key={t.id ?? i} className="flex gap-2 font-mono text-[9px] leading-tight tabular-nums">
+                  <div key={t.id ?? i} className="flex gap-2 font-mono text-[8px] leading-tight tabular-nums">
                     <span className={`shrink-0 ${pos ? (darkMode ? 'text-emerald-400' : 'text-emerald-700') : (darkMode ? 'text-red-400' : 'text-red-700')}`}>
                       {pos ? '+' : ''}{t.pnl.toFixed(2)}
                     </span>
@@ -452,12 +486,12 @@ export default function VizPage() {
         const pfDisplay  = stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : '∞'
         const rrrDisplay = stats.rrr          !== null ? `${stats.rrr.toFixed(2)}x`    : '∞'
         const ddDisplay  = stats.maxDrawdown.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
-        const dim  = `font-mono text-[17px] tracking-[0.15em] uppercase ${darkMode ? 'text-white' : 'text-black'}`
-        const head = `font-mono text-[15px] tracking-[0.22em] uppercase mb-1 ${darkMode ? 'text-white/50' : 'text-black/50'}`
-        const val  = `font-mono text-[20px] font-semibold tabular-nums ${darkMode ? 'text-white' : 'text-black'}`
+        const dim  = `font-mono text-[7px] tracking-[0.12em] uppercase ${darkMode ? 'text-white' : 'text-black'}`
+        const head = `font-mono text-[7px] tracking-[0.18em] uppercase mb-1 ${darkMode ? 'text-white/50' : 'text-black/50'}`
+        const val  = `font-mono text-[7px] font-semibold tabular-nums ${darkMode ? 'text-white' : 'text-black'}`
         const pval = (v: number) => v >= 0
-          ? `font-mono text-[20px] font-semibold tabular-nums ${darkMode ? 'text-emerald-400' : 'text-emerald-700'}`
-          : `font-mono text-[20px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-700'}`
+          ? `font-mono text-[7px] font-semibold tabular-nums ${darkMode ? 'text-emerald-400' : 'text-emerald-700'}`
+          : `font-mono text-[7px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-700'}`
         const fmt  = (v: number) => (v >= 0 ? '+' : '') + v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
         const divider = <div className={`my-2 border-t ${darkMode ? 'border-white/10' : 'border-black/10'}`} />
         const SESSION_ORDER = ['Morning','Afternoon','Evening','Night'] as const
@@ -471,7 +505,7 @@ export default function VizPage() {
         )
 
         return (
-          <div className="hidden md:flex absolute right-5 top-16 bottom-20 z-10 gap-5 select-none pointer-events-auto">
+          <div className="hidden md:flex absolute right-5 top-16 bottom-20 z-10 gap-2 select-none pointer-events-auto">
 
             {/* Column 1: Balance · Metrics · Sessions · Weekdays */}
             <div className="w-48 h-full overflow-y-auto flex flex-col gap-[3px] pr-1">
@@ -547,6 +581,70 @@ export default function VizPage() {
               ))}
             </div>
 
+          </div>
+        )
+      })()}
+
+      {/* Mobile stats panel — right side, single column, auto-scroll */}
+      {!loading && periodTrades.length > 0 && (() => {
+        const pfDisplay  = stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : '∞'
+        const rrrDisplay = stats.rrr          !== null ? `${stats.rrr.toFixed(2)}x`    : '∞'
+        const ddDisplay  = stats.maxDrawdown.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
+        const mDim  = `font-mono text-[8px] tracking-[0.12em] uppercase ${darkMode ? 'text-white' : 'text-black'}`
+        const mHead = `font-mono text-[8px] tracking-[0.2em] uppercase mb-0.5 ${darkMode ? 'text-white/40' : 'text-black/40'}`
+        const mVal  = `font-mono text-[8px] font-semibold tabular-nums ${darkMode ? 'text-white' : 'text-black'}`
+        const mPval = (v: number) => `font-mono text-[8px] font-semibold tabular-nums ${v >= 0 ? (darkMode ? 'text-emerald-400' : 'text-emerald-700') : (darkMode ? 'text-red-400' : 'text-red-700')}`
+        const fmt   = (v: number) => (v >= 0 ? '+' : '') + v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
+        const mDivider = <div className={`my-1.5 border-t ${darkMode ? 'border-white/10' : 'border-black/10'}`} />
+        const SESSION_ORDER = ['Morning','Afternoon','Evening','Night'] as const
+        const mRow = (label: string, v: string, cls: string) => (
+          <div key={label} className="flex justify-between items-baseline gap-1 mb-[2px]">
+            <span className={mDim}>{label}</span>
+            <span className={cls}>{v}</span>
+          </div>
+        )
+        return (
+          <div className="md:hidden absolute right-3 top-16 bottom-28 z-10 w-28 overflow-hidden select-none">
+            <div ref={setMobileStatsScrollRef} className="h-full overflow-hidden">
+              <div ref={mobileStatsInnerRef} className="flex flex-col pr-0.5" style={{willChange:'transform'}}>
+
+                {balanceResult && (() => {
+                  const fmtBal = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+                  return (
+                    <>
+                      <div className={mHead}>BALANCE</div>
+                      {mRow('TOTAL', fmtBal(balanceResult.total), mVal)}
+                      {balanceResult.exchanges.filter(e => e.balance > 1).map(e => mRow(e.exchange.toUpperCase(), fmtBal(e.balance), `font-mono text-[11px] tabular-nums ${darkMode ? 'text-white/60' : 'text-black/60'}`))}
+                      {mDivider}
+                    </>
+                  )
+                })()}
+
+                <div className={mHead}>METRICS · {period}</div>
+                {mRow('WIN RATE',      `${stats.winRate.toFixed(1)}%`, mVal)}
+                {mRow('PROF FACTOR',   pfDisplay,                      mVal)}
+                {mRow('RRR',           rrrDisplay,                     mVal)}
+                {mRow('TRADES',        String(stats.tradeCount),       mVal)}
+                {mRow('MAX DD',        `-${ddDisplay}`,                `font-mono text-[11px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-600'}`)}
+                {mDivider}
+
+                <div className={mHead}>SESSION PNL</div>
+                {SESSION_ORDER.map((s) => mRow(s.toUpperCase(), fmt(sessionPnl[s] ?? 0), mPval(sessionPnl[s] ?? 0)))}
+                {mDivider}
+
+                <div className={mHead}>WEEKDAY PNL</div>
+                {WD_NAMES.map((wd) => mRow(wd.toUpperCase(), fmt(weekdayPnl[wd] ?? 0), mPval(weekdayPnl[wd] ?? 0)))}
+                {mDivider}
+
+                <div className={mHead}>TOP TICKERS</div>
+                {tickerPnl.map(([ticker, v]) => mRow(ticker, fmt(v), mPval(v)))}
+                {mDivider}
+
+                <div className={mHead}>BY EXCHANGE</div>
+                {exchangePnl.map(([ex, v]) => mRow(ex.toUpperCase(), fmt(v), mPval(v)))}
+
+              </div>
+            </div>
           </div>
         )
       })()}
