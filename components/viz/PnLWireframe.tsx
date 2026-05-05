@@ -84,7 +84,7 @@ export function PnLWireframe({ pnl, maxAbsPnl, shapeId = 'icosahedron', darkMode
     const initColor = new THREE.Color(0, 0.6, 0.35)
     const material  = new THREE.MeshBasicMaterial({ wireframe: true, color: initColor })
     const mesh      = new THREE.Mesh(geometry, material)
-    mesh.scale.setScalar(0.8)
+    mesh.scale.setScalar(w < 768 ? 0.35 : 1.3)
     scene.add(mesh)
 
     // ── Ambient particle field ───────────────────────────────────────────────
@@ -211,6 +211,8 @@ export function PnLWireframe({ pnl, maxAbsPnl, shapeId = 'icosahedron', darkMode
       const nw = container.clientWidth, nh = container.clientHeight
       camera.aspect = nw / nh
       camera.updateProjectionMatrix()
+      camera.position.z = nw < 768 ? 6.5 : 3.8
+      mesh.scale.setScalar(nw < 768 ? 0.35 : 1.3)
       renderer.setSize(nw, nh)
       composer.setSize(nw, nh)
     })
