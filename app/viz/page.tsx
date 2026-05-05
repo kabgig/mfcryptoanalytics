@@ -590,15 +590,15 @@ export default function VizPage() {
         const pfDisplay  = stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : '∞'
         const rrrDisplay = stats.rrr          !== null ? `${stats.rrr.toFixed(2)}x`    : '∞'
         const ddDisplay  = stats.maxDrawdown.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
-        const mDim  = `font-mono text-[8px] tracking-[0.12em] uppercase ${darkMode ? 'text-white' : 'text-black'}`
-        const mHead = `font-mono text-[8px] tracking-[0.2em] uppercase mb-0.5 ${darkMode ? 'text-white/40' : 'text-black/40'}`
-        const mVal  = `font-mono text-[8px] font-semibold tabular-nums ${darkMode ? 'text-white' : 'text-black'}`
-        const mPval = (v: number) => `font-mono text-[8px] font-semibold tabular-nums ${v >= 0 ? (darkMode ? 'text-emerald-400' : 'text-emerald-700') : (darkMode ? 'text-red-400' : 'text-red-700')}`
+        const mDim  = `font-mono text-[6px] tracking-[0.12em] uppercase ${darkMode ? 'text-white' : 'text-black'}`
+        const mHead = `font-mono text-[6px] tracking-[0.2em] uppercase mb-0.5 ${darkMode ? 'text-white/40' : 'text-black/40'}`
+        const mVal  = `font-mono text-[6px] font-semibold tabular-nums ${darkMode ? 'text-white' : 'text-black'}`
+        const mPval = (v: number) => `font-mono text-[6px] font-semibold tabular-nums ${v >= 0 ? (darkMode ? 'text-emerald-400' : 'text-emerald-700') : (darkMode ? 'text-red-400' : 'text-red-700')}`
         const fmt   = (v: number) => (v >= 0 ? '+' : '') + v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
         const mDivider = <div className={`my-1.5 border-t ${darkMode ? 'border-white/10' : 'border-black/10'}`} />
         const SESSION_ORDER = ['Morning','Afternoon','Evening','Night'] as const
         const mRow = (label: string, v: string, cls: string) => (
-          <div key={label} className="flex justify-between items-baseline gap-1 mb-[2px]">
+          <div key={label} className="flex justify-between items-baseline gap-0.5 mb-[1px]">
             <span className={mDim}>{label}</span>
             <span className={cls}>{v}</span>
           </div>
@@ -614,7 +614,7 @@ export default function VizPage() {
                     <>
                       <div className={mHead}>BALANCE</div>
                       {mRow('TOTAL', fmtBal(balanceResult.total), mVal)}
-                      {balanceResult.exchanges.filter(e => e.balance > 1).map(e => mRow(e.exchange.toUpperCase(), fmtBal(e.balance), `font-mono text-[11px] tabular-nums ${darkMode ? 'text-white/60' : 'text-black/60'}`))}
+                      {balanceResult.exchanges.filter(e => e.balance > 1).map(e => mRow(e.exchange.toUpperCase(), fmtBal(e.balance), `font-mono text-[6px] tabular-nums ${darkMode ? 'text-white/60' : 'text-black/60'}`))}
                       {mDivider}
                     </>
                   )
@@ -625,7 +625,7 @@ export default function VizPage() {
                 {mRow('PROF FACTOR',   pfDisplay,                      mVal)}
                 {mRow('RRR',           rrrDisplay,                     mVal)}
                 {mRow('TRADES',        String(stats.tradeCount),       mVal)}
-                {mRow('MAX DD',        `-${ddDisplay}`,                `font-mono text-[11px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-600'}`)}
+                {mRow('MAX DD',        `-${ddDisplay}`,                `font-mono text-[6px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-600'}`)}        
                 {mDivider}
 
                 <div className={mHead}>SESSION PNL</div>
