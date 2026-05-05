@@ -8,6 +8,8 @@ import { ArrowLeft, Shapes, Sun, Moon } from 'lucide-react'
 import { useUserStore } from '@/lib/store/userStore'
 import type { ClientApiKeys } from '@/lib/exchanges/client'
 import type { Trade } from '@/types'
+import { computeStats } from '@/lib/services/statsService'
+import { Tooltip } from '@/components/ui/tooltip'
 
 const PnLWireframe = dynamic(
   () => import('@/components/viz/PnLWireframe').then((m) => ({ default: m.PnLWireframe })),
@@ -92,6 +94,58 @@ export default function VizPage() {
   }, [trades, period])
 
   const pnl = useMemo(() => sumPnl(periodTrades), [periodTrades])
+  const stats = useMemo(() => computeStats(periodTrades), [periodTrades])
+
+  // ── Session PnL (Night/Morning/Afternoon/Evening) ─────────────────────────
+  const SESSION_SLOTS: [string, number[]][] = [
+    ['Night',     [0,1,2,3,4,5]],
+    ['Morning',   [6,7,8,9,10,11]],
+    ['Afternoon', [12,13,14,15,16,17]],
+    ['Evening',   [18,19,20,21,22,23]],
+  ]
+  const sessionPnl = useMemo(() => {
+    const map: Record<string, number> = { Night: 0, Morning: 0, Afternoon: 0, Evening: 0 }
+    for (const t of periodTrades) {
+      const h = parseInt(t.closeTime.slice(11, 13), 10)
+      const name = SESSION_SLOTS.find(([, hrs]) => hrs.includes(h))?.[0] ?? 'Night'
+      map[name] = (map[name] ?? 0) + t.pnl
+    }
+    return map
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodTrades])
+
+  // ── Weekday PnL ────────────────────────────────────────────────────────────
+  const WD_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+  const weekdayPnl = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const t of periodTrades) {
+      const d = new Date(t.closeTime.slice(0, 10) + 'T00:00:00')
+      const wd = WD_NAMES[d.getDay()]
+      map[wd] = (map[wd] ?? 0) + t.pnl
+    }
+    return map
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodTrades])
+
+  // ── Top-10 tickers by abs PnL ─────────────────────────────────────────────
+  const tickerPnl = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const t of periodTrades) {
+      map[t.ticker] = (map[t.ticker] ?? 0) + t.pnl
+    }
+    return Object.entries(map)
+      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+      .slice(0, 10)
+  }, [periodTrades])
+
+  // ── Exchange PnL ──────────────────────────────────────────────────────────
+  const exchangePnl = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const t of periodTrades) {
+      map[t.exchange] = (map[t.exchange] ?? 0) + t.pnl
+    }
+    return Object.entries(map).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+  }, [periodTrades])
 
   // ── Trader-relative reference PnL ────────────────────────────────────────
   // Split the last 3 months into weekly buckets, compute the avg absolute
@@ -189,28 +243,28 @@ export default function VizPage() {
         <div className="absolute left-5 top-16 bottom-20 z-10 w-80 overflow-hidden select-none">
           <div className="h-full overflow-y-auto flex flex-col gap-[3px] pr-1 pointer-events-auto">
             {/* header */}
-            <div className={`grid grid-cols-4 gap-2 font-mono text-[15px] tracking-[0.18em] uppercase mb-1 ${darkMode ? 'text-white/40' : 'text-black/40'}`}>
+            <div className={`grid gap-2 font-mono text-[15px] tracking-[0.18em] uppercase mb-1 ${darkMode ? 'text-white/40' : 'text-black/40'}`} style={{gridTemplateColumns:'1fr 1fr 1.4fr 1fr'}}>
               <span>PNL</span>
               <span>TICKER</span>
               <span>EXCH</span>
               <span className="text-right">TIME</span>
             </div>
-            {periodTrades.slice().reverse().map((t, i) => {
+            {periodTrades.slice().sort((a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime()).map((t, i) => {
               const pos = t.pnl >= 0
               const ts  = new Date(t.closeTime)
               const timeStr = `${String(ts.getMonth()+1).padStart(2,'0')}/${String(ts.getDate()).padStart(2,'0')} ${String(ts.getHours()).padStart(2,'0')}:${String(ts.getMinutes()).padStart(2,'0')}`
               return (
                 <div
                   key={t.id ?? i}
-                  className={`grid grid-cols-4 gap-2 font-mono text-[17px] leading-tight tabular-nums ${
+                  className={`grid gap-2 font-mono text-[17px] leading-tight tabular-nums ${
                     pos
                       ? darkMode ? 'text-emerald-400' : 'text-emerald-700'
                       : darkMode ? 'text-red-400'     : 'text-red-700'
-                  }`}
+                  }`} style={{gridTemplateColumns:'1fr 1fr 1.4fr 1fr'}}
                 >
                   <span className="shrink-0">{pos ? '+' : ''}{t.pnl.toFixed(2)}</span>
                   <span className={`truncate tracking-wider ${darkMode ? 'text-white' : 'text-black'}`}>{t.ticker}</span>
-                  <span className={`truncate ${darkMode ? 'text-white/70' : 'text-black/70'}`}>{t.exchange.slice(0,6)}</span>
+                  <span className={`truncate ${darkMode ? 'text-white/70' : 'text-black/70'}`}>{t.exchange}</span>
                   <span className={`text-right text-[14px] ${darkMode ? 'text-white/50' : 'text-black/50'}`}>{timeStr}</span>
                 </div>
               )
@@ -218,6 +272,103 @@ export default function VizPage() {
           </div>
         </div>
       )}
+
+      {/* Right side — terminal stats panel */}
+      {!loading && periodTrades.length > 0 && (() => {
+        const pfDisplay  = stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : '∞'
+        const rrrDisplay = stats.rrr          !== null ? `${stats.rrr.toFixed(2)}x`    : '∞'
+        const ddDisplay  = stats.maxDrawdown.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
+        const dim  = `font-mono text-[13px] tracking-[0.15em] uppercase ${darkMode ? 'text-white' : 'text-black'}`
+        const head = `font-mono text-[11px] tracking-[0.22em] uppercase mb-1 ${darkMode ? 'text-white/50' : 'text-black/50'}`
+        const val  = `font-mono text-[17px] font-semibold tabular-nums ${darkMode ? 'text-white' : 'text-black'}`
+        const pval = (v: number) => v >= 0
+          ? `font-mono text-[17px] font-semibold tabular-nums ${darkMode ? 'text-emerald-400' : 'text-emerald-700'}`
+          : `font-mono text-[17px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-700'}`
+        const fmt  = (v: number) => (v >= 0 ? '+' : '') + v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
+        const divider = <div className={`my-2 border-t ${darkMode ? 'border-white/10' : 'border-black/10'}`} />
+
+        const SESSION_ORDER = ['Morning','Afternoon','Evening','Night'] as const
+
+        return (
+          <div className="absolute right-5 top-16 bottom-20 z-10 w-52 overflow-hidden select-none">
+            <div className="h-full overflow-y-auto flex flex-col gap-[3px] pointer-events-auto pr-1">
+
+              {/* ── Stats ── */}
+              <div className={head}>METRICS · {period}</div>
+              {[
+                { label: 'WIN RATE',      v: `${stats.winRate.toFixed(1)}%`,  tip: 'Winning trades ÷ total trades' },
+                { label: 'PROFIT FACTOR', v: pfDisplay,                        tip: 'Gross profit ÷ gross loss. ∞ = no losing trades' },
+                { label: 'RRR',           v: rrrDisplay,                       tip: 'Avg win ÷ avg loss' },
+                { label: 'TRADES',        v: String(stats.tradeCount),         tip: 'Total closed trades in period' },
+              ].map(({ label, v, tip }) => (
+                <div key={label} className="flex justify-between items-baseline gap-2 mb-0.5">
+                  <Tooltip content={tip} side="top">
+                    <span className={`${dim} cursor-help`}>{label}</span>
+                  </Tooltip>
+                  <span className={val}>{v}</span>
+                </div>
+              ))}
+              <div className="flex justify-between items-baseline gap-2 mb-0.5">
+                <Tooltip content="Largest peak-to-trough drop in cumulative PnL" side="top">
+                  <span className={`${dim} cursor-help`}>MAX DD</span>
+                </Tooltip>
+                <span className={`font-mono text-[17px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-600'}`}>-{ddDisplay}</span>
+              </div>
+
+              {divider}
+
+              {/* ── Sessions ── */}
+              <div className={head}>SESSION PNL</div>
+              {SESSION_ORDER.map((s) => {
+                const v = sessionPnl[s] ?? 0
+                return (
+                  <div key={s} className="flex justify-between items-baseline gap-2 mb-0.5">
+                    <span className={dim}>{s.toUpperCase()}</span>
+                    <span className={pval(v)}>{fmt(v)}</span>
+                  </div>
+                )
+              })}
+
+              {divider}
+
+              {/* ── Weekdays ── */}
+              <div className={head}>WEEKDAY PNL</div>
+              {WD_NAMES.map((wd) => {
+                const v = weekdayPnl[wd] ?? 0
+                return (
+                  <div key={wd} className="flex justify-between items-baseline gap-2 mb-0.5">
+                    <span className={dim}>{wd.toUpperCase()}</span>
+                    <span className={pval(v)}>{fmt(v)}</span>
+                  </div>
+                )
+              })}
+
+              {divider}
+
+              {/* ── Top tickers ── */}
+              <div className={head}>TOP TICKERS</div>
+              {tickerPnl.map(([ticker, v]) => (
+                <div key={ticker} className="flex justify-between items-baseline gap-2 mb-0.5">
+                  <span className={`${dim} truncate max-w-[96px]`}>{ticker}</span>
+                  <span className={pval(v)}>{fmt(v)}</span>
+                </div>
+              ))}
+
+              {divider}
+
+              {/* ── Exchanges ── */}
+              <div className={head}>BY EXCHANGE</div>
+              {exchangePnl.map(([ex, v]) => (
+                <div key={ex} className="flex justify-between items-baseline gap-2 mb-0.5">
+                  <span className={`${dim} truncate max-w-[96px]`}>{ex.slice(0,8).toUpperCase()}</span>
+                  <span className={pval(v)}>{fmt(v)}</span>
+                </div>
+              ))}
+
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Bottom-center — PnL readout */}
       <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-10 text-center pointer-events-none">

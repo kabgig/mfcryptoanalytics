@@ -28,7 +28,7 @@ function buildGeometry(shapeId: string): THREE.BufferGeometry {
   }
 }
 
-const PARTICLE_COUNT = 180
+const PARTICLE_COUNT = 420
 const STAR_COUNT = 270
 
 interface SceneState {
@@ -164,9 +164,9 @@ export function PnLWireframe({ pnl, maxAbsPnl, shapeId = 'torus-knot-2-3', darkM
         for (let j = 0; j < 3; j++) {
           if (Math.abs(ppa.array[i3 + j] as number) > 7) (ppa.array as Float32Array)[i3 + j] *= -0.98
         }
-        pca.array[i3]     = pca.array[i3]     + (currentColor.r * 0.65 - pca.array[i3])     * 0.015
-        pca.array[i3 + 1] = pca.array[i3 + 1] + (currentColor.g * 0.65 - pca.array[i3 + 1]) * 0.015
-        pca.array[i3 + 2] = pca.array[i3 + 2] + (currentColor.b * 0.65 - pca.array[i3 + 2]) * 0.015
+        pca.array[i3]     = pca.array[i3]     + (currentColor.r * 1.1 - pca.array[i3])     * 0.015
+        pca.array[i3 + 1] = pca.array[i3 + 1] + (currentColor.g * 1.1 - pca.array[i3 + 1]) * 0.015
+        pca.array[i3 + 2] = pca.array[i3 + 2] + (currentColor.b * 1.1 - pca.array[i3 + 2]) * 0.015
       }
       ppa.needsUpdate = true
       pca.needsUpdate = true
