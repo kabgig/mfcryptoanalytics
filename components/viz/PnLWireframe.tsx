@@ -48,7 +48,7 @@ interface SceneState {
   scene:         THREE.Scene
 }
 
-export function PnLWireframe({ pnl, maxAbsPnl, shapeId = 'torus-knot-2-3', darkMode = true }: PnLWireframeProps) {
+export function PnLWireframe({ pnl, maxAbsPnl, shapeId = 'icosahedron', darkMode = true }: PnLWireframeProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const stateRef     = useRef<SceneState | null>(null)
   const darkModeRef  = useRef(darkMode)
@@ -130,7 +130,7 @@ export function PnLWireframe({ pnl, maxAbsPnl, shapeId = 'torus-knot-2-3', darkM
     // ── Bloom post-processing ────────────────────────────────────────────────
     const composer  = new EffectComposer(renderer)
     composer.addPass(new RenderPass(scene, camera))
-    const bloomPass = new UnrealBloomPass(new THREE.Vector2(w, h), 0.1, 0.5, 0.1)
+    const bloomPass = new UnrealBloomPass(new THREE.Vector2(w, h), 1.2, 0.5, 0.1)
     composer.addPass(bloomPass)
 
     // ── State refs ────────────────────────────────────────────────────────────
@@ -273,7 +273,7 @@ export function PnLWireframe({ pnl, maxAbsPnl, shapeId = 'torus-knot-2-3', darkM
     }
 
     // Glow: only meaningful on dark bg; near-zero on light
-    s.bloomPass.strength = darkMode ? 0.02 + clamped * 0.33 : 0.01
+    s.bloomPass.strength = darkMode ? 0.4 + clamped * 1.6 : 0.01
   }, [pnl, maxAbsPnl, darkMode])
 
   return (

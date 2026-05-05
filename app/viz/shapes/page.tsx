@@ -89,7 +89,7 @@ function ShapeCanvas({ shape, selected, onSelect }: {
 }
 
 export default function ShapesPage() {
-  const [selected, setSelected] = useState<ShapeId>('torus-knot-2-3')
+  const [selected, setSelected] = useState<ShapeId>('icosahedron')
 
   return (
     <div className="min-h-screen bg-black text-white px-6 py-8">

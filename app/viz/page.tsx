@@ -52,7 +52,7 @@ function sumPnl(trades: Trade[]): number {
 
 export default function VizPage() {
   const searchParams = useSearchParams()
-  const shapeId = searchParams.get('shape') ?? 'torus-knot-2-3'
+  const shapeId = searchParams.get('shape') ?? 'icosahedron'
   const telegramId  = useUserStore((s) => s.telegramId)
   const apiKeys     = useUserStore((s) => s.apiKeys)
   const [trades, setTrades] = useState<Trade[]>([])
