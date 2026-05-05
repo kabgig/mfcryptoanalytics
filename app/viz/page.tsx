@@ -133,8 +133,8 @@ export default function VizPage() {
   const pnlFormatted = pnl.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
   const ui = darkMode
-    ? { bg: 'bg-black', text: 'text-white/40', textHover: 'hover:text-white/80', textDim: 'text-white/30', textDimHover: 'hover:text-white/70', periodActive: 'bg-white/15 text-white', periodInactive: 'text-white/30 hover:text-white/60', pnl: pnlPositive ? 'text-emerald-400' : 'text-red-400', subtext: 'text-white/30' }
-    : { bg: 'bg-white', text: 'text-black/50', textHover: 'hover:text-black/90', textDim: 'text-black/40', textDimHover: 'hover:text-black/70', periodActive: 'bg-black/10 text-black', periodInactive: 'text-black/30 hover:text-black/60', pnl: pnlPositive ? 'text-emerald-700' : 'text-red-700', subtext: 'text-black/30' }
+    ? { bg: 'bg-black', text: 'text-white', textHover: 'hover:text-white', textDim: 'text-white', textDimHover: 'hover:text-white', periodActive: 'bg-white/15 text-white', periodInactive: 'text-white hover:text-white', pnl: pnlPositive ? 'text-emerald-400' : 'text-red-400', subtext: 'text-white' }
+    : { bg: 'bg-white', text: 'text-black', textHover: 'hover:text-black', textDim: 'text-black', textDimHover: 'hover:text-black', periodActive: 'bg-black/10 text-black', periodInactive: 'text-black hover:text-black', pnl: pnlPositive ? 'text-emerald-700' : 'text-red-700', subtext: 'text-black' }
 
   return (
     <div className={`relative w-screen h-screen ${ui.bg} overflow-hidden transition-colors duration-300`}>
@@ -183,6 +183,41 @@ export default function VizPage() {
           </button>
         ))}
       </div>
+
+      {/* Left side — terminal trade feed */}
+      {periodTrades.length > 0 && (
+        <div className="absolute left-5 top-16 bottom-20 z-10 w-80 overflow-hidden select-none">
+          <div className="h-full overflow-y-auto flex flex-col gap-[3px] pr-1 pointer-events-auto">
+            {/* header */}
+            <div className={`grid grid-cols-4 gap-2 font-mono text-[15px] tracking-[0.18em] uppercase mb-1 ${darkMode ? 'text-white/40' : 'text-black/40'}`}>
+              <span>PNL</span>
+              <span>TICKER</span>
+              <span>EXCH</span>
+              <span className="text-right">TIME</span>
+            </div>
+            {periodTrades.slice().reverse().map((t, i) => {
+              const pos = t.pnl >= 0
+              const ts  = new Date(t.closeTime)
+              const timeStr = `${String(ts.getMonth()+1).padStart(2,'0')}/${String(ts.getDate()).padStart(2,'0')} ${String(ts.getHours()).padStart(2,'0')}:${String(ts.getMinutes()).padStart(2,'0')}`
+              return (
+                <div
+                  key={t.id ?? i}
+                  className={`grid grid-cols-4 gap-2 font-mono text-[17px] leading-tight tabular-nums ${
+                    pos
+                      ? darkMode ? 'text-emerald-400' : 'text-emerald-700'
+                      : darkMode ? 'text-red-400'     : 'text-red-700'
+                  }`}
+                >
+                  <span className="shrink-0">{pos ? '+' : ''}{t.pnl.toFixed(2)}</span>
+                  <span className={`truncate tracking-wider ${darkMode ? 'text-white' : 'text-black'}`}>{t.ticker}</span>
+                  <span className={`truncate ${darkMode ? 'text-white/70' : 'text-black/70'}`}>{t.exchange.slice(0,6)}</span>
+                  <span className={`text-right text-[14px] ${darkMode ? 'text-white/50' : 'text-black/50'}`}>{timeStr}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Bottom-center — PnL readout */}
       <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-10 text-center pointer-events-none">
