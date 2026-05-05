@@ -103,7 +103,7 @@ export default function VizPage() {
   const pnlFormatted = pnl.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
   return (
-    <div className="relative w-screen h-screen bg-black overflow-hidden">
+    <div className="relative w-screen h-screen bg-white overflow-hidden">
 
       {/* Full-screen Three.js canvas */}
       <div className="absolute inset-0">
