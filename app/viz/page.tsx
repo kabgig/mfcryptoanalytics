@@ -561,13 +561,13 @@ export default function VizPage() {
           </p>
         ) : (
           <>
-            <div className="flex items-center justify-center gap-4">
-              <p className={`font-mono text-[21px] sm:text-[25px] font-bold tracking-[0.18em] uppercase ${darkMode ? 'text-white/50' : 'text-black/40'}`}>PNL</p>
-              <p className={`text-5xl sm:text-6xl font-bold font-mono tracking-tight tabular-nums transition-colors duration-700 ${ui.pnl}`}>
+            <div className="flex items-center justify-center gap-2 sm:gap-4">
+              <p className={`font-mono text-[13px] sm:text-[25px] font-bold tracking-[0.18em] uppercase ${darkMode ? 'text-white/50' : 'text-black/40'}`}>PNL</p>
+              <p className={`text-2xl sm:text-6xl font-bold font-mono tracking-tight tabular-nums transition-colors duration-700 ${ui.pnl}`}>
                 {pnlPositive ? '+' : ''}{pnlFormatted}
               </p>
             </div>
-            <p className={`mt-2 ${ui.subtext} font-mono text-xs tracking-[0.25em] uppercase`}>
+            <p className={`mt-1 sm:mt-2 ${ui.subtext} font-mono text-[9px] sm:text-xs tracking-[0.25em] uppercase`}>
               {period} · {periodTrades.length} trade{periodTrades.length !== 1 ? 's' : ''}
             </p>
           </>
