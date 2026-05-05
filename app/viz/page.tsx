@@ -135,7 +135,7 @@ export default function VizPage() {
     }
     return Object.entries(map)
       .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
-      .slice(0, 10)
+      .slice(0, 20)
   }, [periodTrades])
 
   // ── Exchange PnL ──────────────────────────────────────────────────────────
@@ -273,7 +273,7 @@ export default function VizPage() {
         </div>
       )}
 
-      {/* Right side — terminal stats panel */}
+      {/* Right side — terminal stats panel (two columns) */}
       {!loading && periodTrades.length > 0 && (() => {
         const pfDisplay  = stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : '∞'
         const rrrDisplay = stats.rrr          !== null ? `${stats.rrr.toFixed(2)}x`    : '∞'
@@ -286,86 +286,60 @@ export default function VizPage() {
           : `font-mono text-[17px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-700'}`
         const fmt  = (v: number) => (v >= 0 ? '+' : '') + v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
         const divider = <div className={`my-2 border-t ${darkMode ? 'border-white/10' : 'border-black/10'}`} />
-
         const SESSION_ORDER = ['Morning','Afternoon','Evening','Night'] as const
+        const row = (label: string, v: string, cls: string, tip?: string) => (
+          <div key={label} className="flex justify-between items-baseline gap-2 mb-0.5">
+            {tip
+              ? <Tooltip content={tip} side="top"><span className={`${dim} cursor-help`}>{label}</span></Tooltip>
+              : <span className={dim}>{label}</span>}
+            <span className={cls}>{v}</span>
+          </div>
+        )
 
         return (
-          <div className="absolute right-5 top-16 bottom-20 z-10 w-52 overflow-hidden select-none">
-            <div className="h-full overflow-y-auto flex flex-col gap-[3px] pointer-events-auto pr-1">
+          <div className="absolute right-5 top-16 bottom-20 z-10 flex gap-5 select-none pointer-events-auto">
 
-              {/* ── Stats ── */}
+            {/* Column 1: Metrics · Sessions · Weekdays */}
+            <div className="w-48 h-full overflow-y-auto flex flex-col gap-[3px] pr-1">
               <div className={head}>METRICS · {period}</div>
-              {[
-                { label: 'WIN RATE',      v: `${stats.winRate.toFixed(1)}%`,  tip: 'Winning trades ÷ total trades' },
-                { label: 'PROFIT FACTOR', v: pfDisplay,                        tip: 'Gross profit ÷ gross loss. ∞ = no losing trades' },
-                { label: 'RRR',           v: rrrDisplay,                       tip: 'Avg win ÷ avg loss' },
-                { label: 'TRADES',        v: String(stats.tradeCount),         tip: 'Total closed trades in period' },
-              ].map(({ label, v, tip }) => (
-                <div key={label} className="flex justify-between items-baseline gap-2 mb-0.5">
-                  <Tooltip content={tip} side="top">
-                    <span className={`${dim} cursor-help`}>{label}</span>
-                  </Tooltip>
-                  <span className={val}>{v}</span>
-                </div>
-              ))}
-              <div className="flex justify-between items-baseline gap-2 mb-0.5">
-                <Tooltip content="Largest peak-to-trough drop in cumulative PnL" side="top">
-                  <span className={`${dim} cursor-help`}>MAX DD</span>
-                </Tooltip>
-                <span className={`font-mono text-[17px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-600'}`}>-{ddDisplay}</span>
-              </div>
+              {row('WIN RATE',      `${stats.winRate.toFixed(1)}%`, val, 'Winning trades ÷ total trades')}
+              {row('PROFIT FACTOR', pfDisplay,                       val, 'Gross profit ÷ gross loss. ∞ = no losing trades')}
+              {row('RRR',           rrrDisplay,                      val, 'Avg win ÷ avg loss')}
+              {row('TRADES',        String(stats.tradeCount),        val, 'Total closed trades in period')}
+              {row('MAX DD', `-${ddDisplay}`, `font-mono text-[17px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-600'}`, 'Largest peak-to-trough drop in cumulative PnL')}
 
               {divider}
 
-              {/* ── Sessions ── */}
               <div className={head}>SESSION PNL</div>
-              {SESSION_ORDER.map((s) => {
-                const v = sessionPnl[s] ?? 0
-                return (
-                  <div key={s} className="flex justify-between items-baseline gap-2 mb-0.5">
-                    <span className={dim}>{s.toUpperCase()}</span>
-                    <span className={pval(v)}>{fmt(v)}</span>
-                  </div>
-                )
-              })}
+              {SESSION_ORDER.map((s) => row(s.toUpperCase(), fmt(sessionPnl[s] ?? 0), pval(sessionPnl[s] ?? 0)))}
 
               {divider}
 
-              {/* ── Weekdays ── */}
               <div className={head}>WEEKDAY PNL</div>
-              {WD_NAMES.map((wd) => {
-                const v = weekdayPnl[wd] ?? 0
-                return (
-                  <div key={wd} className="flex justify-between items-baseline gap-2 mb-0.5">
-                    <span className={dim}>{wd.toUpperCase()}</span>
-                    <span className={pval(v)}>{fmt(v)}</span>
-                  </div>
-                )
-              })}
+              {WD_NAMES.map((wd) => row(wd.toUpperCase(), fmt(weekdayPnl[wd] ?? 0), pval(weekdayPnl[wd] ?? 0)))}
+            </div>
 
-              {divider}
-
-              {/* ── Top tickers ── */}
+            {/* Column 2: Top Tickers · By Exchange */}
+            <div className="w-52 h-full overflow-y-auto flex flex-col gap-[3px] pr-1">
               <div className={head}>TOP TICKERS</div>
               {tickerPnl.map(([ticker, v]) => (
                 <div key={ticker} className="flex justify-between items-baseline gap-2 mb-0.5">
-                  <span className={`${dim} truncate max-w-[96px]`}>{ticker}</span>
+                  <span className={`${dim} truncate max-w-[116px]`}>{ticker}</span>
                   <span className={pval(v)}>{fmt(v)}</span>
                 </div>
               ))}
 
               {divider}
 
-              {/* ── Exchanges ── */}
               <div className={head}>BY EXCHANGE</div>
               {exchangePnl.map(([ex, v]) => (
                 <div key={ex} className="flex justify-between items-baseline gap-2 mb-0.5">
-                  <span className={`${dim} truncate max-w-[96px]`}>{ex.slice(0,8).toUpperCase()}</span>
+                  <span className={`${dim} truncate max-w-[116px]`}>{ex.toUpperCase()}</span>
                   <span className={pval(v)}>{fmt(v)}</span>
                 </div>
               ))}
-
             </div>
+
           </div>
         )
       })()}
