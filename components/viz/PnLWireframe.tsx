@@ -77,7 +77,7 @@ export function PnLWireframe({ pnl, maxAbsPnl, shapeId = 'icosahedron', darkMode
     scene.background = new THREE.Color(darkModeRef.current ? 0x000000 : 0xffffff)
     scene.fog    = new THREE.FogExp2(darkModeRef.current ? 0x000000 : 0xffffff, 0.1)
     const camera = new THREE.PerspectiveCamera(55, w / h, 0.1, 100)
-    camera.position.z = w < 768 ? 10.0 : 3.8
+    camera.position.z = w < 768 ? 6.5 : 3.8
 
     // ── Main wireframe mesh ──────────────────────────────────────────────────
     const geometry  = buildGeometry(shapeId)
