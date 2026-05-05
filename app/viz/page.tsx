@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { ArrowLeft, Shapes } from 'lucide-react'
+import { ArrowLeft, Shapes, Sun, Moon } from 'lucide-react'
 import { useUserStore } from '@/lib/store/userStore'
 import type { ClientApiKeys } from '@/lib/exchanges/client'
 import type { Trade } from '@/types'
@@ -99,33 +99,46 @@ export default function VizPage() {
     return Math.max(...values, 1)
   }, [trades])
 
+  const [darkMode, setDarkMode] = useState(true)
+
   const pnlPositive = pnl >= 0
   const pnlFormatted = pnl.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
+  const ui = darkMode
+    ? { bg: 'bg-black', text: 'text-white/40', textHover: 'hover:text-white/80', textDim: 'text-white/30', textDimHover: 'hover:text-white/70', periodActive: 'bg-white/15 text-white', periodInactive: 'text-white/30 hover:text-white/60', pnl: pnlPositive ? 'text-emerald-400' : 'text-red-400', subtext: 'text-white/30' }
+    : { bg: 'bg-white', text: 'text-black/50', textHover: 'hover:text-black/90', textDim: 'text-black/40', textDimHover: 'hover:text-black/70', periodActive: 'bg-black/10 text-black', periodInactive: 'text-black/30 hover:text-black/60', pnl: pnlPositive ? 'text-emerald-700' : 'text-red-700', subtext: 'text-black/30' }
+
   return (
-    <div className="relative w-screen h-screen bg-white overflow-hidden">
+    <div className={`relative w-screen h-screen ${ui.bg} overflow-hidden transition-colors duration-300`}>
 
       {/* Full-screen Three.js canvas */}
       <div className="absolute inset-0">
-        {!loading && <PnLWireframe pnl={pnl} maxAbsPnl={maxAbsPnl} shapeId={shapeId} />}
+        {!loading && <PnLWireframe pnl={pnl} maxAbsPnl={maxAbsPnl} shapeId={shapeId} darkMode={darkMode} />}
       </div>
 
       {/* Top-left — back link + shape picker */}
       <div className="absolute top-5 left-5 z-10 flex items-center gap-3">
         <Link
           href="/"
-          className="flex items-center gap-1.5 text-xs font-mono text-white/40 hover:text-white/80 transition-colors tracking-widest uppercase"
+          className={`flex items-center gap-1.5 text-xs font-mono ${ui.text} ${ui.textHover} transition-colors tracking-widest uppercase`}
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           Dashboard
         </Link>
         <Link
           href="/viz/shapes"
-          className="flex items-center gap-1.5 text-xs font-mono text-white/30 hover:text-white/70 transition-colors tracking-widest uppercase"
+          className={`flex items-center gap-1.5 text-xs font-mono ${ui.textDim} ${ui.textDimHover} transition-colors tracking-widest uppercase`}
         >
           <Shapes className="h-3.5 w-3.5" />
           Shapes
         </Link>
+        <button
+          onClick={() => setDarkMode((d) => !d)}
+          className={`flex items-center justify-center w-7 h-7 rounded-full ${ui.textDim} ${ui.textHover} transition-colors`}
+          title="Toggle theme"
+        >
+          {darkMode ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+        </button>
       </div>
 
       {/* Top-right — period selector */}
@@ -135,9 +148,7 @@ export default function VizPage() {
             key={p.label}
             onClick={() => setPeriod(p.label)}
             className={`px-2.5 py-1 text-xs font-mono rounded transition-all ${
-              period === p.label
-                ? 'bg-white/15 text-white'
-                : 'text-white/30 hover:text-white/60'
+              period === p.label ? ui.periodActive : ui.periodInactive
             }`}
           >
             {p.label}
@@ -155,14 +166,11 @@ export default function VizPage() {
           </p>
         ) : (
           <>
-            <p
-              className={`text-5xl sm:text-6xl font-bold font-mono tracking-tight tabular-nums transition-colors duration-700 ${
-                pnlPositive ? 'text-emerald-400' : 'text-red-400'
-              }`}
+            <p className={`text-5xl sm:text-6xl font-bold font-mono tracking-tight tabular-nums transition-colors duration-700 ${ui.pnl}`}
             >
               {pnlPositive ? '+' : ''}{pnlFormatted}
             </p>
-            <p className="mt-2 text-white/30 font-mono text-xs tracking-[0.25em] uppercase">
+            <p className={`mt-2 ${ui.subtext} font-mono text-xs tracking-[0.25em] uppercase`}>
               {period} · {periodTrades.length} trade{periodTrades.length !== 1 ? 's' : ''}
             </p>
           </>

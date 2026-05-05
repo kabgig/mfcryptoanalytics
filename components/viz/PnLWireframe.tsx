@@ -10,6 +10,7 @@ export interface PnLWireframeProps {
   pnl: number
   maxAbsPnl: number
   shapeId?: string
+  darkMode?: boolean
 }
 
 function buildGeometry(shapeId: string): THREE.BufferGeometry {
@@ -39,13 +40,19 @@ interface SceneState {
   bloomPass:     UnrealBloomPass
   particleGeo:   THREE.BufferGeometry
   particleVels:  Float32Array
+  particleMat:   THREE.PointsMaterial
   starGeo:       THREE.BufferGeometry
   starDirs:      Float32Array
+  starMat:       THREE.PointsMaterial
+  renderer:      THREE.WebGLRenderer
+  scene:         THREE.Scene
 }
 
-export function PnLWireframe({ pnl, maxAbsPnl, shapeId = 'torus-knot-2-3' }: PnLWireframeProps) {
+export function PnLWireframe({ pnl, maxAbsPnl, shapeId = 'torus-knot-2-3', darkMode = true }: PnLWireframeProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const stateRef     = useRef<SceneState | null>(null)
+  const darkModeRef  = useRef(darkMode)
+  darkModeRef.current = darkMode
 
   // ── Build scene (re-runs only when shapeId changes) ──────────────────────
   useEffect(() => {
@@ -61,12 +68,13 @@ export function PnLWireframe({ pnl, maxAbsPnl, shapeId = 'torus-knot-2-3' }: PnL
     renderer.setSize(w, h)
     renderer.toneMapping = THREE.ReinhardToneMapping
     renderer.toneMappingExposure = 1.2
-    renderer.setClearColor(0x000000, 0)
+    renderer.setClearColor(darkModeRef.current ? 0x000000 : 0xffffff, 1)
     container.appendChild(renderer.domElement)
 
     // Scene + fog
     const scene  = new THREE.Scene()
-    scene.fog    = new THREE.FogExp2(0x000000, 0.1)
+    scene.background = new THREE.Color(darkModeRef.current ? 0x000000 : 0xffffff)
+    scene.fog    = new THREE.FogExp2(darkModeRef.current ? 0x000000 : 0xffffff, 0.1)
     const camera = new THREE.PerspectiveCamera(55, w / h, 0.1, 100)
     camera.position.z = 3.8
 
@@ -130,7 +138,7 @@ export function PnLWireframe({ pnl, maxAbsPnl, shapeId = 'torus-knot-2-3' }: PnL
     const starSpeedRef = { current: 0.002  }
     const targetColor  = initColor.clone()
     const currentColor = initColor.clone()
-    stateRef.current   = { speedRef, starSpeedRef, targetColor, currentColor, mesh, bloomPass, particleGeo, particleVels: pVels, starGeo, starDirs: sDirs }
+    stateRef.current   = { speedRef, starSpeedRef, targetColor, currentColor, mesh, bloomPass, particleGeo, particleVels: pVels, particleMat, starGeo, starDirs: sDirs, starMat, renderer, scene }
 
     // ── Animation loop ────────────────────────────────────────────────────────
     let t = 0, raf: number
@@ -226,26 +234,53 @@ export function PnLWireframe({ pnl, maxAbsPnl, shapeId = 'torus-knot-2-3' }: PnL
     // Star warp: nearly static at zero, streaking at max
     s.starSpeedRef.current = 0.001 + clamped * 0.09
 
-    // Color brightness
-    const brightness = 0.2 + clamped * 0.8
-    if (pnl >= 0) {
-      s.targetColor.setRGB(0, brightness * 0.85, brightness * 0.45)
+    // Color — vivid on dark bg, saturated deep colors on light bg
+    if (darkMode) {
+      const brightness = 0.2 + clamped * 0.8
+      if (pnl >= 0) {
+        s.targetColor.setRGB(0, brightness * 0.85, brightness * 0.45)
+      } else {
+        s.targetColor.setRGB(brightness * 0.9, brightness * 0.06, 0)
+      }
     } else {
-      s.targetColor.setRGB(brightness * 0.9, brightness * 0.06, 0)
+      const b = 0.35 + clamped * 0.55   // 0.35–0.90
+      if (pnl >= 0) {
+        s.targetColor.setRGB(0, b * 0.72, b * 0.28)   // deep green
+      } else {
+        s.targetColor.setRGB(b * 0.85, 0, 0)           // deep red
+      }
     }
 
-    // Glow: dim near zero → intense at max (0.04 → 0.7)
-    s.bloomPass.strength = 0.02 + clamped * 0.33
-  }, [pnl, maxAbsPnl])
+    // Particle appearance per theme
+    if (s.particleMat) {
+      s.particleMat.size    = darkMode ? 0.0125 : 0.022
+      s.particleMat.opacity = darkMode ? 0.65   : 0.9
+    }
+    if (s.starMat) {
+      s.starMat.color.set(darkMode ? 0xffffff : 0x333333)
+      s.starMat.size    = darkMode ? 0.009 : 0.014
+      s.starMat.opacity = darkMode ? 0.45  : 0.7
+    }
+
+    // Background + fog color based on theme
+    const bgColor = darkMode ? 0x000000 : 0xffffff
+    s.renderer?.setClearColor(bgColor, 1)
+    if (s.scene?.background) (s.scene.background as THREE.Color).set(bgColor)
+    // Disable fog on light mode so the shape doesn't vanish into white
+    if (s.scene?.fog) {
+      (s.scene.fog as THREE.FogExp2).color.set(bgColor)
+      ;(s.scene.fog as THREE.FogExp2).density = darkMode ? 0.1 : 0
+    }
+
+    // Glow: only meaningful on dark bg; near-zero on light
+    s.bloomPass.strength = darkMode ? 0.02 + clamped * 0.33 : 0.01
+  }, [pnl, maxAbsPnl, darkMode])
 
   return (
-    <div className="relative w-full h-full">
-      {/* CSS gradient: dark center → white edges (inverted vignette) */}
-      <div
-        className="absolute inset-0"
-        style={{ background: 'radial-gradient(ellipse at center, #000000 0%, #0a0a0f 40%, #18181f 65%, #e8e8f2 100%)' }}
-      />
-      <div ref={containerRef} className="absolute inset-0" />
-    </div>
+    <div
+      ref={containerRef}
+      className="absolute inset-0"
+      style={{ background: darkMode ? '#000000' : '#ffffff' }}
+    />
   )
 }
