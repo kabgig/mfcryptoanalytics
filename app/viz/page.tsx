@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { ArrowLeft, Shapes, Sun, Moon } from 'lucide-react'
+import { ArrowLeft, Shapes, Sun, Moon, Menu, X } from 'lucide-react'
 import { useUserStore } from '@/lib/store/userStore'
 import type { ClientApiKeys } from '@/lib/exchanges/client'
 import type { Trade } from '@/types'
@@ -191,6 +191,7 @@ export default function VizPage() {
   }, [trades, period, pnl])
 
   const [darkMode, setDarkMode] = useState(true)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   // ── Auto-scroll trade list ────────────────────────────────────────────────
   const tradeScrollRef = useRef<HTMLDivElement>(null)
@@ -254,8 +255,9 @@ export default function VizPage() {
         {!loading && <PnLWireframe pnl={pnl} maxAbsPnl={refPnl} shapeId={shapeId} darkMode={darkMode} />}
       </div>
 
+      {/* ── Desktop top bar ────────────────────────────────────────────── */}
       {/* Top-left — back link + shape picker */}
-      <div className="absolute top-5 left-5 z-10 flex items-center gap-3">
+      <div className="hidden md:flex absolute top-5 left-5 z-10 items-center gap-3">
         <Link
           href="/"
           className={`flex items-center gap-1.5 text-xs font-mono ${ui.text} ${ui.textHover} transition-colors tracking-widest uppercase`}
@@ -279,8 +281,8 @@ export default function VizPage() {
         </button>
       </div>
 
-      {/* Top-right — period selector */}
-      <div className="absolute top-5 right-5 z-10 flex gap-1.5">
+      {/* Top-right — period selector (desktop) */}
+      <div className="hidden md:flex absolute top-5 right-5 z-10 gap-1.5">
         {PERIODS.map((p) => (
           <button
             key={p.label}
@@ -293,6 +295,70 @@ export default function VizPage() {
           </button>
         ))}
       </div>
+
+      {/* ── Mobile sandwich menu ──────────────────────────────────────────── */}
+      <div className="md:hidden absolute top-4 right-4 z-20">
+        <button
+          onClick={() => setMenuOpen((o) => !o)}
+          className={`flex items-center justify-center w-8 h-8 rounded ${ui.textDim} ${ui.textHover} transition-colors`}
+        >
+          {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </button>
+      </div>
+
+      {menuOpen && (
+        <div className={`md:hidden absolute top-14 right-4 z-20 rounded-lg border ${
+          darkMode ? 'bg-black/90 border-white/10' : 'bg-white/90 border-black/10'
+        } backdrop-blur-sm shadow-xl py-2 min-w-[160px] flex flex-col`}>
+          {/* Period selector — single row */}
+          <div className="px-3 py-2 flex flex-row gap-1 flex-wrap">
+            {PERIODS.map((p) => (
+              <button
+                key={p.label}
+                onClick={() => { setPeriod(p.label); setMenuOpen(false) }}
+                className={`px-2.5 py-1 text-xs font-mono rounded transition-colors ${
+                  period === p.label
+                    ? darkMode ? 'bg-white/15 text-white' : 'bg-black/10 text-black'
+                    : darkMode ? 'text-white/50 hover:text-white' : 'text-black/50 hover:text-black'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <div className={`mx-3 my-1 h-px ${darkMode ? 'bg-white/10' : 'bg-black/10'}`} />
+          <Link
+            href="/viz/shapes"
+            onClick={() => setMenuOpen(false)}
+            className={`flex items-center gap-2 px-4 py-2 text-xs font-mono tracking-widest uppercase transition-colors ${
+              darkMode ? 'text-white/50 hover:text-white' : 'text-black/50 hover:text-black'
+            }`}
+          >
+            <Shapes className="h-3.5 w-3.5" />
+            Shapes
+          </Link>
+          <Link
+            href="/"
+            onClick={() => setMenuOpen(false)}
+            className={`flex items-center gap-2 px-4 py-2 text-xs font-mono tracking-widest uppercase transition-colors ${
+              darkMode ? 'text-white/50 hover:text-white' : 'text-black/50 hover:text-black'
+            }`}
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Dashboard
+          </Link>
+          <div className={`mx-3 my-1 h-px ${darkMode ? 'bg-white/10' : 'bg-black/10'}`} />
+          <button
+            onClick={() => { setDarkMode((d) => !d); setMenuOpen(false) }}
+            className={`flex items-center gap-2 px-4 py-2 text-xs font-mono tracking-widest uppercase transition-colors ${
+              darkMode ? 'text-white/50 hover:text-white' : 'text-black/50 hover:text-black'
+            }`}
+          >
+            {darkMode ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            {darkMode ? 'Light' : 'Dark'}
+          </button>
+        </div>
+      )}
 
       {/* Left side — terminal trade feed */}
       {periodTrades.length > 0 && (

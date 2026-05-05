@@ -8,7 +8,8 @@ import { TradesTable } from '@/components/dashboard/TradesTable'
 import { computeStats } from '@/lib/services/statsService'
 import { fetchAllBalances, type BalanceResult } from '@/lib/services/balanceService'
 import { LandingPage } from '@/components/home/LandingPage'
-import { RefreshCw, TriangleAlert } from 'lucide-react'
+import { RefreshCw, TriangleAlert, Globe } from 'lucide-react'
+import Link from 'next/link'
 import type { Trade } from '@/types'
 import { fetchFuturesTrades as fetchBinanceFutures } from '@/lib/exchanges/adapters/binance/futures'
 import { fetchFuturesTrades as fetchBybitFutures } from '@/lib/exchanges/adapters/bybit/futures'
@@ -302,38 +303,48 @@ export function HomeView() {
             Refresh
           </button>
         )}
-        {/* Mobile: dropdown */}
-        <div className="relative sm:hidden overflow-hidden">
-          <select
-            value={period}
-            onChange={(e) => setPeriod(e.target.value as PeriodLabel)}
-            className="appearance-none rounded-lg border bg-muted/40 pl-2 pr-7 py-1.5 text-sm font-medium text-foreground focus:outline-none"
+        {/* Viz link + period filters grouped on the right */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            href="/viz"
+            className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
           >
-            {PERIODS.map(({ label }) => (
-              <option key={label} value={label}>{label}</option>
-            ))}
-          </select>
-          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center">
-            <svg className="h-3.5 w-3.5 text-muted-foreground" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </span>
-        </div>
-        {/* Desktop: pill group */}
-        <div className="hidden sm:flex items-center gap-1 rounded-lg border bg-muted/40 p-1">
-          {PERIODS.map(({ label }) => (
-            <button
-              key={label}
-              onClick={() => setPeriod(label)}
-              className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
-                period === label
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
+            <Globe className="h-3.5 w-3.5" />
+            Viz
+          </Link>
+          {/* Mobile: dropdown */}
+          <div className="relative sm:hidden overflow-hidden">
+            <select
+              value={period}
+              onChange={(e) => setPeriod(e.target.value as PeriodLabel)}
+              className="appearance-none rounded-lg border bg-muted/40 pl-2 pr-7 py-1.5 text-sm font-medium text-foreground focus:outline-none"
             >
-              {label}
-            </button>
-          ))}
+              {PERIODS.map(({ label }) => (
+                <option key={label} value={label}>{label}</option>
+              ))}
+            </select>
+            <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center">
+              <svg className="h-3.5 w-3.5 text-muted-foreground" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+          </div>
+          {/* Desktop: pill group */}
+          <div className="hidden sm:flex items-center gap-1 rounded-lg border bg-muted/40 p-1">
+            {PERIODS.map(({ label }) => (
+              <button
+                key={label}
+                onClick={() => setPeriod(label)}
+                className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
+                  period === label
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       <StatsBar stats={stats} balanceResult={balanceResult} balanceLoading={balanceLoading} />

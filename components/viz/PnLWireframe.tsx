@@ -34,6 +34,7 @@ const STAR_COUNT = 270
 interface SceneState {
   speedRef:      { current: number }
   starSpeedRef:  { current: number }
+  bloomBaseRef:  { current: number }
   targetColor:   THREE.Color
   currentColor:  THREE.Color
   mesh:          THREE.Mesh
@@ -136,9 +137,10 @@ export function PnLWireframe({ pnl, maxAbsPnl, shapeId = 'icosahedron', darkMode
     // ── State refs ────────────────────────────────────────────────────────────
     const speedRef     = { current: 0.003  }
     const starSpeedRef = { current: 0.002  }
+    const bloomBaseRef = { current: 1.2    }
     const targetColor  = initColor.clone()
     const currentColor = initColor.clone()
-    stateRef.current   = { speedRef, starSpeedRef, targetColor, currentColor, mesh, bloomPass, particleGeo, particleVels: pVels, particleMat, starGeo, starDirs: sDirs, starMat, renderer, scene }
+    stateRef.current   = { speedRef, starSpeedRef, bloomBaseRef, targetColor, currentColor, mesh, bloomPass, particleGeo, particleVels: pVels, particleMat, starGeo, starDirs: sDirs, starMat, renderer, scene }
 
     // ── Animation loop ────────────────────────────────────────────────────────
     let t = 0, raf: number
@@ -152,6 +154,11 @@ export function PnLWireframe({ pnl, maxAbsPnl, shapeId = 'icosahedron', darkMode
       mesh.scale.setScalar(0.8 * (1 + Math.sin(t * 0.5) * 0.022))
       currentColor.lerp(targetColor, 0.04)
       ;(mesh.material as THREE.MeshBasicMaterial).color.copy(currentColor)
+
+      // Pulsating bloom — oscillate widely around the PnL-derived base
+      const base = bloomBaseRef.current
+      const pulse = Math.sin(t * 3.5) * 0.5 + 0.5          // faster beat
+      bloomPass.strength = base * (0.75 + pulse * 0.5)       // base×0.75 .. base×1.25
 
       // Ambient particles — drift + follow color
       const ppa = particleGeo.attributes.position as THREE.BufferAttribute
@@ -272,8 +279,8 @@ export function PnLWireframe({ pnl, maxAbsPnl, shapeId = 'icosahedron', darkMode
       ;(s.scene.fog as THREE.FogExp2).density = darkMode ? 0.1 : 0
     }
 
-    // Glow: only meaningful on dark bg; near-zero on light
-    s.bloomPass.strength = darkMode ? 0.4 + clamped * 1.6 : 0.01
+    // Glow base: store for pulsation in animation loop
+    s.bloomBaseRef.current = darkMode ? 0.4 + clamped * 1.6 : 0.01
   }, [pnl, maxAbsPnl, darkMode])
 
   return (
