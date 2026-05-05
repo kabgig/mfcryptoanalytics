@@ -194,39 +194,44 @@ export default function VizPage() {
 
   // ── Auto-scroll trade list ────────────────────────────────────────────────
   const tradeScrollRef = useRef<HTMLDivElement>(null)
+  const tradeInnerRef = useRef<HTMLDivElement>(null)
   const userScrollingRef = useRef(false)
   const userScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const rafRef = useRef<number | null>(null)
+  const offsetRef = useRef(0)
 
-  const onUserScroll = useCallback(() => {
+  const onUserWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault()
     userScrollingRef.current = true
     if (userScrollTimerRef.current) clearTimeout(userScrollTimerRef.current)
+    const inner = tradeInnerRef.current
+    const outer = tradeScrollRef.current
+    if (inner && outer) {
+      const maxOffset = Math.max(0, inner.scrollHeight - outer.clientHeight)
+      offsetRef.current = Math.max(0, Math.min(maxOffset, offsetRef.current + e.deltaY))
+      inner.style.transform = `translateY(-${offsetRef.current}px)`
+    }
     userScrollTimerRef.current = setTimeout(() => {
       userScrollingRef.current = false
     }, 2500)
   }, [])
 
-  // callback ref — loop starts the moment the div is in the DOM
   const setTradeScrollRef = useCallback((el: HTMLDivElement | null) => {
     if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
     ;(tradeScrollRef as React.MutableRefObject<HTMLDivElement | null>).current = el
     if (!el) return
-    const PX_PER_MS = 2 // 1px per 0.5ms = 2px/ms = 2000px/s
+    const PX_PER_MS = 0.03
     let last = performance.now()
-    let acc = 0
     const tick = (now: number) => {
-      const dt = now - last
+      const dt = Math.min(now - last, 50)
       last = now
-      if (!userScrollingRef.current) {
-        acc += PX_PER_MS * dt
-        const step = Math.floor(acc)
-        if (step >= 1) {
-          acc -= step
-          if (el.scrollTop + el.clientHeight >= el.scrollHeight - 2) {
-            el.scrollTop = 0
-          } else {
-            el.scrollTop += step
-          }
+      const inner = tradeInnerRef.current
+      if (!userScrollingRef.current && inner) {
+        const maxOffset = Math.max(0, inner.scrollHeight - el.clientHeight)
+        if (maxOffset > 0) {
+          offsetRef.current += PX_PER_MS * dt
+          if (offsetRef.current >= maxOffset) offsetRef.current = 0
+          inner.style.transform = `translateY(-${offsetRef.current}px)`
         }
       }
       rafRef.current = requestAnimationFrame(tick)
@@ -292,7 +297,8 @@ export default function VizPage() {
       {/* Left side — terminal trade feed */}
       {periodTrades.length > 0 && (
         <div className="absolute left-5 top-16 bottom-20 z-10 w-80 overflow-hidden select-none">
-          <div ref={setTradeScrollRef} onScroll={onUserScroll} className="h-full overflow-y-auto flex flex-col gap-[3px] pr-1 pointer-events-auto">
+        <div ref={setTradeScrollRef} onWheel={onUserWheel} className="h-full overflow-hidden pointer-events-auto">
+          <div ref={tradeInnerRef} className="flex flex-col gap-[3px] pr-1" style={{willChange:'transform'}}>
             {/* header */}
             <div className={`grid gap-2 font-mono text-[15px] tracking-[0.18em] uppercase mb-1 ${darkMode ? 'text-white/40' : 'text-black/40'}`} style={{gridTemplateColumns:'1fr 1fr 1.4fr 1fr'}}>
               <span>PNL</span>
@@ -321,6 +327,7 @@ export default function VizPage() {
               )
             })}
           </div>
+        </div>
         </div>
       )}
 
