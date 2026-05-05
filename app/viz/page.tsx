@@ -240,6 +240,35 @@ export default function VizPage() {
     rafRef.current = requestAnimationFrame(tick)
   }, [])
 
+  // ── Mobile auto-scroll (separate refs) ────────────────────────────────────
+  const mobileScrollRef  = useRef<HTMLDivElement>(null)
+  const mobileInnerRef   = useRef<HTMLDivElement>(null)
+  const mobileOffsetRef  = useRef(0)
+  const mobileRafRef     = useRef<number | null>(null)
+
+  const setMobileScrollRef = useCallback((el: HTMLDivElement | null) => {
+    if (mobileRafRef.current !== null) { cancelAnimationFrame(mobileRafRef.current); mobileRafRef.current = null }
+    ;(mobileScrollRef as React.MutableRefObject<HTMLDivElement | null>).current = el
+    if (!el) return
+    const PX_PER_MS = 0.03
+    let last = performance.now()
+    const tick = (now: number) => {
+      const dt = Math.min(now - last, 50)
+      last = now
+      const inner = mobileInnerRef.current
+      if (inner) {
+        const maxOffset = Math.max(0, inner.scrollHeight - el.clientHeight)
+        if (maxOffset > 0) {
+          mobileOffsetRef.current += PX_PER_MS * dt
+          if (mobileOffsetRef.current >= maxOffset) mobileOffsetRef.current = 0
+          inner.style.transform = `translateY(-${mobileOffsetRef.current}px)`
+        }
+      }
+      mobileRafRef.current = requestAnimationFrame(tick)
+    }
+    mobileRafRef.current = requestAnimationFrame(tick)
+  }, [])
+
   const pnlPositive = pnl >= 0
   const pnlFormatted = pnl.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
@@ -397,6 +426,27 @@ export default function VizPage() {
         </div>
       )}
 
+      {/* Mobile trade feed — left side, pnl + ticker only */}
+      {periodTrades.length > 0 && (
+        <div className="md:hidden absolute left-3 top-16 bottom-28 z-10 w-32 overflow-hidden select-none">
+          <div ref={setMobileScrollRef} className="h-full overflow-hidden">
+            <div ref={mobileInnerRef} className="flex flex-col gap-[4px]" style={{willChange:'transform'}}>
+              {periodTrades.slice().sort((a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime()).map((t, i) => {
+                const pos = t.pnl >= 0
+                return (
+                  <div key={t.id ?? i} className="flex gap-2 font-mono text-[9px] leading-tight tabular-nums">
+                    <span className={`shrink-0 ${pos ? (darkMode ? 'text-emerald-400' : 'text-emerald-700') : (darkMode ? 'text-red-400' : 'text-red-700')}`}>
+                      {pos ? '+' : ''}{t.pnl.toFixed(2)}
+                    </span>
+                    <span className={`truncate tracking-wide ${darkMode ? 'text-white/70' : 'text-black/70'}`}>{t.ticker}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Right side — terminal stats panel (two columns) */}
       {!loading && periodTrades.length > 0 && (() => {
         const pfDisplay  = stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : '∞'
@@ -511,11 +561,12 @@ export default function VizPage() {
           </p>
         ) : (
           <>
-            <p className={`font-mono text-[11px] tracking-[0.25em] uppercase mb-1 ${darkMode ? 'text-white/50' : 'text-black/50'}`}>PNL</p>
-            <p className={`text-5xl sm:text-6xl font-bold font-mono tracking-tight tabular-nums transition-colors duration-700 ${ui.pnl}`}
-            >
-              {pnlPositive ? '+' : ''}{pnlFormatted}
-            </p>
+            <div className="flex items-center justify-center gap-4">
+              <p className={`font-mono text-[21px] sm:text-[25px] font-bold tracking-[0.18em] uppercase ${darkMode ? 'text-white/50' : 'text-black/40'}`}>PNL</p>
+              <p className={`text-5xl sm:text-6xl font-bold font-mono tracking-tight tabular-nums transition-colors duration-700 ${ui.pnl}`}>
+                {pnlPositive ? '+' : ''}{pnlFormatted}
+              </p>
+            </div>
             <p className={`mt-2 ${ui.subtext} font-mono text-xs tracking-[0.25em] uppercase`}>
               {period} · {periodTrades.length} trade{periodTrades.length !== 1 ? 's' : ''}
             </p>
