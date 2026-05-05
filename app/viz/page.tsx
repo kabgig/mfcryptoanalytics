@@ -93,11 +93,39 @@ export default function VizPage() {
 
   const pnl = useMemo(() => sumPnl(periodTrades), [periodTrades])
 
-  // Normalise against the highest abs PnL across all periods
-  const maxAbsPnl = useMemo(() => {
-    const values = PERIODS.map((p) => Math.abs(sumPnl(filterByPeriod(trades, p.days))))
-    return Math.max(...values, 1)
-  }, [trades])
+  // ── Trader-relative reference PnL ────────────────────────────────────────
+  // Split the last 3 months into weekly buckets, compute the avg absolute
+  // PnL per week, then scale it to the current period length.
+  // Result: if current PnL > their own 3m weekly avg → glows bright;
+  //         if below average → dim.  Traders with small PnL still get
+  //         meaningful visualisation rather than being compared to a max.
+  const refPnl = useMemo(() => {
+    const WEEK_MS = 7 * 86_400_000
+    const trades3m = filterByPeriod(trades, 90)
+    if (trades3m.length === 0) return Math.max(Math.abs(pnl), 1)
+
+    const now = Date.now()
+    const buckets: number[] = []
+    for (let w = 0; w < 13; w++) {
+      const end   = now - w * WEEK_MS
+      const start = end - WEEK_MS
+      const weekTrades = trades3m.filter((t) => {
+        const ts = new Date(t.closeTime).getTime()
+        return ts >= start && ts < end
+      })
+      if (weekTrades.length > 0) {
+        buckets.push(Math.abs(sumPnl(weekTrades)))
+      }
+    }
+
+    if (buckets.length === 0) return Math.max(Math.abs(pnl), 1)
+    const weeklyAvg = buckets.reduce((a, b) => a + b, 0) / buckets.length
+
+    // Scale weekly avg to the current period's length
+    const currentDays = PERIODS.find((p) => p.label === period)!.days
+    const scaled = weeklyAvg * (Math.min(currentDays, 365) / 7)
+    return Math.max(scaled, 1)
+  }, [trades, period, pnl])
 
   const [darkMode, setDarkMode] = useState(true)
 
@@ -113,7 +141,7 @@ export default function VizPage() {
 
       {/* Full-screen Three.js canvas */}
       <div className="absolute inset-0">
-        {!loading && <PnLWireframe pnl={pnl} maxAbsPnl={maxAbsPnl} shapeId={shapeId} darkMode={darkMode} />}
+        {!loading && <PnLWireframe pnl={pnl} maxAbsPnl={refPnl} shapeId={shapeId} darkMode={darkMode} />}
       </div>
 
       {/* Top-left — back link + shape picker */}
