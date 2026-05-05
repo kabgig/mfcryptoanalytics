@@ -6,8 +6,9 @@ import { usePathname } from "next/navigation"
 import { useTheme } from "next-themes"
 import { ThemeToggle } from "./ThemeToggle"
 import { ApiKeysModal } from "@/components/settings/ApiKeysModal"
+import { ShareModal } from "@/components/settings/ShareModal"
 import { useUserStore } from "@/lib/store/userStore"
-import { LogOut, Settings, Moon, Sun, Menu, X, Upload, ChevronDown, Eye, EyeOff } from "lucide-react"
+import { LogOut, Settings, Moon, Sun, Menu, X, Upload, ChevronDown, Eye, EyeOff, Share2 } from "lucide-react"
 
 // Telegram SVG logo
 function TelegramIcon({ className }: { className?: string }) {
@@ -134,6 +135,7 @@ export function Navbar() {
           {telegramId ? (
             <>
               <ApiKeysModal />
+              <ShareModal />
               <span className="flex items-center gap-1">
                 <span className="text-sm text-muted-foreground hidden md:inline">
                   {nameHidden ? "****" : telegramName}
@@ -217,12 +219,20 @@ export function Navbar() {
 
           {/* Settings */}
           {telegramId && (
-            <div className="px-1">
+            <div className="px-1 flex flex-col gap-0.5">
               <ApiKeysModal
                 trigger={
                   <button className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-muted-foreground hover:bg-accent rounded-md transition-colors">
                     <Settings className="h-4 w-4 shrink-0" />
                     Settings
+                  </button>
+                }
+              />
+              <ShareModal
+                trigger={
+                  <button className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-muted-foreground hover:bg-accent rounded-md transition-colors">
+                    <Share2 className="h-4 w-4 shrink-0" />
+                    Share PnL
                   </button>
                 }
               />
