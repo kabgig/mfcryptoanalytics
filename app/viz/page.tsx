@@ -197,7 +197,6 @@ export default function VizPage() {
   const userScrollingRef = useRef(false)
   const userScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const rafRef = useRef<number | null>(null)
-  const accRef = useRef(0)
 
   const onUserScroll = useCallback(() => {
     userScrollingRef.current = true
@@ -207,22 +206,22 @@ export default function VizPage() {
     }, 2500)
   }, [])
 
-  // callback ref — RAF starts the moment the div is in the DOM
+  // callback ref — loop starts the moment the div is in the DOM
   const setTradeScrollRef = useCallback((el: HTMLDivElement | null) => {
-    // cancel any existing loop
     if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
     ;(tradeScrollRef as React.MutableRefObject<HTMLDivElement | null>).current = el
     if (!el) return
-    const SPEED = 19.2
+    const PX_PER_MS = 2 // 1px per 0.5ms = 2px/ms = 2000px/s
     let last = performance.now()
+    let acc = 0
     const tick = (now: number) => {
       const dt = now - last
       last = now
       if (!userScrollingRef.current) {
-        accRef.current += SPEED * (dt / 16.67)
-        const step = Math.floor(accRef.current)
+        acc += PX_PER_MS * dt
+        const step = Math.floor(acc)
         if (step >= 1) {
-          accRef.current -= step
+          acc -= step
           if (el.scrollTop + el.clientHeight >= el.scrollHeight - 2) {
             el.scrollTop = 0
           } else {
