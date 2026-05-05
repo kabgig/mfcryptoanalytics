@@ -1,3 +1,5 @@
+"use client"
+
 import { Trade } from "@/types"
 import {
   Table,
@@ -9,6 +11,8 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { motion, useInView } from "motion/react"
+import { useRef } from "react"
 
 interface TradesTableProps {
   trades: Trade[]
@@ -29,7 +33,24 @@ function formatPrice(value: number | null) {
   return `$${value.toLocaleString("en-US")}`
 }
 
+function AnimatedRow({ children, index, isProfit }: { children: React.ReactNode; index: number; isProfit: boolean }) {
+  const ref = useRef<HTMLTableRowElement>(null)
+  const inView = useInView(ref, { once: true, margin: "0px 0px -40px 0px" })
+  return (
+    <motion.tr
+      ref={ref}
+      initial={{ opacity: 0, x: -12 }}
+      animate={inView ? { opacity: 1, x: 0 } : {}}
+      transition={{ duration: 0.25, delay: Math.min(index * 0.04, 0.6) }}
+      className={isProfit ? "bg-emerald-500/5 hover:bg-emerald-500/10" : "bg-red-500/5 hover:bg-red-500/10"}
+    >
+      {children}
+    </motion.tr>
+  )
+}
+
 export function TradesTable({ trades }: TradesTableProps) {
+  const tableRef = useRef<HTMLTableSectionElement>(null)
   return (
     <Card>
       <CardHeader>
@@ -50,18 +71,11 @@ export function TradesTable({ trades }: TradesTableProps) {
                 <TableHead>Close Time</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
-              {trades.map((trade) => {
+            <TableBody ref={tableRef}>
+              {trades.map((trade, i) => {
                 const isProfit = trade.pnl >= 0
                 return (
-                  <TableRow
-                    key={trade.id}
-                    className={
-                      isProfit
-                        ? "bg-emerald-500/5 hover:bg-emerald-500/10"
-                        : "bg-red-500/5 hover:bg-red-500/10"
-                    }
-                  >
+                  <AnimatedRow key={trade.id} index={i} isProfit={isProfit}>
                     <TableCell
                       className={`text-right font-mono font-semibold ${
                         isProfit ? "text-emerald-500" : "text-red-500"
@@ -96,7 +110,7 @@ export function TradesTable({ trades }: TradesTableProps) {
                     <TableCell className="text-sm text-muted-foreground">
                       {formatDate(trade.closeTime)}
                     </TableCell>
-                  </TableRow>
+                  </AnimatedRow>
                 )
               })}
             </TableBody>

@@ -148,6 +148,9 @@ export function PnlChart({ chartData, trades }: PnlChartProps) {
               fill="url(#pnlGradient)"
               dot={renderDot}
               activeDot={renderActiveDot}
+              isAnimationActive={true}
+              animationDuration={1600}
+              animationEasing="ease-out"
             />
           </AreaChart>
         </ChartContainer>
