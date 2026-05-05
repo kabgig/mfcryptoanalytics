@@ -7,7 +7,7 @@ import { useTheme } from "next-themes"
 import { ThemeToggle } from "./ThemeToggle"
 import { ApiKeysModal } from "@/components/settings/ApiKeysModal"
 import { useUserStore } from "@/lib/store/userStore"
-import { LogOut, Settings, Moon, Sun, Menu, X, Upload, ChevronDown } from "lucide-react"
+import { LogOut, Settings, Moon, Sun, Menu, X, Upload, ChevronDown, Eye, EyeOff } from "lucide-react"
 
 // Telegram SVG logo
 function TelegramIcon({ className }: { className?: string }) {
@@ -101,6 +101,7 @@ export function Navbar() {
   const role = useUserStore((s) => s.role)
   const clear = useUserStore((s) => s.clear)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [nameHidden, setNameHidden] = useState(false)
 
   const visibleLinks = NAV_LINKS.filter((l) => !l.adminOnly || role === "ADMIN")
 
@@ -133,8 +134,17 @@ export function Navbar() {
           {telegramId ? (
             <>
               <ApiKeysModal />
-              <span className="text-sm text-muted-foreground hidden md:inline">
-                {telegramName}
+              <span className="flex items-center gap-1">
+                <span className="text-sm text-muted-foreground hidden md:inline">
+                  {nameHidden ? "****" : telegramName}
+                </span>
+                <button
+                  onClick={() => setNameHidden((h) => !h)}
+                  className="hidden md:inline-flex items-center justify-center rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  title={nameHidden ? "Show name" : "Hide name"}
+                >
+                  {nameHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
               </span>
               <button
                 onClick={clear}
@@ -231,7 +241,16 @@ export function Navbar() {
             {telegramId ? (
               <>
                 {telegramName && (
-                  <p className="px-4 py-1.5 text-xs text-muted-foreground">{telegramName}</p>
+                  <div className="flex items-center gap-1 px-4 py-1.5">
+                    <p className="text-xs text-muted-foreground">{nameHidden ? "****" : telegramName}</p>
+                    <button
+                      onClick={() => setNameHidden((h) => !h)}
+                      className="inline-flex items-center justify-center rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                      title={nameHidden ? "Show name" : "Hide name"}
+                    >
+                      {nameHidden ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                    </button>
+                  </div>
                 )}
                 <button
                   onClick={() => { clear(); setMobileOpen(false) }}
