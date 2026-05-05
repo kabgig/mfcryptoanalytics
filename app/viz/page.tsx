@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
@@ -192,6 +192,49 @@ export default function VizPage() {
 
   const [darkMode, setDarkMode] = useState(true)
 
+  // ── Auto-scroll trade list ────────────────────────────────────────────────
+  const tradeScrollRef = useRef<HTMLDivElement>(null)
+  const userScrollingRef = useRef(false)
+  const userScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const rafRef = useRef<number | null>(null)
+  const accRef = useRef(0)
+
+  const onUserScroll = useCallback(() => {
+    userScrollingRef.current = true
+    if (userScrollTimerRef.current) clearTimeout(userScrollTimerRef.current)
+    userScrollTimerRef.current = setTimeout(() => {
+      userScrollingRef.current = false
+    }, 2500)
+  }, [])
+
+  // callback ref — RAF starts the moment the div is in the DOM
+  const setTradeScrollRef = useCallback((el: HTMLDivElement | null) => {
+    // cancel any existing loop
+    if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+    ;(tradeScrollRef as React.MutableRefObject<HTMLDivElement | null>).current = el
+    if (!el) return
+    const SPEED = 19.2
+    let last = performance.now()
+    const tick = (now: number) => {
+      const dt = now - last
+      last = now
+      if (!userScrollingRef.current) {
+        accRef.current += SPEED * (dt / 16.67)
+        const step = Math.floor(accRef.current)
+        if (step >= 1) {
+          accRef.current -= step
+          if (el.scrollTop + el.clientHeight >= el.scrollHeight - 2) {
+            el.scrollTop = 0
+          } else {
+            el.scrollTop += step
+          }
+        }
+      }
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    rafRef.current = requestAnimationFrame(tick)
+  }, [])
+
   const pnlPositive = pnl >= 0
   const pnlFormatted = pnl.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
@@ -250,7 +293,7 @@ export default function VizPage() {
       {/* Left side — terminal trade feed */}
       {periodTrades.length > 0 && (
         <div className="absolute left-5 top-16 bottom-20 z-10 w-80 overflow-hidden select-none">
-          <div className="h-full overflow-y-auto flex flex-col gap-[3px] pr-1 pointer-events-auto">
+          <div ref={setTradeScrollRef} onScroll={onUserScroll} className="h-full overflow-y-auto flex flex-col gap-[3px] pr-1 pointer-events-auto">
             {/* header */}
             <div className={`grid gap-2 font-mono text-[15px] tracking-[0.18em] uppercase mb-1 ${darkMode ? 'text-white/40' : 'text-black/40'}`} style={{gridTemplateColumns:'1fr 1fr 1.4fr 1fr'}}>
               <span>PNL</span>
