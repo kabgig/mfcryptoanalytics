@@ -311,7 +311,7 @@ export async function GET(
         <div style={{ width: '1px', background: '#1c1c1e', height: '100%' }} />
 
         {/* ── Right column: wireframe shape ── */}
-        <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', background: `radial-gradient(ellipse 60% 60% at 50% 50%, ${pnlColor}18 0%, #09090b 68%)` }}>
+        <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', background: `radial-gradient(ellipse 60% 60% at 50% 50%, ${pnlColor}04 0%, #09090b 68%)` }}>
           <svg width={480} height={480} viewBox="-240 -240 480 480">
             {/* Space particles */}
             {stars.map((s, i) => (
