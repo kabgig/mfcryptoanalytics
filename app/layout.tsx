@@ -16,6 +16,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_BASE_URL ??
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+  ),
   title: "MF Crypto Analytics",
   description: "Track your PnL across multiple crypto exchanges in one dashboard",
 };

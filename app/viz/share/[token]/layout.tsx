@@ -6,7 +6,10 @@ export async function generateMetadata({
   params: Promise<{ token: string }>
 }): Promise<Metadata> {
   const { token } = await params
-  const imageUrl = `/api/og/share/${token}`
+  const base =
+    process.env.NEXT_PUBLIC_BASE_URL ??
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+  const imageUrl = `${base}/api/og/share/${token}`
   return {
     title: 'Shared Viz · MF Crypto Analytics',
     description: 'View this trader\'s 3D PnL visualization on MF Crypto Analytics.',
