@@ -10,7 +10,7 @@ function fmtUsd(n: number) {
     n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 }
 
-// ── 3D math (no Three.js — runs on Edge) ─────────────────────────────────
+// ── 3D math (pure JS, no Three.js) ───────────────────────────────────────
 type Vec3 = [number, number, number]
 type Edge = [Vec3, Vec3]
 
