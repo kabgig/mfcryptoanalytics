@@ -1,5 +1,4 @@
 import { ImageResponse } from 'next/og'
-import { getSql } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'edge'
@@ -211,31 +210,47 @@ export async function GET(
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params
-  const shapeId = new URL(_req.url).searchParams.get('shape') ?? 'icosahedron'
 
   if (!token || !/^[0-9a-f]{48}$/.test(token)) {
     return new Response('Not found', { status: 404 })
   }
 
   try {
-    const sql = getSql()
+    const dbUrl = process.env.DATABASE_URL
+    if (!dbUrl) return new Response('misconfigured', { status: 500 })
 
-    const userRows = await sql`
-      SELECT id FROM users WHERE share_token = ${token} LIMIT 1
-    ` as { id: string }[]
+    const neonHttpUrl = dbUrl
+      .replace(/^postgres(ql)?:\/\//, 'https://')
+      .replace(/(\/[^?]*)?(\?.*)?$/, '/sql')
+
+    const query = async (sql: string, params: unknown[]) => {
+      const res = await fetch(neonHttpUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Neon-Connection-String': dbUrl },
+        body: JSON.stringify({ query: sql, params }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const j = await res.json() as { rows: Record<string, string>[] }
+      return j.rows
+    }
+
+    const userRows = await query(
+      'SELECT id FROM users WHERE share_token = $1 LIMIT 1',
+      [token]
+    )
 
     if (userRows.length === 0) return new Response('Not found', { status: 404 })
 
     const userId = userRows[0].id
     const cutoff = new Date(Date.now() - CUTOFF_DAYS * 86_400_000).toISOString()
 
-    const rows = await sql`
-      SELECT ct.pnl, ct.exchange
-      FROM cached_trades ct
-      JOIN users u ON u.telegram_id = ct.telegram_id
-      WHERE u.id = ${userId}
-        AND ct.close_time >= ${cutoff}
-    ` as { pnl: string; exchange: string }[]
+    const rows = await query(
+      `SELECT ct.pnl, ct.exchange
+       FROM cached_trades ct
+       JOIN users u ON u.telegram_id = ct.telegram_id
+       WHERE u.id = $1 AND ct.close_time >= $2`,
+      [userId, cutoff]
+    ) as { pnl: string; exchange: string }[]
 
     const trades = rows.map(r => ({ pnl: Number(r.pnl), exchange: r.exchange }))
     const totalPnl = trades.reduce((s, t) => s + t.pnl, 0)
@@ -251,7 +266,7 @@ export async function GET(
     const pnlPositive = totalPnl >= 0
     const pnlColor = pnlPositive ? '#34d399' : '#f87171'
 
-    const { front, back } = buildWireframePaths(shapeId)
+    const { front, back } = buildWireframePaths('icosahedron')
     const stars = generateStars(90)
 
     return new ImageResponse(
