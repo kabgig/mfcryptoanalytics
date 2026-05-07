@@ -2,17 +2,11 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import dynamic from 'next/dynamic'
+import { useParams, useSearchParams } from 'next/navigation'
+import { Shapes, Sun, Moon, Menu, X } from 'lucide-react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
-import { ArrowLeft, Shapes, Sun, Moon, Menu, X, Share2 } from 'lucide-react'
-import { useUserStore } from '@/lib/store/userStore'
-import { ShareModal } from '@/components/settings/ShareModal'
-import { fetchFuturesTrades as fetchBinanceFutures } from '@/lib/exchanges/adapters/binance/futures'
-import { fetchFuturesTrades as fetchBybitFutures } from '@/lib/exchanges/adapters/bybit/futures'
 import type { Trade } from '@/types'
 import { computeStats } from '@/lib/services/statsService'
-import { fetchAllBalances } from '@/lib/services/balanceService'
-import type { BalanceResult } from '@/lib/services/balanceService'
 import { Tooltip } from '@/components/ui/tooltip'
 
 const PnLWireframe = dynamic(
@@ -32,91 +26,6 @@ const PERIODS = [
 
 type PeriodLabel = typeof PERIODS[number]['label']
 
-interface ExchangeConfig {
-  name: string
-  apiKey: string
-  apiSecret: string
-  passphrase?: string
-}
-
-const ASIA_EXCHANGES = new Set(['BingX', 'MEXC'])
-const CLIENT_FETCH_EXCHANGES = new Set(['Binance', 'Bybit'])
-const IMPORTED_EXCHANGES = ['Jupiter Perps', 'bluefin'] as const
-
-async function fetchExchangeTradesClientSide(
-  telegramId: string,
-  cfg: ExchangeConfig,
-  force: boolean
-): Promise<Trade[]> {
-  if (!force) {
-    const cacheRes = await fetch('/api/trades-cache', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ telegramId, exchange: cfg.name }),
-    })
-    const cacheData = await cacheRes.json()
-    if (cacheData.fresh) return cacheData.trades as Trade[]
-  }
-
-  let trades: Trade[]
-  if (cfg.name === 'Binance') {
-    trades = await fetchBinanceFutures(cfg.apiKey, cfg.apiSecret)
-  } else if (cfg.name === 'Bybit') {
-    trades = await fetchBybitFutures(cfg.apiKey, cfg.apiSecret)
-  } else {
-    throw new Error(`Unexpected client-fetch exchange: ${cfg.name}`)
-  }
-
-  fetch('/api/trades-store', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ telegramId, exchange: cfg.name, trades }),
-  }).catch(() => {})
-
-  return trades
-}
-
-async function fetchExchangeTrades(
-  telegramId: string,
-  cfg: ExchangeConfig,
-  force: boolean
-): Promise<Trade[]> {
-  if (CLIENT_FETCH_EXCHANGES.has(cfg.name)) {
-    return fetchExchangeTradesClientSide(telegramId, cfg, force)
-  }
-
-  const endpoint = ASIA_EXCHANGES.has(cfg.name) ? '/api/trades-asia' : '/api/trades-global'
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      telegramId,
-      exchange: cfg.name,
-      apiKey: cfg.apiKey,
-      apiSecret: cfg.apiSecret,
-      passphrase: cfg.passphrase ?? '',
-      force,
-    }),
-  })
-  const data = await res.json()
-  if (data.error) throw new Error(data.error)
-  return data.trades as Trade[]
-}
-
-async function fetchImportedTrades(telegramId: string): Promise<Trade[]> {
-  const results = await Promise.all(
-    IMPORTED_EXCHANGES.map((exchange) =>
-      fetch('/api/import/trades', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegramId, exchange }),
-      }).then((res) => res.json())
-    )
-  )
-
-  return results.flatMap((data) => (data.trades ?? []) as Trade[])
-}
-
 function filterByPeriod(trades: Trade[], days: number): Trade[] {
   if (days === Infinity) return trades
   const cutoff = Date.now() - days * 86_400_000
@@ -127,84 +36,41 @@ function sumPnl(trades: Trade[]): number {
   return trades.reduce((s, t) => s + t.pnl, 0)
 }
 
-export default function VizPage() {
+export default function VizSharePage() {
+  const { token } = useParams<{ token: string }>()
   const searchParams = useSearchParams()
   const shapeId = searchParams.get('shape') ?? 'icosahedron'
-  const telegramId  = useUserStore((s) => s.telegramId)
-  const apiKeys     = useUserStore((s) => s.apiKeys)
-  const [trades, setTrades] = useState<Trade[]>([])
-  const [loading, setLoading]   = useState(false)
-  const [period, setPeriod]     = useState<PeriodLabel>('3m')
-  const [balanceResult, setBalanceResult] = useState<BalanceResult | null>(null)
 
-  const buildExchangeConfigs = useCallback((): ExchangeConfig[] => {
-    const configs: ExchangeConfig[] = []
+  const [allTrades, setAllTrades] = useState<Trade[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [notFound, setNotFound]   = useState(false)
+  const [period, setPeriod]       = useState<PeriodLabel>('3m')
+  const [darkMode, setDarkMode]   = useState(true)
+  const [menuOpen, setMenuOpen]   = useState(false)
 
-    if (apiKeys.binanceApiKey && apiKeys.binanceApiSecret)
-      configs.push({ name: 'Binance', apiKey: apiKeys.binanceApiKey, apiSecret: apiKeys.binanceApiSecret })
-    if (apiKeys.bybitApiKey && apiKeys.bybitApiSecret)
-      configs.push({ name: 'Bybit', apiKey: apiKeys.bybitApiKey, apiSecret: apiKeys.bybitApiSecret })
-    if (apiKeys.okxApiKey && apiKeys.okxApiSecret && apiKeys.okxPassphrase)
-      configs.push({ name: 'OKX', apiKey: apiKeys.okxApiKey, apiSecret: apiKeys.okxApiSecret, passphrase: apiKeys.okxPassphrase })
-    if (apiKeys.bingxApiKey && apiKeys.bingxApiSecret)
-      configs.push({ name: 'BingX', apiKey: apiKeys.bingxApiKey, apiSecret: apiKeys.bingxApiSecret })
-    if (apiKeys.mexcApiKey && apiKeys.mexcApiSecret)
-      configs.push({ name: 'MEXC', apiKey: apiKeys.mexcApiKey, apiSecret: apiKeys.mexcApiSecret })
-    if (apiKeys.bitunixApiKey && apiKeys.bitunixApiSecret)
-      configs.push({ name: 'Bitunix', apiKey: apiKeys.bitunixApiKey, apiSecret: apiKeys.bitunixApiSecret })
-    if (apiKeys.bydfiApiKey && apiKeys.bydfiApiSecret)
-      configs.push({ name: 'BYDFi', apiKey: apiKeys.bydfiApiKey, apiSecret: apiKeys.bydfiApiSecret })
-
-    return configs
-  }, [apiKeys])
-
-  // Fetch balances on mount
+  // Load trades from share API — no auth required
   useEffect(() => {
-    if (!apiKeys) return
-    fetchAllBalances(apiKeys).then(setBalanceResult).catch(() => {})
-  }, [apiKeys])
-
-  // Fetch all exchange and imported trades on mount
-  // Each exchange is isolated: one failure does not drop other exchanges (mirrors HomeView behaviour)
-  useEffect(() => {
-    if (!telegramId) return
-
-    let cancelled = false
-    const loadTrades = async () => {
-      setLoading(true)
-
-      // Per-exchange results — fulfilled OR rejected independently
-      const [perExchangeResults, importedResult] = await Promise.all([
-        Promise.allSettled(
-          buildExchangeConfigs().map((cfg) => fetchExchangeTrades(telegramId, cfg, false))
-        ),
-        fetchImportedTrades(telegramId).catch(() => [] as Trade[]),
-      ])
-
-      if (cancelled) return
-
-      const exchangeTrades = perExchangeResults.flatMap((r) =>
-        r.status === 'fulfilled' ? r.value : []
-      )
-
-      setTrades([...exchangeTrades, ...importedResult])
-      setLoading(false)
-    }
-
-    void loadTrades()
-
-    return () => { cancelled = true }
-  }, [telegramId, buildExchangeConfigs])
+    if (!token) return
+    setLoading(true)
+    fetch(`/api/share/${token}`)
+      .then(async (res) => {
+        if (res.status === 404) { setNotFound(true); return }
+        const data = await res.json()
+        setAllTrades((data.trades ?? []) as Trade[])
+      })
+      .catch(() => setNotFound(true))
+      .finally(() => setLoading(false))
+  }, [token])
 
   const periodTrades = useMemo(() => {
     const p = PERIODS.find((x) => x.label === period)!
-    return filterByPeriod(trades, p.days)
-  }, [trades, period])
+    return filterByPeriod(allTrades, p.days)
+  }, [allTrades, period])
 
-  const pnl = useMemo(() => sumPnl(periodTrades), [periodTrades])
+  const pnl   = useMemo(() => sumPnl(periodTrades), [periodTrades])
   const stats = useMemo(() => computeStats(periodTrades), [periodTrades])
 
-  // ── Session PnL (Night/Morning/Afternoon/Evening) ─────────────────────────
+  // ── Session PnL ───────────────────────────────────────────────────────────
   const SESSION_SLOTS: [string, number[]][] = [
     ['Night',     [0,1,2,3,4,5]],
     ['Morning',   [6,7,8,9,10,11]],
@@ -222,7 +88,7 @@ export default function VizPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodTrades])
 
-  // ── Weekday PnL ────────────────────────────────────────────────────────────
+  // ── Weekday PnL ───────────────────────────────────────────────────────────
   const WD_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
   const weekdayPnl = useMemo(() => {
     const map: Record<string, number> = {}
@@ -235,12 +101,10 @@ export default function VizPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodTrades])
 
-  // ── Top-10 tickers by abs PnL ─────────────────────────────────────────────
+  // ── Top tickers ───────────────────────────────────────────────────────────
   const tickerPnl = useMemo(() => {
     const map: Record<string, number> = {}
-    for (const t of periodTrades) {
-      map[t.ticker] = (map[t.ticker] ?? 0) + t.pnl
-    }
+    for (const t of periodTrades) map[t.ticker] = (map[t.ticker] ?? 0) + t.pnl
     return Object.entries(map)
       .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
       .slice(0, 20)
@@ -249,59 +113,42 @@ export default function VizPage() {
   // ── Exchange PnL ──────────────────────────────────────────────────────────
   const exchangePnl = useMemo(() => {
     const map: Record<string, number> = {}
-    for (const t of periodTrades) {
-      map[t.exchange] = (map[t.exchange] ?? 0) + t.pnl
-    }
+    for (const t of periodTrades) map[t.exchange] = (map[t.exchange] ?? 0) + t.pnl
     return Object.entries(map).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
   }, [periodTrades])
 
-  // ── Trader-relative reference PnL ────────────────────────────────────────
-  // Split the last 3 months into weekly buckets, compute the avg absolute
-  // PnL per week, then scale it to the current period length.
-  // Result: if current PnL > their own 3m weekly avg → glows bright;
-  //         if below average → dim.  Traders with small PnL still get
-  //         meaningful visualisation rather than being compared to a max.
+  // ── Reference PnL (trader-relative) ──────────────────────────────────────
   const refPnl = useMemo(() => {
     const WEEK_MS = 7 * 86_400_000
-    const trades3m = filterByPeriod(trades, 90)
+    const trades3m = filterByPeriod(allTrades, 90)
     if (trades3m.length === 0) return Math.max(Math.abs(pnl), 1)
-
-    const now = trades3m.reduce((latest, trade) => {
-      const closeTime = new Date(trade.closeTime).getTime()
-      return closeTime > latest ? closeTime : latest
+    const now = trades3m.reduce((latest, t) => {
+      const ts = new Date(t.closeTime).getTime()
+      return ts > latest ? ts : latest
     }, 0)
     const buckets: number[] = []
     for (let w = 0; w < 13; w++) {
-      const end   = now - w * WEEK_MS
+      const end = now - w * WEEK_MS
       const start = end - WEEK_MS
       const weekTrades = trades3m.filter((t) => {
         const ts = new Date(t.closeTime).getTime()
         return ts >= start && ts < end
       })
-      if (weekTrades.length > 0) {
-        buckets.push(Math.abs(sumPnl(weekTrades)))
-      }
+      if (weekTrades.length > 0) buckets.push(Math.abs(sumPnl(weekTrades)))
     }
-
     if (buckets.length === 0) return Math.max(Math.abs(pnl), 1)
     const weeklyAvg = buckets.reduce((a, b) => a + b, 0) / buckets.length
-
-    // Scale weekly avg to the current period's length
     const currentDays = PERIODS.find((p) => p.label === period)!.days
-    const scaled = weeklyAvg * (Math.min(currentDays, 365) / 7)
-    return Math.max(scaled, 1)
-  }, [trades, period, pnl])
+    return Math.max(weeklyAvg * (Math.min(currentDays, 365) / 7), 1)
+  }, [allTrades, period, pnl])
 
-  const [darkMode, setDarkMode] = useState(true)
-  const [menuOpen, setMenuOpen] = useState(false)
-
-  // ── Auto-scroll trade list ────────────────────────────────────────────────
-  const tradeScrollRef = useRef<HTMLDivElement>(null)
-  const tradeInnerRef = useRef<HTMLDivElement>(null)
+  // ── Auto-scroll refs ──────────────────────────────────────────────────────
+  const tradeScrollRef   = useRef<HTMLDivElement>(null)
+  const tradeInnerRef    = useRef<HTMLDivElement>(null)
   const userScrollingRef = useRef(false)
   const userScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const rafRef = useRef<number | null>(null)
-  const offsetRef = useRef(0)
+  const rafRef           = useRef<number | null>(null)
+  const offsetRef        = useRef(0)
 
   const onUserWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault()
@@ -314,9 +161,7 @@ export default function VizPage() {
       offsetRef.current = Math.max(0, Math.min(maxOffset, offsetRef.current + e.deltaY))
       inner.style.transform = `translateY(-${offsetRef.current}px)`
     }
-    userScrollTimerRef.current = setTimeout(() => {
-      userScrollingRef.current = false
-    }, 2500)
+    userScrollTimerRef.current = setTimeout(() => { userScrollingRef.current = false }, 2500)
   }, [])
 
   const setTradeScrollRef = useCallback((el: HTMLDivElement | null) => {
@@ -326,8 +171,7 @@ export default function VizPage() {
     const PX_PER_MS = 0.03
     let last = performance.now()
     const tick = (now: number) => {
-      const dt = Math.min(now - last, 50)
-      last = now
+      const dt = Math.min(now - last, 50); last = now
       const inner = tradeInnerRef.current
       if (!userScrollingRef.current && inner) {
         const maxOffset = Math.max(0, inner.scrollHeight - el.clientHeight)
@@ -342,7 +186,6 @@ export default function VizPage() {
     rafRef.current = requestAnimationFrame(tick)
   }, [])
 
-  // ── Mobile auto-scroll (separate refs) ────────────────────────────────────
   const mobileScrollRef  = useRef<HTMLDivElement>(null)
   const mobileInnerRef   = useRef<HTMLDivElement>(null)
   const mobileOffsetRef  = useRef(0)
@@ -355,8 +198,7 @@ export default function VizPage() {
     const PX_PER_MS = 0.03
     let last = performance.now()
     const tick = (now: number) => {
-      const dt = Math.min(now - last, 50)
-      last = now
+      const dt = Math.min(now - last, 50); last = now
       const inner = mobileInnerRef.current
       if (inner) {
         const maxOffset = Math.max(0, inner.scrollHeight - el.clientHeight)
@@ -371,7 +213,6 @@ export default function VizPage() {
     mobileRafRef.current = requestAnimationFrame(tick)
   }, [])
 
-  // ── Mobile stats scroll (separate refs) ──────────────────────────────────
   const mobileStatsScrollRef = useRef<HTMLDivElement>(null)
   const mobileStatsInnerRef  = useRef<HTMLDivElement>(null)
   const mobileStatsOffsetRef = useRef(0)
@@ -384,8 +225,7 @@ export default function VizPage() {
     const PX_PER_MS = 0.03
     let last = performance.now()
     const tick = (now: number) => {
-      const dt = Math.min(now - last, 50)
-      last = now
+      const dt = Math.min(now - last, 50); last = now
       const inner = mobileStatsInnerRef.current
       if (inner) {
         const maxOffset = Math.max(0, inner.scrollHeight - el.clientHeight)
@@ -400,33 +240,37 @@ export default function VizPage() {
     mobileStatsRafRef.current = requestAnimationFrame(tick)
   }, [])
 
-  const pnlPositive = pnl >= 0
+  const pnlPositive  = pnl >= 0
   const pnlFormatted = pnl.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
   const ui = darkMode
     ? { bg: 'bg-black', text: 'text-white', textHover: 'hover:text-white', textDim: 'text-white', textDimHover: 'hover:text-white', periodActive: 'bg-white/15 text-white', periodInactive: 'text-white hover:text-white', pnl: pnlPositive ? 'text-emerald-400' : 'text-red-400', subtext: 'text-white' }
     : { bg: 'bg-white', text: 'text-black', textHover: 'hover:text-black', textDim: 'text-black', textDimHover: 'hover:text-black', periodActive: 'bg-black/10 text-black', periodInactive: 'text-black hover:text-black', pnl: pnlPositive ? 'text-emerald-700' : 'text-red-700', subtext: 'text-black' }
 
+  if (!loading && notFound) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-black text-white font-mono">
+        <div className="text-center space-y-2">
+          <p className="text-lg tracking-widest uppercase">Link not found</p>
+          <p className="text-sm text-white/40">This share link may have been revoked or is invalid.</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={`relative w-screen h-screen ${ui.bg} overflow-hidden transition-colors duration-300`}>
 
-      {/* Full-screen Three.js canvas */}
+      {/* Full-screen canvas */}
       <div className="absolute inset-0">
         {!loading && <PnLWireframe pnl={pnl} maxAbsPnl={refPnl} shapeId={shapeId} darkMode={darkMode} />}
       </div>
 
-      {/* ── Desktop top bar ────────────────────────────────────────────── */}
-      {/* Top-left — back link + shape picker */}
+      {/* ── Desktop top bar ───────────────────────────────────────────── */}
       <div className="hidden md:flex absolute top-5 left-5 z-10 items-center gap-3">
         <span className={`text-sm font-semibold font-mono tracking-tight ${darkMode ? 'text-white' : 'text-black'}`}>MF Crypto Analytics</span>
         <span className={`${darkMode ? 'text-white/20' : 'text-black/20'}`}>·</span>
-        <Link
-          href="/"
-          className={`flex items-center gap-1.5 text-xs font-mono ${ui.text} ${ui.textHover} transition-colors tracking-widest uppercase`}
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Dashboard
-        </Link>
+        <span className={`text-xs font-mono tracking-widest uppercase ${darkMode ? 'text-white/40' : 'text-black/40'}`}>Shared Viz</span>
         <Link
           href="/viz/shapes"
           className={`flex items-center gap-1.5 text-xs font-mono ${ui.textDim} ${ui.textDimHover} transition-colors tracking-widest uppercase`}
@@ -441,18 +285,6 @@ export default function VizPage() {
         >
           {darkMode ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
         </button>
-        <ShareModal
-          basePath="/viz/share"
-          trigger={
-            <button
-              className={`flex items-center gap-1.5 text-xs font-mono ${ui.textDim} ${ui.textDimHover} transition-colors tracking-widest uppercase`}
-              title="Share viz"
-            >
-              <Share2 className="h-3.5 w-3.5" />
-              Share
-            </button>
-          }
-        />
       </div>
 
       {/* Top-right — period selector (desktop) */}
@@ -470,7 +302,7 @@ export default function VizPage() {
         ))}
       </div>
 
-      {/* ── Mobile sandwich menu ──────────────────────────────────────────── */}
+      {/* ── Mobile top bar ────────────────────────────────────────────── */}
       <div className="md:hidden absolute top-4 left-4 z-20">
         <span className={`text-[11px] font-semibold font-mono tracking-tight ${darkMode ? 'text-white/70' : 'text-black/70'}`}>MF Crypto Analytics</span>
       </div>
@@ -487,7 +319,6 @@ export default function VizPage() {
         <div className={`md:hidden absolute top-14 right-4 z-20 rounded-lg border ${
           darkMode ? 'bg-black/90 border-white/10' : 'bg-white/90 border-black/10'
         } backdrop-blur-sm shadow-xl py-2 min-w-[160px] flex flex-col`}>
-          {/* Period selector — single row */}
           <div className="px-3 py-2 flex flex-row gap-1 flex-wrap">
             {PERIODS.map((p) => (
               <button
@@ -514,27 +345,6 @@ export default function VizPage() {
             <Shapes className="h-3.5 w-3.5" />
             Shapes
           </Link>
-          <ShareModal
-            basePath="/viz/share"
-            trigger={
-              <div className={`flex items-center gap-2 px-4 py-2 text-xs font-mono tracking-widest uppercase transition-colors ${
-                darkMode ? 'text-white/50 hover:text-white' : 'text-black/50 hover:text-black'
-              }`}>
-                <Share2 className="h-3.5 w-3.5" />
-                Share
-              </div>
-            }
-          />
-          <Link
-            href="/"
-            onClick={() => setMenuOpen(false)}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-mono tracking-widest uppercase transition-colors ${
-              darkMode ? 'text-white/50 hover:text-white' : 'text-black/50 hover:text-black'
-            }`}
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Dashboard
-          </Link>
           <div className={`mx-3 my-1 h-px ${darkMode ? 'bg-white/10' : 'bg-black/10'}`} />
           <button
             onClick={() => { setDarkMode((d) => !d); setMenuOpen(false) }}
@@ -548,55 +358,42 @@ export default function VizPage() {
         </div>
       )}
 
-      {/* Left side — terminal trade feed */}
+      {/* Left side — trade feed (desktop) */}
       {periodTrades.length > 0 && (
         <div className="hidden md:block absolute left-5 top-16 bottom-20 z-10 w-80 overflow-hidden select-none">
-        <div ref={setTradeScrollRef} onWheel={onUserWheel} className="h-full overflow-hidden pointer-events-auto">
-          <div ref={tradeInnerRef} className="flex flex-col gap-[3px] pr-1" style={{willChange:'transform'}}>
-            {/* header */}
-            <div className={`grid gap-2 font-mono text-[15px] tracking-[0.18em] uppercase mb-1 ${darkMode ? 'text-white/40' : 'text-black/40'}`} style={{gridTemplateColumns:'1fr 1fr 1.4fr 1fr'}}>
-              <span>PNL</span>
-              <span>TICKER</span>
-              <span>EXCH</span>
-              <span className="text-right">TIME</span>
+          <div ref={setTradeScrollRef} onWheel={onUserWheel} className="h-full overflow-hidden pointer-events-auto">
+            <div ref={tradeInnerRef} className="flex flex-col gap-[3px] pr-1" style={{ willChange: 'transform' }}>
+              <div className={`grid gap-2 font-mono text-[15px] tracking-[0.18em] uppercase mb-1 ${darkMode ? 'text-white/40' : 'text-black/40'}`} style={{ gridTemplateColumns: '1fr 1fr 1.4fr 1fr' }}>
+                <span>PNL</span><span>TICKER</span><span>EXCH</span><span className="text-right">TIME</span>
+              </div>
+              {periodTrades.slice().sort((a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime()).map((t, i) => {
+                const pos = t.pnl >= 0
+                const ts  = new Date(t.closeTime)
+                const timeStr = `${String(ts.getMonth()+1).padStart(2,'0')}/${String(ts.getDate()).padStart(2,'0')} ${String(ts.getHours()).padStart(2,'0')}:${String(ts.getMinutes()).padStart(2,'0')}`
+                return (
+                  <div key={t.id ?? i} className={`grid gap-2 font-mono text-[17px] leading-tight tabular-nums ${pos ? (darkMode ? 'text-emerald-400' : 'text-emerald-700') : (darkMode ? 'text-red-400' : 'text-red-700')}`} style={{ gridTemplateColumns: '1fr 1fr 1.4fr 1fr' }}>
+                    <span className="shrink-0">{pos ? '+' : ''}{t.pnl.toFixed(2)}</span>
+                    <span className={`truncate tracking-wider ${darkMode ? 'text-white' : 'text-black'}`}>{t.ticker}</span>
+                    <span className={`truncate ${darkMode ? 'text-white/70' : 'text-black/70'}`}>{t.exchange}</span>
+                    <span className={`text-right text-[14px] ${darkMode ? 'text-white/50' : 'text-black/50'}`}>{timeStr}</span>
+                  </div>
+                )
+              })}
             </div>
-            {periodTrades.slice().sort((a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime()).map((t, i) => {
-              const pos = t.pnl >= 0
-              const ts  = new Date(t.closeTime)
-              const timeStr = `${String(ts.getMonth()+1).padStart(2,'0')}/${String(ts.getDate()).padStart(2,'0')} ${String(ts.getHours()).padStart(2,'0')}:${String(ts.getMinutes()).padStart(2,'0')}`
-              return (
-                <div
-                  key={t.id ?? i}
-                  className={`grid gap-2 font-mono text-[17px] leading-tight tabular-nums ${
-                    pos
-                      ? darkMode ? 'text-emerald-400' : 'text-emerald-700'
-                      : darkMode ? 'text-red-400'     : 'text-red-700'
-                  }`} style={{gridTemplateColumns:'1fr 1fr 1.4fr 1fr'}}
-                >
-                  <span className="shrink-0">{pos ? '+' : ''}{t.pnl.toFixed(2)}</span>
-                  <span className={`truncate tracking-wider ${darkMode ? 'text-white' : 'text-black'}`}>{t.ticker}</span>
-                  <span className={`truncate ${darkMode ? 'text-white/70' : 'text-black/70'}`}>{t.exchange}</span>
-                  <span className={`text-right text-[14px] ${darkMode ? 'text-white/50' : 'text-black/50'}`}>{timeStr}</span>
-                </div>
-              )
-            })}
           </div>
-        </div>
         </div>
       )}
 
-      {/* Mobile trade feed — left side, pnl + ticker only */}
+      {/* Left side — trade feed (mobile) */}
       {periodTrades.length > 0 && (
         <div className="md:hidden absolute left-3 top-16 bottom-28 z-10 w-32 overflow-hidden select-none">
           <div ref={setMobileScrollRef} className="h-full overflow-hidden">
-            <div ref={mobileInnerRef} className="flex flex-col gap-[4px]" style={{willChange:'transform'}}>
+            <div ref={mobileInnerRef} className="flex flex-col gap-[4px]" style={{ willChange: 'transform' }}>
               {periodTrades.slice().sort((a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime()).map((t, i) => {
                 const pos = t.pnl >= 0
                 return (
                   <div key={t.id ?? i} className="flex gap-2 font-mono text-[8px] leading-tight tabular-nums">
-                    <span className={`shrink-0 ${pos ? (darkMode ? 'text-emerald-400' : 'text-emerald-700') : (darkMode ? 'text-red-400' : 'text-red-700')}`}>
-                      {pos ? '+' : ''}{t.pnl.toFixed(2)}
-                    </span>
+                    <span className={`shrink-0 ${pos ? (darkMode ? 'text-emerald-400' : 'text-emerald-700') : (darkMode ? 'text-red-400' : 'text-red-700')}`}>{pos ? '+' : ''}{t.pnl.toFixed(2)}</span>
                     <span className={`truncate tracking-wide ${darkMode ? 'text-white/70' : 'text-black/70'}`}>{t.ticker}</span>
                   </div>
                 )
@@ -606,18 +403,16 @@ export default function VizPage() {
         </div>
       )}
 
-      {/* Right side — terminal stats panel (two columns) */}
+      {/* Right side — stats panels */}
       {!loading && periodTrades.length > 0 && (() => {
         const pfDisplay  = stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : '∞'
         const rrrDisplay = stats.rrr          !== null ? `${stats.rrr.toFixed(2)}x`    : '∞'
         const ddDisplay  = stats.maxDrawdown.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
-        const dim  = `font-mono text-[17px] tracking-[0.15em] uppercase ${darkMode ? 'text-white' : 'text-black'}`
-        const head = `font-mono text-[15px] tracking-[0.22em] uppercase mb-1 ${darkMode ? 'text-white/50' : 'text-black/50'}`
-        const val  = `font-mono text-[20px] font-semibold tabular-nums ${darkMode ? 'text-white' : 'text-black'}`
-        const pval = (v: number) => v >= 0
-          ? `font-mono text-[20px] font-semibold tabular-nums ${darkMode ? 'text-emerald-400' : 'text-emerald-700'}`
-          : `font-mono text-[20px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-700'}`
-        const fmt  = (v: number) => (v >= 0 ? '+' : '') + v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
+        const dim     = `font-mono text-[17px] tracking-[0.15em] uppercase ${darkMode ? 'text-white' : 'text-black'}`
+        const head    = `font-mono text-[15px] tracking-[0.22em] uppercase mb-1 ${darkMode ? 'text-white/50' : 'text-black/50'}`
+        const val     = `font-mono text-[20px] font-semibold tabular-nums ${darkMode ? 'text-white' : 'text-black'}`
+        const pval    = (v: number) => `font-mono text-[20px] font-semibold tabular-nums ${v >= 0 ? (darkMode ? 'text-emerald-400' : 'text-emerald-700') : (darkMode ? 'text-red-400' : 'text-red-700')}`
+        const fmt     = (v: number) => (v >= 0 ? '+' : '') + v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
         const divider = <div className={`my-2 border-t ${darkMode ? 'border-white/10' : 'border-black/10'}`} />
         const SESSION_ORDER = ['Morning','Afternoon','Evening','Night'] as const
         const row = (label: string, v: string, cls: string, tip?: string) => (
@@ -628,35 +423,10 @@ export default function VizPage() {
             <span className={cls}>{v}</span>
           </div>
         )
-
         return (
           <div className="hidden md:flex absolute right-5 top-16 bottom-20 z-10 gap-5 select-none pointer-events-auto">
-
-            {/* Column 1: Balance · Metrics · Sessions · Weekdays */}
+            {/* Column 1 */}
             <div className="w-48 h-full overflow-y-auto flex flex-col gap-[3px] pr-1">
-
-              {balanceResult && (() => {
-                const fmtBal = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
-                return (
-                  <>
-                    <Tooltip content="Live total balance across all connected exchanges" side="bottom">
-                      <div className={`${head} cursor-help inline-block`}>BALANCE</div>
-                    </Tooltip>
-                    <div className="flex justify-between items-baseline gap-2 mb-0.5">
-                      <span className={dim}>TOTAL</span>
-                      <span className={`font-mono text-[20px] font-semibold tabular-nums ${darkMode ? 'text-white' : 'text-black'}`}>{fmtBal(balanceResult.total)}</span>
-                    </div>
-                    {balanceResult.exchanges.filter(e => e.balance > 1).map(e => (
-                      <div key={e.exchange} className="flex justify-between items-baseline gap-2 mb-0.5">
-                        <span className={dim}>{e.exchange.toUpperCase()}</span>
-                        <span className={`font-mono text-[20px] tabular-nums ${darkMode ? 'text-white/70' : 'text-black/70'}`}>{fmtBal(e.balance)}</span>
-                      </div>
-                    ))}
-                    {divider}
-                  </>
-                )
-              })()}
-
               <Tooltip content="Win rate, profit factor, RRR, max drawdown and total trades for the selected period" side="bottom">
                 <div className={`${head} cursor-help inline-block`}>METRICS · {period}</div>
               </Tooltip>
@@ -665,25 +435,20 @@ export default function VizPage() {
               {row('RRR',           rrrDisplay,                      val, 'Avg win ÷ avg loss')}
               {row('TRADES',        String(stats.tradeCount),        val, 'Total closed trades in period')}
               {row('MAX DD', `-${ddDisplay}`, `font-mono text-[20px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-600'}`, 'Largest peak-to-trough drop in cumulative PnL')}
-
               {divider}
-
-              <Tooltip content="Cumulative PnL grouped by time of day: Morning 06–11h · Afternoon 12–17h · Evening 18–23h · Night 00–05h" side="bottom">
+              <Tooltip content="Cumulative PnL grouped by time of day" side="bottom">
                 <div className={`${head} cursor-help inline-block`}>SESSION PNL</div>
               </Tooltip>
               {SESSION_ORDER.map((s) => row(s.toUpperCase(), fmt(sessionPnl[s] ?? 0), pval(sessionPnl[s] ?? 0)))}
-
               {divider}
-
-              <Tooltip content="Cumulative PnL grouped by day of the week trades were closed" side="bottom">
+              <Tooltip content="Cumulative PnL grouped by day of the week" side="bottom">
                 <div className={`${head} cursor-help inline-block`}>WEEKDAY PNL</div>
               </Tooltip>
               {WD_NAMES.map((wd) => row(wd.toUpperCase(), fmt(weekdayPnl[wd] ?? 0), pval(weekdayPnl[wd] ?? 0)))}
             </div>
-
-            {/* Column 2: Top Tickers · By Exchange */}
+            {/* Column 2 */}
             <div className="w-52 h-full overflow-y-auto flex flex-col gap-[3px] pr-1">
-              <Tooltip content="Top 20 tickers ranked by absolute cumulative PnL in the selected period" side="bottom">
+              <Tooltip content="Top 20 tickers ranked by absolute cumulative PnL" side="bottom">
                 <div className={`${head} cursor-help inline-block`}>TOP TICKERS</div>
               </Tooltip>
               {tickerPnl.map(([ticker, v]) => (
@@ -692,10 +457,8 @@ export default function VizPage() {
                   <span className={pval(v)}>{fmt(v)}</span>
                 </div>
               ))}
-
               {divider}
-
-              <Tooltip content="Cumulative PnL per connected exchange in the selected period" side="bottom">
+              <Tooltip content="Cumulative PnL per exchange in the selected period" side="bottom">
                 <div className={`${head} cursor-help inline-block`}>BY EXCHANGE</div>
               </Tooltip>
               {exchangePnl.map(([ex, v]) => (
@@ -705,69 +468,49 @@ export default function VizPage() {
                 </div>
               ))}
             </div>
-
           </div>
         )
       })()}
 
-      {/* Mobile stats panel — right side, single column, auto-scroll */}
+      {/* Mobile stats panel */}
       {!loading && periodTrades.length > 0 && (() => {
         const pfDisplay  = stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : '∞'
         const rrrDisplay = stats.rrr          !== null ? `${stats.rrr.toFixed(2)}x`    : '∞'
         const ddDisplay  = stats.maxDrawdown.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
-        const mDim  = `font-mono text-[6px] tracking-[0.12em] uppercase ${darkMode ? 'text-white' : 'text-black'}`
-        const mHead = `font-mono text-[6px] tracking-[0.2em] uppercase mb-0.5 ${darkMode ? 'text-white/40' : 'text-black/40'}`
-        const mVal  = `font-mono text-[6px] font-semibold tabular-nums ${darkMode ? 'text-white' : 'text-black'}`
-        const mPval = (v: number) => `font-mono text-[6px] font-semibold tabular-nums ${v >= 0 ? (darkMode ? 'text-emerald-400' : 'text-emerald-700') : (darkMode ? 'text-red-400' : 'text-red-700')}`
-        const fmt   = (v: number) => (v >= 0 ? '+' : '') + v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
-        const mDivider = <div className={`my-1.5 border-t ${darkMode ? 'border-white/10' : 'border-black/10'}`} />
+        const mDim   = `font-mono text-[6px] tracking-[0.12em] uppercase ${darkMode ? 'text-white' : 'text-black'}`
+        const mHead  = `font-mono text-[6px] tracking-[0.2em] uppercase mb-0.5 ${darkMode ? 'text-white/40' : 'text-black/40'}`
+        const mVal   = `font-mono text-[6px] font-semibold tabular-nums ${darkMode ? 'text-white' : 'text-black'}`
+        const mPval  = (v: number) => `font-mono text-[6px] font-semibold tabular-nums ${v >= 0 ? (darkMode ? 'text-emerald-400' : 'text-emerald-700') : (darkMode ? 'text-red-400' : 'text-red-700')}`
+        const fmt    = (v: number) => (v >= 0 ? '+' : '') + v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
+        const mDiv   = <div className={`my-1.5 border-t ${darkMode ? 'border-white/10' : 'border-black/10'}`} />
         const SESSION_ORDER = ['Morning','Afternoon','Evening','Night'] as const
         const mRow = (label: string, v: string, cls: string) => (
           <div key={label} className="flex justify-between items-baseline gap-0.5 mb-[1px]">
-            <span className={mDim}>{label}</span>
-            <span className={cls}>{v}</span>
+            <span className={mDim}>{label}</span><span className={cls}>{v}</span>
           </div>
         )
         return (
           <div className="md:hidden absolute right-3 top-16 bottom-28 z-10 w-28 overflow-hidden select-none">
             <div ref={setMobileStatsScrollRef} className="h-full overflow-hidden">
-              <div ref={mobileStatsInnerRef} className="flex flex-col pr-0.5" style={{willChange:'transform'}}>
-
-                {balanceResult && (() => {
-                  const fmtBal = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
-                  return (
-                    <>
-                      <div className={mHead}>BALANCE</div>
-                      {mRow('TOTAL', fmtBal(balanceResult.total), mVal)}
-                      {balanceResult.exchanges.filter(e => e.balance > 1).map(e => mRow(e.exchange.toUpperCase(), fmtBal(e.balance), `font-mono text-[6px] tabular-nums ${darkMode ? 'text-white/60' : 'text-black/60'}`))}
-                      {mDivider}
-                    </>
-                  )
-                })()}
-
+              <div ref={mobileStatsInnerRef} className="flex flex-col pr-0.5" style={{ willChange: 'transform' }}>
                 <div className={mHead}>METRICS · {period}</div>
-                {mRow('WIN RATE',      `${stats.winRate.toFixed(1)}%`, mVal)}
-                {mRow('PROF FACTOR',   pfDisplay,                      mVal)}
-                {mRow('RRR',           rrrDisplay,                     mVal)}
-                {mRow('TRADES',        String(stats.tradeCount),       mVal)}
-                {mRow('MAX DD',        `-${ddDisplay}`,                `font-mono text-[6px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-600'}`)}        
-                {mDivider}
-
+                {mRow('WIN RATE',    `${stats.winRate.toFixed(1)}%`, mVal)}
+                {mRow('PROF FACTOR', pfDisplay,                      mVal)}
+                {mRow('RRR',         rrrDisplay,                     mVal)}
+                {mRow('TRADES',      String(stats.tradeCount),       mVal)}
+                {mRow('MAX DD',      `-${ddDisplay}`,                `font-mono text-[6px] font-semibold tabular-nums ${darkMode ? 'text-red-400' : 'text-red-600'}`)}
+                {mDiv}
                 <div className={mHead}>SESSION PNL</div>
                 {SESSION_ORDER.map((s) => mRow(s.toUpperCase(), fmt(sessionPnl[s] ?? 0), mPval(sessionPnl[s] ?? 0)))}
-                {mDivider}
-
+                {mDiv}
                 <div className={mHead}>WEEKDAY PNL</div>
                 {WD_NAMES.map((wd) => mRow(wd.toUpperCase(), fmt(weekdayPnl[wd] ?? 0), mPval(weekdayPnl[wd] ?? 0)))}
-                {mDivider}
-
+                {mDiv}
                 <div className={mHead}>TOP TICKERS</div>
                 {tickerPnl.map(([ticker, v]) => mRow(ticker, fmt(v), mPval(v)))}
-                {mDivider}
-
+                {mDiv}
                 <div className={mHead}>BY EXCHANGE</div>
                 {exchangePnl.map(([ex, v]) => mRow(ex.toUpperCase(), fmt(v), mPval(v)))}
-
               </div>
             </div>
           </div>
@@ -778,10 +521,8 @@ export default function VizPage() {
       <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-10 text-center pointer-events-none">
         {loading ? (
           <p className="text-white/30 font-mono text-sm tracking-widest">LOADING…</p>
-        ) : trades.length === 0 ? (
-          <p className="text-white/30 font-mono text-sm tracking-widest">
-            NO CACHED TRADES — LOAD FROM DASHBOARD FIRST
-          </p>
+        ) : allTrades.length === 0 ? (
+          <p className="text-white/30 font-mono text-sm tracking-widest">NO TRADES</p>
         ) : (
           <>
             <div className="flex items-center justify-center gap-2 sm:gap-4">

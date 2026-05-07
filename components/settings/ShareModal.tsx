@@ -6,9 +6,11 @@ import { useUserStore } from '@/lib/store/userStore'
 
 interface ShareModalProps {
   trigger?: React.ReactNode
+  /** URL path prefix for the share link. Defaults to "/share". */
+  basePath?: string
 }
 
-export function ShareModal({ trigger }: ShareModalProps) {
+export function ShareModal({ trigger, basePath = '/share' }: ShareModalProps) {
   const telegramId = useUserStore((s) => s.telegramId)
   const [open, setOpen] = useState(false)
   const [token, setToken] = useState<string | null>(null)
@@ -16,7 +18,7 @@ export function ShareModal({ trigger }: ShareModalProps) {
   const [copied, setCopied] = useState(false)
 
   const shareUrl = token
-    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/share/${token}`
+    ? `${typeof window !== 'undefined' ? window.location.origin : ''}${basePath}/${token}`
     : null
 
   const fetchToken = useCallback(async () => {
