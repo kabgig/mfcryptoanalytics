@@ -6,7 +6,8 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { ArrowLeft, Shapes, Sun, Moon, Menu, X } from 'lucide-react'
 import { useUserStore } from '@/lib/store/userStore'
-import type { ClientApiKeys } from '@/lib/exchanges/client'
+import { fetchFuturesTrades as fetchBinanceFutures } from '@/lib/exchanges/adapters/binance/futures'
+import { fetchFuturesTrades as fetchBybitFutures } from '@/lib/exchanges/adapters/bybit/futures'
 import type { Trade } from '@/types'
 import { computeStats } from '@/lib/services/statsService'
 import { fetchAllBalances } from '@/lib/services/balanceService'
@@ -30,14 +31,89 @@ const PERIODS = [
 
 type PeriodLabel = typeof PERIODS[number]['label']
 
-const EXCHANGE_KEY_MAP: Record<string, keyof ClientApiKeys> = {
-  Binance: 'binanceApiKey',
-  Bybit:   'bybitApiKey',
-  BingX:   'bingxApiKey',
-  MEXC:    'mexcApiKey',
-  OKX:     'okxApiKey',
-  Bitunix: 'bitunixApiKey',
-  BYDFi:   'bydfiApiKey',
+interface ExchangeConfig {
+  name: string
+  apiKey: string
+  apiSecret: string
+  passphrase?: string
+}
+
+const ASIA_EXCHANGES = new Set(['BingX', 'MEXC'])
+const CLIENT_FETCH_EXCHANGES = new Set(['Binance', 'Bybit'])
+const IMPORTED_EXCHANGES = ['Jupiter Perps', 'bluefin'] as const
+
+async function fetchExchangeTradesClientSide(
+  telegramId: string,
+  cfg: ExchangeConfig,
+  force: boolean
+): Promise<Trade[]> {
+  if (!force) {
+    const cacheRes = await fetch('/api/trades-cache', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ telegramId, exchange: cfg.name }),
+    })
+    const cacheData = await cacheRes.json()
+    if (cacheData.fresh) return cacheData.trades as Trade[]
+  }
+
+  let trades: Trade[]
+  if (cfg.name === 'Binance') {
+    trades = await fetchBinanceFutures(cfg.apiKey, cfg.apiSecret)
+  } else if (cfg.name === 'Bybit') {
+    trades = await fetchBybitFutures(cfg.apiKey, cfg.apiSecret)
+  } else {
+    throw new Error(`Unexpected client-fetch exchange: ${cfg.name}`)
+  }
+
+  fetch('/api/trades-store', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ telegramId, exchange: cfg.name, trades }),
+  }).catch(() => {})
+
+  return trades
+}
+
+async function fetchExchangeTrades(
+  telegramId: string,
+  cfg: ExchangeConfig,
+  force: boolean
+): Promise<Trade[]> {
+  if (CLIENT_FETCH_EXCHANGES.has(cfg.name)) {
+    return fetchExchangeTradesClientSide(telegramId, cfg, force)
+  }
+
+  const endpoint = ASIA_EXCHANGES.has(cfg.name) ? '/api/trades-asia' : '/api/trades-global'
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      telegramId,
+      exchange: cfg.name,
+      apiKey: cfg.apiKey,
+      apiSecret: cfg.apiSecret,
+      passphrase: cfg.passphrase ?? '',
+      force,
+    }),
+  })
+  const data = await res.json()
+  if (data.error) throw new Error(data.error)
+  return data.trades as Trade[]
+}
+
+async function fetchImportedTrades(telegramId: string): Promise<Trade[]> {
+  const results = await Promise.all(
+    IMPORTED_EXCHANGES.map((exchange) =>
+      fetch('/api/import/trades', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegramId, exchange }),
+      }).then((res) => res.json())
+    )
+  )
+
+  return results.flatMap((data) => (data.trades ?? []) as Trade[])
 }
 
 function filterByPeriod(trades: Trade[], days: number): Trade[] {
@@ -56,9 +132,30 @@ export default function VizPage() {
   const telegramId  = useUserStore((s) => s.telegramId)
   const apiKeys     = useUserStore((s) => s.apiKeys)
   const [trades, setTrades] = useState<Trade[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [period, setPeriod]     = useState<PeriodLabel>('1m')
+  const [loading, setLoading]   = useState(false)
+  const [period, setPeriod]     = useState<PeriodLabel>('3m')
   const [balanceResult, setBalanceResult] = useState<BalanceResult | null>(null)
+
+  const buildExchangeConfigs = useCallback((): ExchangeConfig[] => {
+    const configs: ExchangeConfig[] = []
+
+    if (apiKeys.binanceApiKey && apiKeys.binanceApiSecret)
+      configs.push({ name: 'Binance', apiKey: apiKeys.binanceApiKey, apiSecret: apiKeys.binanceApiSecret })
+    if (apiKeys.bybitApiKey && apiKeys.bybitApiSecret)
+      configs.push({ name: 'Bybit', apiKey: apiKeys.bybitApiKey, apiSecret: apiKeys.bybitApiSecret })
+    if (apiKeys.okxApiKey && apiKeys.okxApiSecret && apiKeys.okxPassphrase)
+      configs.push({ name: 'OKX', apiKey: apiKeys.okxApiKey, apiSecret: apiKeys.okxApiSecret, passphrase: apiKeys.okxPassphrase })
+    if (apiKeys.bingxApiKey && apiKeys.bingxApiSecret)
+      configs.push({ name: 'BingX', apiKey: apiKeys.bingxApiKey, apiSecret: apiKeys.bingxApiSecret })
+    if (apiKeys.mexcApiKey && apiKeys.mexcApiSecret)
+      configs.push({ name: 'MEXC', apiKey: apiKeys.mexcApiKey, apiSecret: apiKeys.mexcApiSecret })
+    if (apiKeys.bitunixApiKey && apiKeys.bitunixApiSecret)
+      configs.push({ name: 'Bitunix', apiKey: apiKeys.bitunixApiKey, apiSecret: apiKeys.bitunixApiSecret })
+    if (apiKeys.bydfiApiKey && apiKeys.bydfiApiSecret)
+      configs.push({ name: 'BYDFi', apiKey: apiKeys.bydfiApiKey, apiSecret: apiKeys.bydfiApiSecret })
+
+    return configs
+  }, [apiKeys])
 
   // Fetch balances on mount
   useEffect(() => {
@@ -66,36 +163,37 @@ export default function VizPage() {
     fetchAllBalances(apiKeys).then(setBalanceResult).catch(() => {})
   }, [apiKeys])
 
-  // Fetch all cached trades on mount
+  // Fetch all exchange and imported trades on mount
+  // Each exchange is isolated: one failure does not drop other exchanges (mirrors HomeView behaviour)
   useEffect(() => {
-    if (!telegramId) { setLoading(false); return }
+    if (!telegramId) return
 
-    const exchanges = [
-      ...Object.entries(EXCHANGE_KEY_MAP)
-        .filter(([, k]) => !!apiKeys[k])
-        .map(([name]) => name),
-      'Jupiter', // manual import — always try
-    ]
+    let cancelled = false
+    const loadTrades = async () => {
+      setLoading(true)
 
-    Promise.all(
-      exchanges.map(async (exchange) => {
-        try {
-          const res = await fetch('/api/trades-cache', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ telegramId, exchange }),
-          })
-          const data = await res.json()
-          return data.fresh ? (data.trades as Trade[]) : []
-        } catch {
-          return []
-        }
-      })
-    ).then((results) => {
-      setTrades(results.flat())
+      // Per-exchange results — fulfilled OR rejected independently
+      const [perExchangeResults, importedResult] = await Promise.all([
+        Promise.allSettled(
+          buildExchangeConfigs().map((cfg) => fetchExchangeTrades(telegramId, cfg, false))
+        ),
+        fetchImportedTrades(telegramId).catch(() => [] as Trade[]),
+      ])
+
+      if (cancelled) return
+
+      const exchangeTrades = perExchangeResults.flatMap((r) =>
+        r.status === 'fulfilled' ? r.value : []
+      )
+
+      setTrades([...exchangeTrades, ...importedResult])
       setLoading(false)
-    })
-  }, [telegramId, apiKeys])
+    }
+
+    void loadTrades()
+
+    return () => { cancelled = true }
+  }, [telegramId, buildExchangeConfigs])
 
   const periodTrades = useMemo(() => {
     const p = PERIODS.find((x) => x.label === period)!
@@ -167,7 +265,10 @@ export default function VizPage() {
     const trades3m = filterByPeriod(trades, 90)
     if (trades3m.length === 0) return Math.max(Math.abs(pnl), 1)
 
-    const now = Date.now()
+    const now = trades3m.reduce((latest, trade) => {
+      const closeTime = new Date(trade.closeTime).getTime()
+      return closeTime > latest ? closeTime : latest
+    }, 0)
     const buckets: number[] = []
     for (let w = 0; w < 13; w++) {
       const end   = now - w * WEEK_MS
