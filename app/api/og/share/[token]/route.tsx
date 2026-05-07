@@ -26,17 +26,8 @@ const perspProj = ([x, y, z]: Vec3, fov: number, scale: number): [number, number
   const d = z + fov
   return d > 0 ? [(x / d) * scale, -(y / d) * scale] : [0, 0]
 }
-const d3 = ([ax, ay, az]: Vec3, [bx, by, bz]: Vec3): number => {
-  const dx = ax - bx, dy = ay - by, dz = az - bz
-  return Math.sqrt(dx * dx + dy * dy + dz * dz)
-}
-const cross3 = ([ax,ay,az]: Vec3, [bx,by,bz]: Vec3): Vec3 => [ay*bz - az*by, az*bx - ax*bz, ax*by - ay*bx]
-const dot3   = ([ax,ay,az]: Vec3, [bx,by,bz]: Vec3) => ax*bx + ay*by + az*bz
-const norm3  = (v: Vec3): Vec3 => { const l = Math.sqrt(dot3(v,v)); return l > 1e-9 ? [v[0]/l, v[1]/l, v[2]/l] : v }
 
-// ── Shape generators ──────────────────────────────────────────────────────
-
-// Proper face-based geodesic sphere subdivision (matches Three.js IcosahedronGeometry)
+// Geodesic sphere — matches Three.js IcosahedronGeometry(r, 2)
 function geodesicSphere(r: number, levels: number): Edge[] {
   const t = (1 + Math.sqrt(5)) / 2
   const proj = (v: Vec3): Vec3 => { const l = Math.sqrt(v[0]**2+v[1]**2+v[2]**2); return l>1e-9?[v[0]*r/l,v[1]*r/l,v[2]*r/l]:v }
@@ -72,111 +63,9 @@ function geodesicSphere(r: number, levels: number): Edge[] {
   }
   return edges
 }
-const torusKnotEdges = (p: number, q: number, TS = 56, RS = 10): Edge[] => {
-  const R = 0.9, tubeR = 0.22
-  // Center curve + numerical tangents
-  const centers: Vec3[] = [], tangents: Vec3[] = []
-  for (let i = 0; i < TS; i++) {
-    const t = (i / TS) * 2 * Math.PI
-    const qt = q * t, pt = p * t
-    const r = 0.5 * (2 + Math.cos(qt)) * R
-    centers.push([r * Math.cos(pt), r * Math.sin(pt), -0.5 * Math.sin(qt) * R])
-    const t2 = t + 0.001, r2 = 0.5 * (2 + Math.cos(q*t2)) * R
-    const dt: Vec3 = [r2*Math.cos(p*t2) - centers[i][0], r2*Math.sin(p*t2) - centers[i][1], -0.5*Math.sin(q*t2)*R - centers[i][2]]
-    tangents.push(norm3(dt))
-  }
-  // Rotation minimizing frames (parallel transport)
-  const normals: Vec3[] = new Array(TS)
-  const T0 = tangents[0]
-  normals[0] = norm3(cross3(T0, Math.abs(T0[1]) < 0.9 ? [0,1,0] : [1,0,0]))
-  for (let i = 1; i < TS; i++) {
-    const Tc = tangents[i], Np = normals[i-1]
-    const d = dot3(Np, Tc)
-    const r: Vec3 = [Np[0]-d*Tc[0], Np[1]-d*Tc[1], Np[2]-d*Tc[2]]
-    const l = Math.sqrt(r[0]**2+r[1]**2+r[2]**2)
-    normals[i] = l > 1e-9 ? [r[0]/l, r[1]/l, r[2]/l] : Np
-  }
-  // Build rings
-  const rings: Vec3[][] = []
-  for (let i = 0; i < TS; i++) {
-    const C = centers[i], T = tangents[i], N = normals[i]
-    const B = norm3(cross3(T, N))
-    const ring: Vec3[] = []
-    for (let j = 0; j < RS; j++) {
-      const a = (j / RS) * 2 * Math.PI, c = Math.cos(a), s = Math.sin(a)
-      ring.push([C[0]+tubeR*(N[0]*c+B[0]*s), C[1]+tubeR*(N[1]*c+B[1]*s), C[2]+tubeR*(N[2]*c+B[2]*s)])
-    }
-    rings.push(ring)
-  }
-  // Edges: along tube + around each ring
-  const out: Edge[] = []
-  for (let i = 0; i < TS; i++) {
-    const ni = (i+1) % TS
-    for (let j = 0; j < RS; j++) {
-      out.push([rings[i][j], rings[ni][j]])
-      out.push([rings[i][j], rings[i][(j+1) % RS]])
-    }
-  }
-  return out
-}
-const torusEdges = (): Edge[] => {
-  const R = 1.2, r = 0.42, s = 0.8, NU = 28, NV = 14
-  const out: Edge[] = []
-  for (let j = 0; j < NV; j++) {
-    const v = (j / NV) * 2 * Math.PI
-    const pts: Vec3[] = Array.from({ length: NU + 1 }, (_, i) => {
-      const u = (i / NU) * 2 * Math.PI
-      return [(R + r * Math.cos(v)) * Math.cos(u) * s, (R + r * Math.cos(v)) * Math.sin(u) * s, r * Math.sin(v) * s]
-    })
-    for (let i = 0; i < NU; i++) out.push([pts[i], pts[i + 1]])
-  }
-  for (let i = 0; i < NU; i++) {
-    const u = (i / NU) * 2 * Math.PI
-    const pts: Vec3[] = Array.from({ length: NV + 1 }, (_, j) => {
-      const v = (j / NV) * 2 * Math.PI
-      return [(R + r * Math.cos(v)) * Math.cos(u) * s, (R + r * Math.cos(v)) * Math.sin(u) * s, r * Math.sin(v) * s]
-    })
-    for (let j = 0; j < NV; j++) out.push([pts[j], pts[j + 1]])
-  }
-  return out
-}
-const sphereEdges = (): Edge[] => {
-  const R = 1.4, NLat = 8, NLon = 14
-  const out: Edge[] = []
-  for (let i = 1; i < NLat; i++) {
-    const phi = (i / NLat) * Math.PI, y = R * Math.cos(phi), rr = R * Math.sin(phi)
-    const pts: Vec3[] = Array.from({ length: NLon + 1 }, (_, j) => {
-      const theta = (j / NLon) * 2 * Math.PI
-      return [rr * Math.cos(theta), y, rr * Math.sin(theta)]
-    })
-    for (let j = 0; j < NLon; j++) out.push([pts[j], pts[j + 1]])
-  }
-  for (let j = 0; j < NLon; j++) {
-    const theta = (j / NLon) * 2 * Math.PI
-    const pts: Vec3[] = Array.from({ length: NLat + 1 }, (_, i) => {
-      const phi = (i / NLat) * Math.PI
-      return [R * Math.sin(phi) * Math.cos(theta), R * Math.cos(phi), R * Math.sin(phi) * Math.sin(theta)]
-    })
-    for (let i = 0; i < NLat; i++) out.push([pts[i], pts[i + 1]])
-  }
-  return out
-}
 
-const SHAPE_BUILDERS: Record<string, () => Edge[]> = {
-  'torus-knot-2-3': () => torusKnotEdges(2, 3),
-  'torus-knot-3-2': () => torusKnotEdges(3, 2),
-  'torus-knot-5-3': () => torusKnotEdges(5, 3),
-  'torus-knot-3-5': () => torusKnotEdges(3, 5),
-  'torus-knot-7-4': () => torusKnotEdges(7, 4),
-  'torus':          torusEdges,
-  'sphere':         sphereEdges,
-  'icosahedron':    () => geodesicSphere(1.3, 2),
-  'octahedron':     () => geodesicSphere(1.4, 2),
-  'dodecahedron':   () => geodesicSphere(1.3, 2),
-}
-
-function buildWireframePaths(shapeId: string) {
-  const edges = (SHAPE_BUILDERS[shapeId] ?? SHAPE_BUILDERS['icosahedron'])()
+function buildWireframePaths() {
+  const edges = geodesicSphere(1.3, 2)
   const rx = -0.3, ry = 0.6, fov = 5, scale = 500
   const front: string[] = []
   const back: string[] = []
@@ -266,7 +155,7 @@ export async function GET(
     const pnlPositive = totalPnl >= 0
     const pnlColor = pnlPositive ? '#34d399' : '#f87171'
 
-    const { front, back } = buildWireframePaths('icosahedron')
+    const { front, back } = buildWireframePaths()
     const stars = generateStars(90)
 
     return new ImageResponse(
