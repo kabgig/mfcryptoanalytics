@@ -36,54 +36,42 @@ const dot3   = ([ax,ay,az]: Vec3, [bx,by,bz]: Vec3) => ax*bx + ay*by + az*bz
 const norm3  = (v: Vec3): Vec3 => { const l = Math.sqrt(dot3(v,v)); return l > 1e-9 ? [v[0]/l, v[1]/l, v[2]/l] : v }
 
 // ── Shape generators ──────────────────────────────────────────────────────
-const polyEdges = (verts: Vec3[], len: number, tol = 0.07): Edge[] => {
-  const out: Edge[] = []
-  for (let i = 0; i < verts.length; i++)
-    for (let j = i + 1; j < verts.length; j++)
-      if (Math.abs(d3(verts[i], verts[j]) - len) < tol)
-        out.push([verts[i], verts[j]])
-  return out
-}
 
-const PHI = (1 + Math.sqrt(5)) / 2
-
-// Subdivide edges once, projecting midpoints back onto sphere
-const subdivideEdges = (edges: Edge[], levels: number): Edge[] => {
+// Proper face-based geodesic sphere subdivision (matches Three.js IcosahedronGeometry)
+function geodesicSphere(r: number, levels: number): Edge[] {
+  const t = (1 + Math.sqrt(5)) / 2
+  const proj = (v: Vec3): Vec3 => { const l = Math.sqrt(v[0]**2+v[1]**2+v[2]**2); return l>1e-9?[v[0]*r/l,v[1]*r/l,v[2]*r/l]:v }
+  const verts: Vec3[] = ([ [-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1] ] as Vec3[]).map(proj)
+  let faces: [number,number,number][] = [
+    [0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],
+    [1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],
+    [3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],
+    [4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1],
+  ]
   for (let l = 0; l < levels; l++) {
-    const next: Edge[] = []
-    for (const [a, b] of edges) {
-      const mid: Vec3 = [(a[0]+b[0])/2, (a[1]+b[1])/2, (a[2]+b[2])/2]
-      const ra = Math.sqrt(a[0]**2 + a[1]**2 + a[2]**2)
-      const rm = Math.sqrt(mid[0]**2 + mid[1]**2 + mid[2]**2)
-      if (rm > 1e-9) { const sc = ra/rm; mid[0]*=sc; mid[1]*=sc; mid[2]*=sc }
-      next.push([a, mid], [mid, b])
+    const cache = new Map<string,number>()
+    const getMid = (a: number, b: number): number => {
+      const key = a<b?`${a}_${b}`:`${b}_${a}`
+      if (cache.has(key)) return cache.get(key)!
+      const va=verts[a],vb=verts[b],idx=verts.length
+      verts.push(proj([(va[0]+vb[0])/2,(va[1]+vb[1])/2,(va[2]+vb[2])/2]))
+      cache.set(key,idx); return idx
     }
-    edges = next
+    const next: [number,number,number][] = []
+    for (const [a,b,c] of faces) {
+      const ab=getMid(a,b),bc=getMid(b,c),ca=getMid(c,a)
+      next.push([a,ab,ca],[b,bc,ab],[c,ca,bc],[ab,bc,ca])
+    }
+    faces = next
+  }
+  const seen = new Set<string>(), edges: Edge[] = []
+  for (const [a,b,c] of faces) {
+    for (const [i,j] of [[a,b],[b,c],[c,a]] as [number,number][]) {
+      const key=i<j?`${i}_${j}`:`${j}_${i}`
+      if (!seen.has(key)) { seen.add(key); edges.push([verts[i],verts[j]]) }
+    }
   }
   return edges
-}
-
-const icosahedronEdges = (): Edge[] => {
-  const s = 0.9
-  return polyEdges([
-    [0,s,s*PHI],[0,-s,s*PHI],[0,s,-s*PHI],[0,-s,-s*PHI],
-    [s,s*PHI,0],[-s,s*PHI,0],[s,-s*PHI,0],[-s,-s*PHI,0],
-    [s*PHI,0,s],[-s*PHI,0,s],[s*PHI,0,-s],[-s*PHI,0,-s],
-  ], 2 * s)
-}
-const octahedronEdges = (): Edge[] => {
-  const s = 1.5
-  return polyEdges([[s,0,0],[-s,0,0],[0,s,0],[0,-s,0],[0,0,s],[0,0,-s]], s * Math.SQRT2)
-}
-const dodecahedronEdges = (): Edge[] => {
-  const s = 0.9
-  return polyEdges([
-    [s,s,s],[s,s,-s],[s,-s,s],[s,-s,-s],
-    [-s,s,s],[-s,s,-s],[-s,-s,s],[-s,-s,-s],
-    [0,s/PHI,s*PHI],[0,s/PHI,-s*PHI],[0,-s/PHI,s*PHI],[0,-s/PHI,-s*PHI],
-    [s/PHI,s*PHI,0],[-s/PHI,s*PHI,0],[s/PHI,-s*PHI,0],[-s/PHI,-s*PHI,0],
-    [s*PHI,0,s/PHI],[s*PHI,0,-s/PHI],[-s*PHI,0,s/PHI],[-s*PHI,0,-s/PHI],
-  ], 2 * s / PHI, 0.07)
 }
 const torusKnotEdges = (p: number, q: number, TS = 56, RS = 10): Edge[] => {
   const R = 0.9, tubeR = 0.22
@@ -183,9 +171,9 @@ const SHAPE_BUILDERS: Record<string, () => Edge[]> = {
   'torus-knot-7-4': () => torusKnotEdges(7, 4),
   'torus':          torusEdges,
   'sphere':         sphereEdges,
-  'icosahedron':    () => subdivideEdges(icosahedronEdges(), 3),
-  'octahedron':     () => subdivideEdges(octahedronEdges(), 2),
-  'dodecahedron':   () => subdivideEdges(dodecahedronEdges(), 1),
+  'icosahedron':    () => geodesicSphere(1.3, 3),
+  'octahedron':     () => geodesicSphere(1.4, 3),
+  'dodecahedron':   () => geodesicSphere(1.3, 3),
 }
 
 function buildWireframePaths(shapeId: string) {
