@@ -1,7 +1,7 @@
 import { ImageResponse } from 'next/og'
 
 export const dynamic = 'force-dynamic'
-export const runtime = 'edge'
+export const runtime = 'nodejs'
 
 const CUTOFF_DAYS = 90
 
