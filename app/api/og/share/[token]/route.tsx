@@ -194,6 +194,18 @@ function buildWireframePaths(shapeId: string) {
   return { front: front.join(''), back: back.join('') }
 }
 
+function generateStars(count: number) {
+  return Array.from({ length: count }, (_, i) => {
+    const angle = (Math.sin(i * 127.1 + 1.3) * 0.5 + 0.5) * 2 * Math.PI
+    const dist  = 95 + (Math.sin(i * 311.7 + 2.7) * 0.5 + 0.5) * 145
+    const x     = +(Math.cos(angle) * dist).toFixed(1)
+    const y     = +(Math.sin(angle) * dist).toFixed(1)
+    const size  = +(0.4 + (Math.sin(i * 74.9) * 0.5 + 0.5) * 1.4).toFixed(2)
+    const op    = +(0.2 + (Math.sin(i * 43.3 + 0.5) * 0.5 + 0.5) * 0.55).toFixed(2)
+    return { x, y, size, op }
+  })
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ token: string }> }
@@ -240,6 +252,7 @@ export async function GET(
     const pnlColor = pnlPositive ? '#34d399' : '#f87171'
 
     const { front, back } = buildWireframePaths(shapeId)
+    const stars = generateStars(90)
 
     return new ImageResponse(
       <div style={{ width: '1200px', height: '630px', background: '#09090b', display: 'flex', fontFamily: 'monospace' }}>
@@ -298,8 +311,12 @@ export async function GET(
         <div style={{ width: '1px', background: '#1c1c1e', height: '100%' }} />
 
         {/* ── Right column: wireframe shape ── */}
-        <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', background: `radial-gradient(ellipse 60% 60% at 50% 50%, ${pnlColor}18 0%, #09090b 68%)` }}>
           <svg width={480} height={480} viewBox="-240 -240 480 480">
+            {/* Space particles */}
+            {stars.map((s, i) => (
+              <circle key={i} cx={s.x} cy={s.y} r={s.size} fill={pnlColor} opacity={s.op * 0.55} />
+            ))}
             {/* Back edges — dim */}
             {back && (
               <path d={back} stroke={pnlColor} strokeWidth="1" fill="none" opacity="0.22" />
