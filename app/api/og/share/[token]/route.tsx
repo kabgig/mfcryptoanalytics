@@ -171,9 +171,9 @@ const SHAPE_BUILDERS: Record<string, () => Edge[]> = {
   'torus-knot-7-4': () => torusKnotEdges(7, 4),
   'torus':          torusEdges,
   'sphere':         sphereEdges,
-  'icosahedron':    () => geodesicSphere(1.3, 3),
-  'octahedron':     () => geodesicSphere(1.4, 3),
-  'dodecahedron':   () => geodesicSphere(1.3, 3),
+  'icosahedron':    () => geodesicSphere(1.3, 2),
+  'octahedron':     () => geodesicSphere(1.4, 2),
+  'dodecahedron':   () => geodesicSphere(1.3, 2),
 }
 
 function buildWireframePaths(shapeId: string) {
@@ -302,19 +302,23 @@ export async function GET(
           <svg width={480} height={480} viewBox="-240 -240 480 480">
             {/* Back edges — dim */}
             {back && (
-              <path d={back} stroke={pnlColor} strokeWidth="0.8" fill="none" opacity="0.12" />
+              <path d={back} stroke={pnlColor} strokeWidth="1" fill="none" opacity="0.22" />
             )}
-            {/* Front glow — wide soft layer */}
+            {/* Front glow — widest bloom */}
             {front && (
-              <path d={front} stroke={pnlColor} strokeWidth="5" fill="none" opacity="0.06" />
+              <path d={front} stroke={pnlColor} strokeWidth="12" fill="none" opacity="0.04" />
             )}
-            {/* Front glow — medium layer */}
+            {/* Front glow — wide */}
             {front && (
-              <path d={front} stroke={pnlColor} strokeWidth="2.5" fill="none" opacity="0.18" />
+              <path d={front} stroke={pnlColor} strokeWidth="6" fill="none" opacity="0.10" />
+            )}
+            {/* Front glow — medium */}
+            {front && (
+              <path d={front} stroke={pnlColor} strokeWidth="2.5" fill="none" opacity="0.30" />
             )}
             {/* Front crisp line */}
             {front && (
-              <path d={front} stroke={pnlColor} strokeWidth="1.2" fill="none" opacity="0.65" />
+              <path d={front} stroke={pnlColor} strokeWidth="1.1" fill="none" opacity="0.90" />
             )}
           </svg>
         </div>
