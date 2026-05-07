@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { useUserStore } from "@/lib/store/userStore"
+ import { useUserStore } from "@/lib/store/userStore"
 import { Navbar } from "@/components/layout/Navbar"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { RefreshCw } from "lucide-react"
@@ -24,6 +24,7 @@ function fmtDate(iso: string) {
 export default function AdminPage() {
   const role = useUserStore((s) => s.role)
   const telegramId = useUserStore((s) => s.telegramId)
+  const startImpersonation = useUserStore((s) => s.startImpersonation)
   const router = useRouter()
 
   const [users, setUsers] = useState<UserRow[]>([])
@@ -135,6 +136,7 @@ export default function AdminPage() {
                       <th className="px-4 py-2.5 font-medium text-right">Total PnL</th>
                       <th className="px-4 py-2.5 font-medium text-right">Trades</th>
                       <th className="px-4 py-2.5 font-medium text-right">Exchanges</th>
+                      <th className="px-4 py-2.5 font-medium"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -157,6 +159,19 @@ export default function AdminPage() {
                         </td>
                         <td className="px-4 py-2.5 text-right tabular-nums">{u.tradeCount.toLocaleString()}</td>
                         <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{u.exchangeCount}</td>
+                        <td className="px-4 py-2.5">
+                          {u.telegramId !== telegramId && (
+                            <button
+                              onClick={() => {
+                                startImpersonation({ telegramId: u.telegramId, telegramName: u.telegramName, role: u.role as 'ADMIN' | 'USER' })
+                                router.push('/')
+                              }}
+                              className="rounded px-2 py-1 text-xs font-medium border border-border hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+                            >
+                              Switch to
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

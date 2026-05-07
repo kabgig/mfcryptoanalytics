@@ -67,6 +67,22 @@ export async function getIfFresh(
 }
 
 /**
+ * Returns all stored trades for a user across all exchanges, with no freshness check.
+ * Used when API keys are not available (e.g. admin impersonation).
+ */
+export async function getAllStoredTrades(telegramId: string): Promise<Trade[]> {
+  const sql = getSql()
+  const rows = await sql`
+    SELECT id, exchange, ticker, position_size, tp, sl,
+           open_time, close_time, pnl, market, side
+    FROM cached_trades
+    WHERE telegram_id = ${BigInt(telegramId)}
+    ORDER BY close_time DESC
+  ` as Record<string, unknown>[]
+  return rows.map(rowToTrade)
+}
+
+/**
  * @deprecated Use getIfFresh instead
  */
 export async function isCacheFresh(telegramId: string, exchange: string): Promise<boolean> {

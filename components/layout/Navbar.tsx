@@ -2,13 +2,13 @@
 
 import { useState, useRef } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
 import { ThemeToggle } from "./ThemeToggle"
 import { ApiKeysModal } from "@/components/settings/ApiKeysModal"
 import { ShareModal } from "@/components/settings/ShareModal"
 import { useUserStore } from "@/lib/store/userStore"
-import { LogOut, Settings, Moon, Sun, Menu, X, Upload, ChevronDown, Eye, EyeOff, Share2 } from "lucide-react"
+import { LogOut, Settings, Moon, Sun, Menu, X, Upload, ChevronDown, Eye, EyeOff, Share2, UserCheck } from "lucide-react"
 
 // Telegram SVG logo
 function TelegramIcon({ className }: { className?: string }) {
@@ -97,14 +97,17 @@ function MobileThemeToggle() {
 
 export function Navbar() {
   const pathname = usePathname()
+  const router = useRouter()
   const telegramId = useUserStore((s) => s.telegramId)
   const telegramName = useUserStore((s) => s.telegramName)
   const role = useUserStore((s) => s.role)
   const clear = useUserStore((s) => s.clear)
+  const originalAdmin = useUserStore((s) => s.originalAdmin)
+  const stopImpersonation = useUserStore((s) => s.stopImpersonation)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [nameHidden, setNameHidden] = useState(false)
 
-  const visibleLinks = NAV_LINKS.filter((l) => !l.adminOnly || role === "ADMIN")
+  const visibleLinks = NAV_LINKS.filter((l) => !l.adminOnly || role === "ADMIN" || originalAdmin !== null)
 
   const linkClass = (href: string) =>
     `text-sm font-medium transition-colors hover:text-foreground ${
@@ -113,6 +116,22 @@ export function Navbar() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/30 bg-background/90 backdrop-blur-sm">
+      {originalAdmin && (
+        <div className="flex items-center justify-between gap-4 bg-amber-500/10 border-b border-amber-500/25 px-4 sm:px-6 py-1.5 text-sm">
+          <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+            <UserCheck className="h-3.5 w-3.5 shrink-0" />
+            Viewing as{" "}
+            <span className="font-medium">{telegramName}</span>
+            <span className="font-mono text-xs text-amber-600/60 dark:text-amber-500/60">({telegramId})</span>
+          </span>
+          <button
+            onClick={() => { stopImpersonation(); router.push('/admin') }}
+            className="shrink-0 rounded px-2.5 py-1 text-xs font-medium border border-amber-500/40 text-amber-700 dark:text-amber-400 hover:bg-amber-500/15 transition-colors"
+          >
+            Back to Admin
+          </button>
+        </div>
+      )}
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
         {/* Brand + nav links (left side) */}
         <div className="flex items-center gap-6">
