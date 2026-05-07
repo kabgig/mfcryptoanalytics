@@ -183,14 +183,14 @@ const SHAPE_BUILDERS: Record<string, () => Edge[]> = {
   'torus-knot-7-4': () => torusKnotEdges(7, 4),
   'torus':          torusEdges,
   'sphere':         sphereEdges,
-  'icosahedron':    () => subdivideEdges(icosahedronEdges(), 2),
+  'icosahedron':    () => subdivideEdges(icosahedronEdges(), 3),
   'octahedron':     () => subdivideEdges(octahedronEdges(), 2),
   'dodecahedron':   () => subdivideEdges(dodecahedronEdges(), 1),
 }
 
 function buildWireframePaths(shapeId: string) {
-  const edges = (SHAPE_BUILDERS[shapeId] ?? SHAPE_BUILDERS['torus-knot-2-3'])()
-  const rx = -0.3, ry = 0.6, fov = 5, scale = 600
+  const edges = (SHAPE_BUILDERS[shapeId] ?? SHAPE_BUILDERS['icosahedron'])()
+  const rx = -0.3, ry = 0.6, fov = 5, scale = 500
   const front: string[] = []
   const back: string[] = []
   for (const [a, b] of edges) {
@@ -211,7 +211,7 @@ export async function GET(
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params
-  const shapeId = new URL(_req.url).searchParams.get('shape') ?? 'torus-knot-2-3'
+  const shapeId = new URL(_req.url).searchParams.get('shape') ?? 'icosahedron'
 
   if (!token || !/^[0-9a-f]{48}$/.test(token)) {
     return new Response('Not found', { status: 404 })
