@@ -186,7 +186,27 @@ export function EMonView() {
   const runFetch = useCallback((force: boolean) => {
     if (!telegramId) return
     const configs = buildExchangeConfigs()
-    if (configs.length === 0) return
+
+    if (configs.length === 0) {
+      setTrades([])
+      setLoadedExchanges([])
+      setExchangeErrors({})
+      setLoading(true)
+      fetch('/api/trades-cache/all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegramId }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          const t = (data.trades ?? []) as Trade[]
+          t.sort((a, b) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime())
+          setTrades(t)
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false))
+      return
+    }
 
     let cancelled = false
     setTrades([])

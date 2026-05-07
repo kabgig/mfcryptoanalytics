@@ -173,10 +173,26 @@ export default function VizPage() {
     const loadTrades = async () => {
       setLoading(true)
 
+      const configs = buildExchangeConfigs()
+
+      // No API keys (e.g. admin impersonating) — load all cached trades from DB
+      if (configs.length === 0) {
+        const res = await fetch('/api/trades-cache/all', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ telegramId }),
+        }).then((r) => r.json()).catch(() => ({ trades: [] }))
+        if (!cancelled) {
+          setTrades((res.trades ?? []) as Trade[])
+          setLoading(false)
+        }
+        return
+      }
+
       // Per-exchange results — fulfilled OR rejected independently
       const [perExchangeResults, importedResult] = await Promise.all([
         Promise.allSettled(
-          buildExchangeConfigs().map((cfg) => fetchExchangeTrades(telegramId, cfg, false))
+          configs.map((cfg) => fetchExchangeTrades(telegramId, cfg, false))
         ),
         fetchImportedTrades(telegramId).catch(() => [] as Trade[]),
       ])
