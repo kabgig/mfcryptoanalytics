@@ -84,11 +84,15 @@ async function fetchExchangeTradesClientSide(
     throw new Error(`Unexpected client-fetch exchange: ${cfg.name}`)
   }
 
-  fetch("/api/trades-store", {
+  const storeRes = await fetch("/api/trades-store", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ telegramId, exchange: cfg.name, trades }),
-  }).catch(() => {})
+  })
+  if (!storeRes.ok) {
+    const err = await storeRes.json().catch(() => ({}))
+    throw new Error(`Failed to persist trades: ${err.error ?? storeRes.status}`)
+  }
 
   return trades
 }
