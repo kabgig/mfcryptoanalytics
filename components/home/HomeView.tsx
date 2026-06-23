@@ -70,7 +70,7 @@ async function fetchExchangeTradesClientSide(
   }
   console.log(`[HomeView] ${cfg.name} fromCache=false trades=${trades.length} (client-side)`)
 
-  // 3. Persist to DB — must be awaited so cache is updated before returning
+  // 3. Persist to DB — awaited so cache is updated; failures are logged but don't block the UI
   const storeRes = await fetch('/api/trades-store', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -78,7 +78,7 @@ async function fetchExchangeTradesClientSide(
   })
   if (!storeRes.ok) {
     const err = await storeRes.json().catch(() => ({}))
-    throw new Error(`Failed to persist trades: ${err.error ?? storeRes.status}`)
+    console.warn(`[HomeView] ${cfg.name} store failed:`, err.error ?? storeRes.status)
   }
 
   return trades

@@ -3,7 +3,7 @@ import { BybitAdapter } from "@/lib/exchanges/adapters/bybit"
 import { OKXAdapter } from "@/lib/exchanges/adapters/okx"
 import { BingXAdapter } from "@/lib/exchanges/adapters/bingx"
 import { MEXCAdapter } from "@/lib/exchanges/adapters/mexc"
-import { getIfFresh, upsertTrades } from "@/lib/db/trades"
+import { getIfFresh, upsertTrades, getStoredTrades } from "@/lib/db/trades"
 import type { Trade } from "@/types"
 
 export const dynamic = "force-dynamic"
@@ -76,13 +76,9 @@ export async function POST(request: Request) {
 
       return Response.json({ trades, fromCache: false })
     } catch (fetchErr) {
-      console.warn(`[trades] ${exchange} live fetch failed:`, fetchErr)
-      // Fall back to cached data if available, even on forced refresh
-      if (cached.fresh) {
-        console.log(`[trades] ${exchange} falling back to ${cached.trades.length} cached trades`)
-        return Response.json({ trades: cached.trades, fromCache: true, stale: true })
-      }
-      throw fetchErr
+      console.warn(`[trades] ${exchange} live fetch failed, falling back to stored trades:`, fetchErr)
+      const storedTrades = cached.fresh ? cached.trades : await getStoredTrades(telegramId, exchange)
+      return Response.json({ trades: storedTrades, fromCache: true, stale: true })
     }
   } catch (err) {
     console.error(`[trades] ${exchange} ERROR:`, err)

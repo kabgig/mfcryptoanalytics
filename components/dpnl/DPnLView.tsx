@@ -75,7 +75,7 @@ async function fetchExchangeTradesClientSide(
   })
   if (!storeRes.ok) {
     const err = await storeRes.json().catch(() => ({}))
-    throw new Error(`Failed to persist trades: ${err.error ?? storeRes.status}`)
+    console.warn(`[trades-store] ${cfg.name} persist failed:`, err.error ?? storeRes.status)
   }
 
   return trades
