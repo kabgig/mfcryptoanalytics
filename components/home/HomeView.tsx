@@ -70,12 +70,16 @@ async function fetchExchangeTradesClientSide(
   }
   console.log(`[HomeView] ${cfg.name} fromCache=false trades=${trades.length} (client-side)`)
 
-  // 3. Store to DB in background (don't block the UI)
-  fetch('/api/trades-store', {
+  // 3. Persist to DB — must be awaited so cache is updated before returning
+  const storeRes = await fetch('/api/trades-store', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ telegramId, exchange: cfg.name, trades }),
-  }).catch((err) => console.warn(`[HomeView] ${cfg.name} store failed:`, err))
+  })
+  if (!storeRes.ok) {
+    const err = await storeRes.json().catch(() => ({}))
+    throw new Error(`Failed to persist trades: ${err.error ?? storeRes.status}`)
+  }
 
   return trades
 }

@@ -117,7 +117,7 @@ export async function upsertTrades(telegramId: string, exchange: string, trades:
           ${t.openTime}::timestamptz, ${t.closeTime}::timestamptz,
           ${t.pnl}, ${t.market ?? null}, ${t.side ?? null}
         )
-        ON CONFLICT (telegram_id, id) DO UPDATE SET
+        ON CONFLICT (telegram_id, exchange, id) DO UPDATE SET
           ticker        = EXCLUDED.ticker,
           position_size = EXCLUDED.position_size,
           tp            = EXCLUDED.tp,
@@ -162,7 +162,7 @@ export async function insertTradesSkipExisting(
         ${t.openTime}::timestamptz, ${t.closeTime}::timestamptz,
         ${t.pnl}, ${t.market ?? null}, ${t.side ?? null}
       )
-      ON CONFLICT (telegram_id, id) DO NOTHING
+      ON CONFLICT (telegram_id, exchange, id) DO NOTHING
     ` as unknown[]
     // postgres.js returns the affected rows count via result.count
     if ((result as unknown as { count: number }).count > 0) saved++
