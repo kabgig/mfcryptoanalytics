@@ -34,16 +34,18 @@ function avg(arr: number[]): number {
 }
 
 export function computeDPnL(trades: Trade[]): DPnLResult {
-  const noDurationSet = new Set<string>()
+  const zeroDurationSet = new Set<string>()
+  const hasDurationSet = new Set<string>()
 
   const points: DPnLPoint[] = trades
     .map((t) => {
       const durationH = (new Date(t.closeTime).getTime() - new Date(t.openTime).getTime()) / 3_600_000
       // Skip trades where openTime === closeTime — no real duration data
       if (durationH <= 0) {
-        noDurationSet.add(t.exchange)
+        zeroDurationSet.add(t.exchange)
         return null
       }
+      hasDurationSet.add(t.exchange)
       return {
         id: t.id,
         ticker: t.ticker,
@@ -55,7 +57,12 @@ export function computeDPnL(trades: Trade[]): DPnLResult {
     })
     .filter((p): p is DPnLPoint => p !== null)
 
-  const noDurationExchanges = Array.from(noDurationSet).sort()
+  // Only flag an exchange as excluded when NONE of its trades have a real
+  // duration — otherwise an exchange with a few zero-duration trades (but many
+  // valid ones, e.g. Bybit) would be wrongly reported as fully excluded.
+  const noDurationExchanges = Array.from(zeroDurationSet)
+    .filter((ex) => !hasDurationSet.has(ex))
+    .sort()
 
   const wins = points.filter((p) => p.win)
   const losses = points.filter((p) => !p.win)
