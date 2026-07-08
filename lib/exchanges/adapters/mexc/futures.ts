@@ -55,7 +55,9 @@ export async function fetchFuturesTrades(
   return allPositions
     .filter((p) => parseFloat(p.realised) !== 0)
     .map((p) => ({
-      id: `mexc-futures-${p.positionId}`,
+      // positionId can recur across history records; include the close time
+      // (updateTime) so multiple closes of one position don't collapse in the DB.
+      id: `mexc-futures-${p.positionId}-${p.updateTime}`,
       exchange: "MEXC",
       ticker: p.symbol.replace("_", ""),
       positionSize: parseFloat(p.openVol) || 0,

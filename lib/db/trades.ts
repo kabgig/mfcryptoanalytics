@@ -99,15 +99,28 @@ export async function getCachedTrades(telegramId: string, exchange: string): Pro
 }
 
 /**
+ * Removes trades that share an id, keeping the last occurrence.
+ * The cached_trades PK is (telegram_id, exchange, id): without this dedupe, two
+ * fetched trades with the same id would silently collapse into one DB row, so the
+ * DB would hold fewer trades than the UI displayed from the raw fetched array.
+ */
+function dedupeById(trades: Trade[]): Trade[] {
+  const byId = new Map<string, Trade>()
+  for (const t of trades) byId.set(t.id, t)
+  return [...byId.values()]
+}
+
+/**
  * Upserts a batch of trades and updates the fetch log timestamp.
  */
 export async function upsertTrades(telegramId: string, exchange: string, trades: Trade[]): Promise<void> {
   const sql = getSql()
   const tid = BigInt(telegramId)
+  const unique = dedupeById(trades)
 
-  if (trades.length > 0) {
+  if (unique.length > 0) {
     // Build values for bulk upsert
-    for (const t of trades) {
+    for (const t of unique) {
       await sql`
         INSERT INTO cached_trades
           (id, telegram_id, exchange, ticker, position_size, tp, sl, open_time, close_time, pnl, market, side)
@@ -152,7 +165,7 @@ export async function insertTradesSkipExisting(
   const tid = BigInt(telegramId)
   let saved = 0
 
-  for (const t of trades) {
+  for (const t of dedupeById(trades)) {
     const result = await sql`
       INSERT INTO cached_trades
         (id, telegram_id, exchange, ticker, position_size, tp, sl, open_time, close_time, pnl, market, side)

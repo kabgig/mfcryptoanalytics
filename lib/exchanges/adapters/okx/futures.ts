@@ -65,7 +65,9 @@ export async function fetchFuturesTrades(
   return allPositions
     .filter((p) => parseFloat(p.pnl) !== 0)
     .map((p) => ({
-      id: `okx-futures-${p.posId}`,
+      // posId alone is not unique — a position can appear as multiple history
+      // records; include the close time (uTime) so they don't collapse in the DB.
+      id: `okx-futures-${p.posId}-${p.uTime}`,
       exchange: "OKX",
       // instId is "BTC-USDT-SWAP" or "BTC-USDT-231229" — strip the suffix
       ticker: p.instId.split("-").slice(0, 2).join(""),

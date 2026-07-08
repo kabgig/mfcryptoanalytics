@@ -60,7 +60,9 @@ export async function fetchFuturesTrades(
 
       for (const r of data.result.list) {
         trades.push({
-          id: `bybit-futures-${r.orderId}`,
+          // orderId is not unique across closed-pnl records — a single order can
+          // produce several rows; include the close time so they don't collapse.
+          id: `bybit-futures-${r.orderId}-${r.updatedTime}`,
           exchange: "Bybit",
           ticker: r.symbol,
           positionSize: parseFloat(r.closedSize),

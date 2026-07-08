@@ -1,6 +1,6 @@
 \restrict dbmate
 
--- Dumped from database version 17.10 (21f7c76)
+-- Dumped from database version 17.10 (9f6157c)
 -- Dumped by pg_dump version 18.3
 
 SET statement_timeout = 0;
@@ -205,4 +205,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260426000002'),
     ('20260430000001'),
     ('20260505000001'),
-    ('20260623000001');
+    ('20260623000001'),
+    ('20260708120000');

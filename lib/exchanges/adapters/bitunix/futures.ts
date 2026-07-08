@@ -54,7 +54,9 @@ export async function fetchFuturesTrades(
       if (!openDate || isNaN(openDate.getTime()) || !closeDate || isNaN(closeDate.getTime())) continue
 
       allTrades.push({
-        id: `bitunix-futures-${r.positionId}`,
+        // positionId can recur across history records; include the close time
+        // (mtime) so multiple closes of one position don't collapse in the DB.
+        id: `bitunix-futures-${r.positionId}-${r.mtime}`,
         exchange: "Bitunix",
         ticker: r.symbol,
         positionSize: parseFloat(r.maxQty),
