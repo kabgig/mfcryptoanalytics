@@ -8,23 +8,14 @@ import Link from 'next/link'
 import type { Trade } from '@/types'
 import { computeStats } from '@/lib/services/statsService'
 import { Tooltip } from '@/components/ui/tooltip'
+import { PeriodSelector } from '@/components/ui/PeriodSelector'
+import { usePeriodStore } from '@/lib/store/periodStore'
+import { filterTradesBySelection, selectionDays, selectionLabel } from '@/lib/constants/periods'
 
 const PnLWireframe = dynamic(
   () => import('@/components/viz/PnLWireframe').then((m) => ({ default: m.PnLWireframe })),
   { ssr: false, loading: () => null }
 )
-
-const PERIODS = [
-  { label: '1d',  days: 1 },
-  { label: '1w',  days: 7 },
-  { label: '1m',  days: 30 },
-  { label: '3m',  days: 90 },
-  { label: '6m',  days: 180 },
-  { label: '1y',  days: 365 },
-  { label: 'All', days: Infinity },
-] as const
-
-type PeriodLabel = typeof PERIODS[number]['label']
 
 function filterByPeriod(trades: Trade[], days: number): Trade[] {
   if (days === Infinity) return trades
@@ -44,7 +35,8 @@ export default function VizSharePage() {
   const [allTrades, setAllTrades] = useState<Trade[]>([])
   const [loading, setLoading]     = useState(true)
   const [notFound, setNotFound]   = useState(false)
-  const [period, setPeriod]       = useState<PeriodLabel>('3m')
+  const period                    = usePeriodStore((s) => s.selection)
+  const setPeriod                 = usePeriodStore((s) => s.setSelection)
   const [darkMode, setDarkMode]   = useState(true)
   const [menuOpen, setMenuOpen]   = useState(false)
 
@@ -62,10 +54,10 @@ export default function VizSharePage() {
       .finally(() => setLoading(false))
   }, [token])
 
-  const periodTrades = useMemo(() => {
-    const p = PERIODS.find((x) => x.label === period)!
-    return filterByPeriod(allTrades, p.days)
-  }, [allTrades, period])
+  const periodTrades = useMemo(
+    () => filterTradesBySelection(allTrades, period),
+    [allTrades, period]
+  )
 
   const pnl   = useMemo(() => sumPnl(periodTrades), [periodTrades])
   const stats = useMemo(() => computeStats(periodTrades), [periodTrades])
@@ -138,7 +130,7 @@ export default function VizSharePage() {
     }
     if (buckets.length === 0) return Math.max(Math.abs(pnl), 1)
     const weeklyAvg = buckets.reduce((a, b) => a + b, 0) / buckets.length
-    const currentDays = PERIODS.find((p) => p.label === period)!.days
+    const currentDays = selectionDays(period)
     return Math.max(weeklyAvg * (Math.min(currentDays, 365) / 7), 1)
   }, [allTrades, period, pnl])
 
@@ -247,6 +239,21 @@ export default function VizSharePage() {
     ? { bg: 'bg-black', text: 'text-white', textHover: 'hover:text-white', textDim: 'text-white', textDimHover: 'hover:text-white', periodActive: 'bg-white/15 text-white', periodInactive: 'text-white hover:text-white', pnl: pnlPositive ? 'text-emerald-400' : 'text-red-400', subtext: 'text-white' }
     : { bg: 'bg-white', text: 'text-black', textHover: 'hover:text-black', textDim: 'text-black', textDimHover: 'hover:text-black', periodActive: 'bg-black/10 text-black', periodInactive: 'text-black hover:text-black', pnl: pnlPositive ? 'text-emerald-700' : 'text-red-700', subtext: 'text-black' }
 
+  // Styling for the custom-range popover, matching the viz mono palette
+  const pickerClasses = darkMode
+    ? {
+        panel: 'rounded-lg border border-white/10 bg-black/90 backdrop-blur-sm shadow-xl p-3 space-y-2 text-white font-mono',
+        input: 'w-full rounded border border-white/15 bg-white/5 px-2 py-1.5 text-xs font-mono text-white focus:outline-none [color-scheme:dark]',
+        apply: 'flex-1 rounded bg-white/15 px-3 py-1.5 text-xs font-mono text-white transition-colors hover:bg-white/25 disabled:opacity-40 disabled:cursor-not-allowed',
+        clear: 'rounded px-3 py-1.5 text-xs font-mono text-white/60 transition-colors hover:text-white',
+      }
+    : {
+        panel: 'rounded-lg border border-black/10 bg-white/90 backdrop-blur-sm shadow-xl p-3 space-y-2 text-black font-mono',
+        input: 'w-full rounded border border-black/15 bg-black/5 px-2 py-1.5 text-xs font-mono text-black focus:outline-none [color-scheme:light]',
+        apply: 'flex-1 rounded bg-black/10 px-3 py-1.5 text-xs font-mono text-black transition-colors hover:bg-black/20 disabled:opacity-40 disabled:cursor-not-allowed',
+        clear: 'rounded px-3 py-1.5 text-xs font-mono text-black/60 transition-colors hover:text-black',
+      }
+
   if (!loading && notFound) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-black text-white font-mono">
@@ -288,19 +295,13 @@ export default function VizSharePage() {
       </div>
 
       {/* Top-right — period selector (desktop) */}
-      <div className="hidden md:flex absolute top-5 right-5 z-10 gap-1.5">
-        {PERIODS.map((p) => (
-          <button
-            key={p.label}
-            onClick={() => setPeriod(p.label)}
-            className={`px-2.5 py-1 text-xs font-mono rounded transition-all ${
-              period === p.label ? ui.periodActive : ui.periodInactive
-            }`}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
+      <PeriodSelector
+        variant="viz"
+        value={period}
+        onChange={setPeriod}
+        className="hidden md:flex absolute top-5 right-5 z-30"
+        classes={{ ...pickerClasses, active: ui.periodActive, inactive: ui.periodInactive }}
+      />
 
       {/* ── Mobile top bar ────────────────────────────────────────────── */}
       <div className="md:hidden absolute top-4 left-4 z-20">
@@ -319,21 +320,19 @@ export default function VizSharePage() {
         <div className={`md:hidden absolute top-14 right-4 z-20 rounded-lg border ${
           darkMode ? 'bg-black/90 border-white/10' : 'bg-white/90 border-black/10'
         } backdrop-blur-sm shadow-xl py-2 min-w-[160px] flex flex-col`}>
-          <div className="px-3 py-2 flex flex-row gap-1 flex-wrap">
-            {PERIODS.map((p) => (
-              <button
-                key={p.label}
-                onClick={() => { setPeriod(p.label); setMenuOpen(false) }}
-                className={`px-2.5 py-1 text-xs font-mono rounded transition-colors ${
-                  period === p.label
-                    ? darkMode ? 'bg-white/15 text-white' : 'bg-black/10 text-black'
-                    : darkMode ? 'text-white/50 hover:text-white' : 'text-black/50 hover:text-black'
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
+          <PeriodSelector
+            variant="viz"
+            value={period}
+            onChange={setPeriod}
+            onApplied={() => setMenuOpen(false)}
+            className="px-3 py-2 flex-wrap"
+            classes={{
+              ...pickerClasses,
+              button: 'px-2.5 py-1 text-xs font-mono rounded transition-colors',
+              active: darkMode ? 'bg-white/15 text-white' : 'bg-black/10 text-black',
+              inactive: darkMode ? 'text-white/50 hover:text-white' : 'text-black/50 hover:text-black',
+            }}
+          />
           <div className={`mx-3 my-1 h-px ${darkMode ? 'bg-white/10' : 'bg-black/10'}`} />
           <Link
             href="/viz/shapes"
@@ -428,7 +427,7 @@ export default function VizSharePage() {
             {/* Column 1 */}
             <div className="w-48 h-full overflow-y-auto flex flex-col gap-[3px] pr-1">
               <Tooltip content="Win rate, profit factor, RRR, max drawdown and total trades for the selected period" side="bottom">
-                <div className={`${head} cursor-help inline-block`}>METRICS · {period}</div>
+                <div className={`${head} cursor-help inline-block`}>METRICS · {selectionLabel(period)}</div>
               </Tooltip>
               {row('WIN RATE',      `${stats.winRate.toFixed(1)}%`, val, 'Winning trades ÷ total trades')}
               {row('PROFIT FACTOR', pfDisplay,                       val, 'Gross profit ÷ gross loss. ∞ = no losing trades')}
@@ -493,7 +492,7 @@ export default function VizSharePage() {
           <div className="md:hidden absolute right-3 top-16 bottom-28 z-10 w-28 overflow-hidden select-none">
             <div ref={setMobileStatsScrollRef} className="h-full overflow-hidden">
               <div ref={mobileStatsInnerRef} className="flex flex-col pr-0.5" style={{ willChange: 'transform' }}>
-                <div className={mHead}>METRICS · {period}</div>
+                <div className={mHead}>METRICS · {selectionLabel(period)}</div>
                 {mRow('WIN RATE',    `${stats.winRate.toFixed(1)}%`, mVal)}
                 {mRow('PROF FACTOR', pfDisplay,                      mVal)}
                 {mRow('RRR',         rrrDisplay,                     mVal)}
@@ -532,7 +531,7 @@ export default function VizSharePage() {
               </p>
             </div>
             <p className={`mt-1 sm:mt-2 ${ui.subtext} font-mono text-[9px] sm:text-xs tracking-[0.25em] uppercase`}>
-              {period} · {periodTrades.length} trade{periodTrades.length !== 1 ? 's' : ''}
+              {selectionLabel(period)} · {periodTrades.length} trade{periodTrades.length !== 1 ? 's' : ''}
             </p>
           </>
         )}

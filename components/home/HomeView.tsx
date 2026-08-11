@@ -13,19 +13,9 @@ import Link from 'next/link'
 import type { Trade } from '@/types'
 import { fetchFuturesTrades as fetchBinanceFutures } from '@/lib/exchanges/adapters/binance/futures'
 import { fetchFuturesTrades as fetchBybitFutures } from '@/lib/exchanges/adapters/bybit/futures'
-
-const PERIODS = [
-  { label: '1d',  days: 1 },
-  { label: '1w',  days: 7 },
-  { label: '2w',  days: 14 },
-  { label: '1m',  days: 30 },
-  { label: '3m',  days: 90 },
-  { label: '6m',  days: 180 },
-  { label: '1y',  days: 365 },
-  { label: '2y',  days: 730 },
-] as const
-
-type PeriodLabel = typeof PERIODS[number]['label']
+import { PeriodSelector } from '@/components/ui/PeriodSelector'
+import { usePeriodStore } from '@/lib/store/periodStore'
+import { filterTradesBySelection } from '@/lib/constants/periods'
 
 interface ExchangeConfig {
   name: string
@@ -122,7 +112,8 @@ export function HomeView() {
   const [loading, setLoading] = useState(false)
   const [balanceResult, setBalanceResult] = useState<BalanceResult | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(false)
-  const [period, setPeriod] = useState<PeriodLabel>('3m')
+  const period = usePeriodStore((s) => s.selection)
+  const setPeriod = usePeriodStore((s) => s.setSelection)
 
   const buildExchangeConfigs = useCallback((): ExchangeConfig[] => {
     const configs: ExchangeConfig[] = []
@@ -282,11 +273,9 @@ export function HomeView() {
   ])
 
   const filteredTrades = useMemo(() => {
-    const days = PERIODS.find((p) => p.label === period)?.days ?? 90
-    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
     const all = [...trades, ...importedTrades]
     all.sort((a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime())
-    return all.filter((t) => new Date(t.closeTime).getTime() >= cutoff)
+    return filterTradesBySelection(all, period)
   }, [trades, importedTrades, period])
 
   const stats = computeStats(filteredTrades)
@@ -338,39 +327,7 @@ export function HomeView() {
             <Globe className="h-3.5 w-3.5" />
             Viz
           </Link>
-          {/* Mobile: dropdown */}
-          <div className="relative sm:hidden overflow-hidden">
-            <select
-              value={period}
-              onChange={(e) => setPeriod(e.target.value as PeriodLabel)}
-              className="appearance-none rounded-lg border bg-muted/40 pl-2 pr-7 py-1.5 text-sm font-medium text-foreground focus:outline-none"
-            >
-              {PERIODS.map(({ label }) => (
-                <option key={label} value={label}>{label}</option>
-              ))}
-            </select>
-            <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center">
-              <svg className="h-3.5 w-3.5 text-muted-foreground" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </span>
-          </div>
-          {/* Desktop: pill group */}
-          <div className="hidden sm:flex items-center gap-1 rounded-lg border bg-muted/40 p-1">
-            {PERIODS.map(({ label }) => (
-              <button
-                key={label}
-                onClick={() => setPeriod(label)}
-                className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
-                  period === label
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <PeriodSelector value={period} onChange={setPeriod} />
         </div>
       </div>
       <StatsBar stats={stats} balanceResult={balanceResult} balanceLoading={balanceLoading} />
