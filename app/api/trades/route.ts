@@ -3,7 +3,7 @@ import { BybitAdapter } from "@/lib/exchanges/adapters/bybit"
 import { OKXAdapter } from "@/lib/exchanges/adapters/okx"
 import { BingXAdapter } from "@/lib/exchanges/adapters/bingx"
 import { MEXCAdapter } from "@/lib/exchanges/adapters/mexc"
-import { getIfFresh, upsertTrades, getStoredTrades } from "@/lib/db/trades"
+import { getIfFresh, upsertTrades, getStoredTrades, getDeletedKeys, filterDeleted } from "@/lib/db/trades"
 import type { Trade } from "@/types"
 
 export const dynamic = "force-dynamic"
@@ -59,8 +59,8 @@ export async function POST(request: Request) {
     // Fetch live from exchange
     try {
       const t2 = Date.now()
-      const trades = await fetchFromExchange(body)
-      console.log(`[trades] ${exchange} fetched ${trades.length} trades FROM EXCHANGE (${Date.now() - t2}ms)`)
+      const fetched = await fetchFromExchange(body)
+      console.log(`[trades] ${exchange} fetched ${fetched.length} trades FROM EXCHANGE (${Date.now() - t2}ms)`)
 
       // Ensure user row exists before writing to FK-constrained tables
       const sql = (await import("@/lib/db")).getSql()
@@ -71,8 +71,11 @@ export async function POST(request: Request) {
       `
 
       const t3 = Date.now()
-      await upsertTrades(telegramId, exchange, trades)
+      await upsertTrades(telegramId, exchange, fetched)
       console.log(`[trades] ${exchange} upserted to DB (${Date.now() - t3}ms)`)
+
+      // Hide soft-deleted trades the exchange still reports (see tradesHandler).
+      const trades = filterDeleted(fetched, await getDeletedKeys(telegramId, exchange))
 
       return Response.json({ trades, fromCache: false })
     } catch (fetchErr) {

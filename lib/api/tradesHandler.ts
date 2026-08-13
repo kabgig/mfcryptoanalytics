@@ -5,7 +5,7 @@ import { BingXAdapter } from "@/lib/exchanges/adapters/bingx"
 import { MEXCAdapter } from "@/lib/exchanges/adapters/mexc"
 import { BitunixAdapter } from "@/lib/exchanges/adapters/bitunix"
 import { BYDFiAdapter } from "@/lib/exchanges/adapters/bydfi"
-import { getIfFresh, upsertTrades, getStoredTrades } from "@/lib/db/trades"
+import { getIfFresh, upsertTrades, getStoredTrades, getDeletedKeys, filterDeleted } from "@/lib/db/trades"
 import type { Trade } from "@/types"
 
 export interface TradesRequestBody {
@@ -58,8 +58,8 @@ export async function handleTradesRequest(request: Request): Promise<Response> {
 
     try {
       const t2 = Date.now()
-      const trades = await fetchFromExchange(body)
-      console.log(`[trades] ${exchange} fetched ${trades.length} trades FROM EXCHANGE (${Date.now() - t2}ms)`)
+      const fetched = await fetchFromExchange(body)
+      console.log(`[trades] ${exchange} fetched ${fetched.length} trades FROM EXCHANGE (${Date.now() - t2}ms)`)
 
       const sql = (await import("@/lib/db")).getSql()
       await sql`
@@ -69,8 +69,16 @@ export async function handleTradesRequest(request: Request): Promise<Response> {
       `
 
       const t3 = Date.now()
-      await upsertTrades(telegramId, exchange, trades)
+      await upsertTrades(telegramId, exchange, fetched)
       console.log(`[trades] ${exchange} upserted to DB (${Date.now() - t3}ms)`)
+
+      // The exchange has no idea what the user soft-deleted — filter here, after
+      // persisting, so the trade stays in the DB but never reaches the UI.
+      const deletedKeys = await getDeletedKeys(telegramId, exchange)
+      const trades = filterDeleted(fetched, deletedKeys)
+      if (deletedKeys.size > 0) {
+        console.log(`[trades] ${exchange} hid ${fetched.length - trades.length} soft-deleted trades`)
+      }
 
       return Response.json({ trades, fromCache: false })
     } catch (fetchErr) {

@@ -5,6 +5,9 @@ export const dynamic = "force-dynamic"
 /**
  * POST { telegramId: string, ids: string[] }
  * Returns { existingIds: string[] } — the subset of ids already in the DB for this user.
+ *
+ * Soft-deleted trades count as existing (no `deleted_at IS NULL` filter below):
+ * re-uploading the same CSV should leave a deleted trade deleted, not resurrect it.
  */
 export async function POST(request: Request) {
   try {

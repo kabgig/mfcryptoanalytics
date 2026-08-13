@@ -1,6 +1,6 @@
 \restrict dbmate
 
--- Dumped from database version 17.10 (9f6157c)
+-- Dumped from database version 17.10 (29ad1b7)
 -- Dumped by pg_dump version 18.3
 
 SET statement_timeout = 0;
@@ -45,7 +45,8 @@ CREATE TABLE public.cached_trades (
     close_time timestamp with time zone NOT NULL,
     pnl numeric DEFAULT 0 NOT NULL,
     market text,
-    side character varying(5)
+    side character varying(5),
+    deleted_at timestamp with time zone
 );
 
 
@@ -158,6 +159,13 @@ ALTER TABLE ONLY public.users
 
 
 --
+-- Name: cached_trades_deleted; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX cached_trades_deleted ON public.cached_trades USING btree (telegram_id, exchange) WHERE (deleted_at IS NOT NULL);
+
+
+--
 -- Name: cached_trades_telegram_close_time; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -206,4 +214,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260430000001'),
     ('20260505000001'),
     ('20260623000001'),
-    ('20260708120000');
+    ('20260708120000'),
+    ('20260813000001');

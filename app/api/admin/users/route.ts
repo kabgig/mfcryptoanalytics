@@ -15,7 +15,11 @@ export async function GET() {
         COUNT(DISTINCT ct.exchange)  AS exchange_count,
         COALESCE(SUM(ct.pnl), 0)     AS total_pnl
       FROM users u
-      LEFT JOIN cached_trades ct ON ct.telegram_id = u.telegram_id
+      -- Soft-deleted trades are excluded from the counts/PnL. The filter stays in
+      -- the ON clause so users with no visible trades are still listed.
+      LEFT JOIN cached_trades ct
+        ON ct.telegram_id = u.telegram_id
+       AND ct.deleted_at IS NULL
       GROUP BY u.telegram_id, u.telegram_name, u.role, u.created_at
       ORDER BY u.created_at ASC
     ` as {

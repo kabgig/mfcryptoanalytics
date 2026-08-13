@@ -44,6 +44,7 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
         </CardHeader>
         <CardContent>
           <p
+            data-testid="total-pnl"
             className={`text-lg font-bold ${
               pnlPositive ? "text-emerald-500" : "text-red-500"
             }`}
@@ -55,7 +56,7 @@ export function StatsBar({ stats, balanceResult, balanceLoading }: StatsBarProps
             })}
           </p>
           <p className="flex items-center gap-0.5 text-xs text-muted-foreground mt-1">
-            {stats.tradeCount} trades
+            <span data-testid="trade-count">{stats.tradeCount}</span> trades
             <InfoTooltip content="Total number of closed trades fetched across all connected exchanges." />
           </p>
         </CardContent>

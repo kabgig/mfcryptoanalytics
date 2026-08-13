@@ -1,6 +1,6 @@
 "use client"
 
-import { Trade } from "@/types"
+import type { Trade } from "@/types"
 import {
   Table,
   TableBody,
@@ -13,9 +13,18 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { motion, useInView } from "motion/react"
 import { useRef } from "react"
+import { X, RotateCcw } from "lucide-react"
 
 interface TradesTableProps {
   trades: Trade[]
+  /** When provided, each row gets a delete button. Omit for read-only tables. */
+  onDelete?: (trade: Trade) => void
+  /** Soft-deleted trades, shown only while `showDeleted` is true. */
+  deletedTrades?: Trade[]
+  onRestore?: (trade: Trade) => void
+  showDeleted?: boolean
+  /** When provided, the header gets a "show deleted" toggle. */
+  onToggleDeleted?: (next: boolean) => void
 }
 
 function formatDate(iso: string) {
@@ -33,7 +42,17 @@ function formatPrice(value: number | null) {
   return `$${value.toLocaleString("en-US")}`
 }
 
-function AnimatedRow({ children, index, isProfit }: { children: React.ReactNode; index: number; isProfit: boolean }) {
+function AnimatedRow({
+  children,
+  index,
+  isProfit,
+  isDeleted,
+}: {
+  children: React.ReactNode
+  index: number
+  isProfit: boolean
+  isDeleted?: boolean
+}) {
   const ref = useRef<HTMLTableRowElement>(null)
   const inView = useInView(ref, { once: true, margin: "0px 0px -40px 0px" })
   return (
@@ -42,19 +61,59 @@ function AnimatedRow({ children, index, isProfit }: { children: React.ReactNode;
       initial={{ opacity: 0, x: -12 }}
       animate={inView ? { opacity: 1, x: 0 } : {}}
       transition={{ duration: 0.25, delay: Math.min(index * 0.04, 0.6) }}
-      className={isProfit ? "bg-emerald-500/5 hover:bg-emerald-500/10" : "bg-red-500/5 hover:bg-red-500/10"}
+      className={
+        isDeleted
+          ? "opacity-60 bg-muted/30 hover:bg-muted/60"
+          : isProfit
+            ? "bg-emerald-500/5 hover:bg-emerald-500/10"
+            : "bg-red-500/5 hover:bg-red-500/10"
+      }
     >
       {children}
     </motion.tr>
   )
 }
 
-export function TradesTable({ trades }: TradesTableProps) {
+export function TradesTable({
+  trades,
+  onDelete,
+  deletedTrades = [],
+  onRestore,
+  showDeleted = false,
+  onToggleDeleted,
+}: TradesTableProps) {
   const tableRef = useRef<HTMLTableSectionElement>(null)
+  const hasActions = Boolean(onDelete)
+  // Revealed rows are merged into the chronological order rather than appended,
+  // so a deleted trade shows up where the user left it instead of at the very
+  // bottom of a long history.
+  const rows: { trade: Trade; deleted: boolean }[] = showDeleted
+    ? [
+        ...trades.map((trade) => ({ trade, deleted: false })),
+        ...deletedTrades.map((trade) => ({ trade, deleted: true })),
+      ].sort((a, b) => new Date(b.trade.closeTime).getTime() - new Date(a.trade.closeTime).getTime())
+    : trades.map((trade) => ({ trade, deleted: false }))
+
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
         <CardTitle className="text-base">Trade History</CardTitle>
+        {onToggleDeleted && deletedTrades.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onToggleDeleted(!showDeleted)}
+            aria-pressed={showDeleted}
+            data-testid="toggle-deleted"
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+              showDeleted
+                ? "border-foreground/30 bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            }`}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            {showDeleted ? "Hide deleted" : `Show deleted (${deletedTrades.length})`}
+          </button>
+        )}
       </CardHeader>
       <CardContent className="p-0">
         <div className="overflow-x-auto pl-2">
@@ -69,16 +128,26 @@ export function TradesTable({ trades }: TradesTableProps) {
                 <TableHead className="text-right">SL</TableHead>
                 <TableHead>Open Time</TableHead>
                 <TableHead>Close Time</TableHead>
+                {hasActions && <TableHead className="w-10" />}
               </TableRow>
             </TableHeader>
             <TableBody ref={tableRef}>
-              {trades.map((trade, i) => {
+              {rows.map(({ trade, deleted }, i) => {
                 const isProfit = trade.pnl >= 0
                 return (
-                  <AnimatedRow key={trade.id} index={i} isProfit={isProfit}>
+                  <AnimatedRow
+                    key={`${trade.exchange}|${trade.id}`}
+                    index={i}
+                    isProfit={isProfit}
+                    isDeleted={deleted}
+                  >
                     <TableCell
                       className={`text-right font-mono font-semibold ${
-                        isProfit ? "text-emerald-500" : "text-red-500"
+                        deleted
+                          ? "text-muted-foreground line-through"
+                          : isProfit
+                            ? "text-emerald-500"
+                            : "text-red-500"
                       }`}
                     >
                       {isProfit ? "+" : ""}
@@ -110,6 +179,35 @@ export function TradesTable({ trades }: TradesTableProps) {
                     <TableCell className="text-sm text-muted-foreground">
                       {formatDate(trade.closeTime)}
                     </TableCell>
+                    {hasActions && (
+                      <TableCell className="w-10 pr-3">
+                        {deleted ? (
+                          onRestore && (
+                            <button
+                              type="button"
+                              onClick={() => onRestore(trade)}
+                              title="Restore trade"
+                              aria-label={`Restore ${trade.ticker} trade`}
+                              data-testid="restore-trade"
+                              className="flex h-6 w-6 items-center justify-center rounded text-foreground/80 transition-colors hover:bg-emerald-500/15 hover:text-emerald-500"
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" />
+                            </button>
+                          )
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => onDelete!(trade)}
+                            title="Delete trade"
+                            aria-label={`Delete ${trade.ticker} trade`}
+                            data-testid="delete-trade"
+                            className="flex h-6 w-6 items-center justify-center rounded text-red-500 transition-colors hover:bg-red-500/15 hover:text-red-400"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </TableCell>
+                    )}
                   </AnimatedRow>
                 )
               })}

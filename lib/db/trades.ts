@@ -29,6 +29,7 @@ export async function getStoredTrades(telegramId: string, exchange: string): Pro
     FROM cached_trades
     WHERE telegram_id = ${BigInt(telegramId)}
       AND exchange    = ${exchange}
+      AND deleted_at IS NULL
     ORDER BY close_time DESC
   ` as Record<string, unknown>[]
   return rows.map(rowToTrade)
@@ -45,6 +46,9 @@ export async function getIfFresh(
   const sql = getSql()
   // LEFT JOIN: if efl row exists & is fresh, ct rows are returned (even if 0 trades stored).
   // If efl row missing or stale, 0 rows returned.
+  // The soft-delete filter belongs in the JOIN condition, NOT the WHERE clause: in
+  // WHERE it would drop the sentinel NULL row too, so a user whose trades are all
+  // deleted would read as "not fresh" and re-hit the exchange on every page load.
   const rows = await sql`
     SELECT ct.id, ct.exchange, ct.ticker, ct.position_size, ct.tp, ct.sl,
            ct.open_time, ct.close_time, ct.pnl, ct.market, ct.side,
@@ -53,6 +57,7 @@ export async function getIfFresh(
     LEFT JOIN cached_trades ct
       ON ct.telegram_id = efl.telegram_id
      AND ct.exchange    = efl.exchange
+     AND ct.deleted_at IS NULL
     WHERE efl.telegram_id = ${BigInt(telegramId)}
       AND efl.exchange    = ${exchange}
       AND efl.fetched_at  > NOW() - INTERVAL '24 hours'
@@ -77,9 +82,106 @@ export async function getAllStoredTrades(telegramId: string): Promise<Trade[]> {
            open_time, close_time, pnl, market, side
     FROM cached_trades
     WHERE telegram_id = ${BigInt(telegramId)}
+      AND deleted_at IS NULL
     ORDER BY close_time DESC
   ` as Record<string, unknown>[]
   return rows.map(rowToTrade)
+}
+
+/**
+ * Composite key for a trade row. Trade ids are only unique per exchange
+ * (see the cached_trades PK), so anything keyed by id alone must include it.
+ */
+export function tradeKey(exchange: string, id: string): string {
+  return `${exchange}|${id}`
+}
+
+/**
+ * Returns the soft-deleted trades for a user, newest close first.
+ * These are excluded from every other read path, so this is the only way
+ * the UI can show them behind the "show deleted" toggle.
+ */
+export async function getDeletedTrades(telegramId: string): Promise<Trade[]> {
+  const sql = getSql()
+  const rows = await sql`
+    SELECT id, exchange, ticker, position_size, tp, sl,
+           open_time, close_time, pnl, market, side
+    FROM cached_trades
+    WHERE telegram_id = ${BigInt(telegramId)}
+      AND deleted_at IS NOT NULL
+    ORDER BY close_time DESC
+  ` as Record<string, unknown>[]
+  return rows.map(rowToTrade)
+}
+
+/**
+ * Returns the `exchange|id` keys of a user's soft-deleted trades.
+ *
+ * Needed because the live-fetch path returns trades straight from the exchange
+ * adapter without re-reading the DB — without this filter a deleted trade would
+ * reappear on the next refresh. Pass `exchange` to narrow to a single exchange.
+ */
+export async function getDeletedKeys(telegramId: string, exchange?: string): Promise<Set<string>> {
+  const sql = getSql()
+  const tid = BigInt(telegramId)
+  const rows = (exchange
+    ? await sql`
+        SELECT id, exchange FROM cached_trades
+        WHERE telegram_id = ${tid} AND exchange = ${exchange} AND deleted_at IS NOT NULL
+      `
+    : await sql`
+        SELECT id, exchange FROM cached_trades
+        WHERE telegram_id = ${tid} AND deleted_at IS NOT NULL
+      `) as { id: string; exchange: string }[]
+  return new Set(rows.map((r) => tradeKey(r.exchange, r.id)))
+}
+
+/** Drops any trade the user has soft-deleted. Pure — exported for testing. */
+export function filterDeleted<T extends { id: string; exchange: string }>(
+  trades: T[],
+  deletedKeys: Set<string>
+): T[] {
+  if (deletedKeys.size === 0) return trades
+  return trades.filter((t) => !deletedKeys.has(tradeKey(t.exchange, t.id)))
+}
+
+/**
+ * Soft-deletes a single trade. Returns false when no such trade exists for
+ * this user (wrong id/exchange, or another user's trade).
+ */
+export async function softDeleteTrade(
+  telegramId: string,
+  exchange: string,
+  id: string
+): Promise<boolean> {
+  const sql = getSql()
+  const rows = await sql`
+    UPDATE cached_trades
+    SET deleted_at = NOW()
+    WHERE telegram_id = ${BigInt(telegramId)}
+      AND exchange    = ${exchange}
+      AND id          = ${id}
+    RETURNING id
+  ` as { id: string }[]
+  return rows.length > 0
+}
+
+/** Restores a soft-deleted trade. Returns false when no such trade exists. */
+export async function restoreTrade(
+  telegramId: string,
+  exchange: string,
+  id: string
+): Promise<boolean> {
+  const sql = getSql()
+  const rows = await sql`
+    UPDATE cached_trades
+    SET deleted_at = NULL
+    WHERE telegram_id = ${BigInt(telegramId)}
+      AND exchange    = ${exchange}
+      AND id          = ${id}
+    RETURNING id
+  ` as { id: string }[]
+  return rows.length > 0
 }
 
 /**
@@ -112,6 +214,11 @@ function dedupeById(trades: Trade[]): Trade[] {
 
 /**
  * Upserts a batch of trades and updates the fetch log timestamp.
+ *
+ * NOTE: the ON CONFLICT update list below deliberately omits `deleted_at`, so a
+ * re-sync refreshes a soft-deleted trade's fields but leaves it deleted. Adding
+ * `deleted_at` there (or switching to a whole-row upsert) would resurrect every
+ * deleted trade on the next fetch.
  */
 export async function upsertTrades(telegramId: string, exchange: string, trades: Trade[]): Promise<void> {
   const sql = getSql()
@@ -155,6 +262,9 @@ export async function upsertTrades(telegramId: string, exchange: string, trades:
  * Inserts a batch of imported trades, skipping any that already exist (DO NOTHING).
  * Returns the number of rows actually inserted.
  * Also upserts the exchange_fetch_log so the import is tracked.
+ *
+ * A soft-deleted trade counts as existing, so re-uploading the same CSV keeps it
+ * deleted rather than resurrecting it.
  */
 export async function insertTradesSkipExisting(
   telegramId: string,

@@ -69,9 +69,16 @@ async function fetchExchangeTradesClientSide(
   if (!storeRes.ok) {
     const err = await storeRes.json().catch(() => ({}))
     console.warn(`[HomeView] ${cfg.name} store failed:`, err.error ?? storeRes.status)
+    return trades
   }
 
-  return trades
+  // These trades came straight from the exchange in the browser, so they still
+  // contain anything the user soft-deleted — the store response tells us which.
+  const { deletedIds } = await storeRes.json().catch(() => ({ deletedIds: [] }))
+  const deleted = new Set<string>(deletedIds ?? [])
+  return deleted.size > 0
+    ? trades.filter((t) => !deleted.has(`${t.exchange}|${t.id}`))
+    : trades
 }
 
 async function fetchExchangeTrades(
@@ -112,6 +119,8 @@ export function HomeView() {
   const [loading, setLoading] = useState(false)
   const [balanceResult, setBalanceResult] = useState<BalanceResult | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(false)
+  const [deletedTrades, setDeletedTrades] = useState<Trade[]>([])
+  const [showDeleted, setShowDeleted] = useState(false)
   const period = usePeriodStore((s) => s.selection)
   const setPeriod = usePeriodStore((s) => s.setSelection)
 
@@ -239,6 +248,74 @@ export function HomeView() {
     return () => { cancelled = true }
   }, [telegramId])
 
+  // Load soft-deleted trades — every other endpoint hides them, so this is the
+  // only source for the "show deleted" toggle.
+  useEffect(() => {
+    if (!telegramId) return
+    let cancelled = false
+    fetch('/api/trades/deleted', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ telegramId }),
+    })
+      .then((r) => r.json())
+      .then((data) => { if (!cancelled) setDeletedTrades((data.trades ?? []) as Trade[]) })
+      .catch(() => { /* non-critical */ })
+    return () => { cancelled = true }
+  }, [telegramId])
+
+  // Removes a trade from whichever list holds it. Trade ids are only unique per
+  // exchange, so both keys must match.
+  const dropTrade = useCallback((trade: Trade) => {
+    const matches = (t: Trade) => t.id === trade.id && t.exchange === trade.exchange
+    setTrades((prev) => prev.filter((t) => !matches(t)))
+    setImportedTrades((prev) => prev.filter((t) => !matches(t)))
+  }, [])
+
+  const handleDelete = useCallback(async (trade: Trade) => {
+    if (!telegramId) return
+    // Optimistic: drop it from the visible lists (and every stat derived from
+    // them) immediately, then reconcile with the server.
+    dropTrade(trade)
+    setDeletedTrades((prev) => [trade, ...prev])
+    try {
+      const res = await fetch('/api/trades/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegramId, exchange: trade.exchange, id: trade.id }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.status)
+    } catch (err) {
+      console.warn('[HomeView] delete failed, reverting:', err)
+      setDeletedTrades((prev) => prev.filter((t) => !(t.id === trade.id && t.exchange === trade.exchange)))
+      setTrades((prev) => [...prev, trade].sort(
+        (a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime()
+      ))
+      setExchangeErrors((prev) => ({ ...prev, [trade.exchange]: `Could not delete trade: ${err}` }))
+    }
+  }, [telegramId, dropTrade])
+
+  const handleRestore = useCallback(async (trade: Trade) => {
+    if (!telegramId) return
+    setDeletedTrades((prev) => prev.filter((t) => !(t.id === trade.id && t.exchange === trade.exchange)))
+    setTrades((prev) => [...prev, trade].sort(
+      (a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime()
+    ))
+    try {
+      const res = await fetch('/api/trades/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegramId, exchange: trade.exchange, id: trade.id }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.status)
+    } catch (err) {
+      console.warn('[HomeView] restore failed, reverting:', err)
+      dropTrade(trade)
+      setDeletedTrades((prev) => [trade, ...prev])
+      setExchangeErrors((prev) => ({ ...prev, [trade.exchange]: `Could not restore trade: ${err}` }))
+    }
+  }, [telegramId, dropTrade])
+
   useEffect(() => {
     if (!telegramId) return
     const hasAnyKey = (
@@ -277,6 +354,13 @@ export function HomeView() {
     all.sort((a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime())
     return filterTradesBySelection(all, period)
   }, [trades, importedTrades, period])
+
+  // Deleted rows follow the same period filter as the visible ones, but are kept
+  // out of `filteredTrades` so they never reach computeStats / the chart.
+  const filteredDeletedTrades = useMemo(
+    () => filterTradesBySelection(deletedTrades, period),
+    [deletedTrades, period]
+  )
 
   const stats = computeStats(filteredTrades)
   const hasAnyKey = buildExchangeConfigs().length > 0
@@ -340,7 +424,14 @@ export function HomeView() {
           ))}
         </div>
       )}
-      <TradesTable trades={filteredTrades} />
+      <TradesTable
+        trades={filteredTrades}
+        onDelete={handleDelete}
+        onRestore={handleRestore}
+        deletedTrades={filteredDeletedTrades}
+        showDeleted={showDeleted}
+        onToggleDeleted={setShowDeleted}
+      />
     </main>
   )
 }

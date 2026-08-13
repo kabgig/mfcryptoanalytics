@@ -1,4 +1,4 @@
-import { Trade, StatsResult } from "@/types"
+import type { Trade, StatsResult } from "@/types"
 
 /**
  * Derives all dashboard statistics and chart data from a list of trades.

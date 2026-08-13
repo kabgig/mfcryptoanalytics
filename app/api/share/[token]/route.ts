@@ -50,6 +50,7 @@ export async function GET(
       FROM cached_trades ct
       JOIN users u ON u.telegram_id = ct.telegram_id
       WHERE u.id = ${userId}
+        AND ct.deleted_at IS NULL
       ORDER BY ct.close_time DESC
     ` as Record<string, unknown>[]
 
