@@ -1,11 +1,48 @@
-import { Trade } from "@/types"
+import type { Trade } from "@/types"
 import { buildOKXRequest } from "./auth"
-import { OKXPositionsHistoryResponse, OKXPosition } from "./types"
+import type { OKXPositionsHistoryResponse, OKXPosition } from "./types"
 
 const LIMIT = 100
 const DELAY_MS = 200
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Maps one OKX positions-history record to a Trade. Pure — exported for testing.
+ *
+ * The id is `posId` + `cTime` (the position's OPEN time), and the choice of
+ * timestamp matters in both directions:
+ *
+ * - `posId` alone is not enough. OKX recycles it: one posId legitimately covered
+ *   18 separate positions on a single instrument over three months.
+ * - `uTime` (the close/update time) is wrong, even though it looks like the
+ *   natural discriminator. OKX does not append a record when you close part of a
+ *   position — it edits the existing one in place, accumulating `pnl` and
+ *   advancing `uTime`. Keyed on `uTime`, the same position gets a new id after
+ *   every partial close, so it is stored as an extra trade instead of updating
+ *   the existing row. Nothing prunes cached rows whose id vanished from the
+ *   exchange response, so the intermediate snapshot survives forever as a ghost
+ *   trade inflating the user's stats.
+ *
+ * `cTime` is immutable for a position instance and distinct across recycled
+ * posIds, so partial closes now update one row (pnl 21.90 → 44.75) instead of
+ * spawning a second one.
+ */
+export function positionToTrade(p: OKXPosition): Trade {
+  return {
+    id: `okx-futures-${p.posId}-${p.cTime}`,
+    exchange: "OKX",
+    // instId is "BTC-USDT-SWAP" or "BTC-USDT-231229" — strip the suffix
+    ticker: p.instId.split("-").slice(0, 2).join(""),
+    positionSize: parseFloat(p.openMaxPos) || 0,
+    tp: null,
+    sl: null,
+    openTime: new Date(Number(p.cTime)).toISOString(),
+    closeTime: new Date(Number(p.uTime)).toISOString(),
+    pnl: parseFloat(p.pnl),
+    market: "futures" as const,
+  }
+}
 
 /**
  * Fetches all closed futures/swap positions from OKX.
@@ -64,19 +101,5 @@ export async function fetchFuturesTrades(
 
   return allPositions
     .filter((p) => parseFloat(p.pnl) !== 0)
-    .map((p) => ({
-      // posId alone is not unique — a position can appear as multiple history
-      // records; include the close time (uTime) so they don't collapse in the DB.
-      id: `okx-futures-${p.posId}-${p.uTime}`,
-      exchange: "OKX",
-      // instId is "BTC-USDT-SWAP" or "BTC-USDT-231229" — strip the suffix
-      ticker: p.instId.split("-").slice(0, 2).join(""),
-      positionSize: parseFloat(p.openMaxPos) || 0,
-      tp: null,
-      sl: null,
-      openTime: new Date(Number(p.cTime)).toISOString(),
-      closeTime: new Date(Number(p.uTime)).toISOString(),
-      pnl: parseFloat(p.pnl),
-      market: "futures" as const,
-    }))
+    .map(positionToTrade)
 }

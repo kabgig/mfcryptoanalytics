@@ -1,12 +1,38 @@
-import { Trade } from "@/types"
+import type { Trade } from "@/types"
 import { buildFuturesAuth } from "./auth"
-import { MEXCFuturesPositionPage, MEXCHistoryPosition } from "./types"
+import type { MEXCFuturesPositionPage, MEXCHistoryPosition } from "./types"
 
 const BASE_URL = "https://contract.mexc.com"
 const PAGE_SIZE = 100
 const DELAY_MS = 200
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Maps one MEXC history position to a Trade. Pure — exported for testing.
+ *
+ * The id uses `createTime` (open) rather than `updateTime` (close). A position
+ * history record is mutated in place as the position is closed down, so keying
+ * on `updateTime` turns each partial close into a brand-new id — stored as an
+ * extra trade, with the stale snapshot left behind as a ghost. `createTime` is
+ * immutable, so partial closes update the same row. See the OKX adapter, where
+ * this was diagnosed against real data.
+ */
+export function positionToTrade(p: MEXCHistoryPosition): Trade {
+  return {
+    id: `mexc-futures-${p.positionId}-${p.createTime}`,
+    exchange: "MEXC",
+    ticker: p.symbol.replace("_", ""),
+    positionSize: parseFloat(p.openVol) || 0,
+    tp: null,
+    sl: null,
+    openTime: new Date(p.createTime).toISOString(),
+    closeTime: new Date(p.updateTime).toISOString(),
+    pnl: parseFloat(p.realised),
+    market: "futures" as const,
+    side: p.holdSide === 1 ? "long" : "short",
+  }
+}
 
 /**
  * Fetches all closed futures positions from MEXC.
@@ -54,19 +80,5 @@ export async function fetchFuturesTrades(
 
   return allPositions
     .filter((p) => parseFloat(p.realised) !== 0)
-    .map((p) => ({
-      // positionId can recur across history records; include the close time
-      // (updateTime) so multiple closes of one position don't collapse in the DB.
-      id: `mexc-futures-${p.positionId}-${p.updateTime}`,
-      exchange: "MEXC",
-      ticker: p.symbol.replace("_", ""),
-      positionSize: parseFloat(p.openVol) || 0,
-      tp: null,
-      sl: null,
-      openTime: new Date(p.createTime).toISOString(),
-      closeTime: new Date(p.updateTime).toISOString(),
-      pnl: parseFloat(p.realised),
-      market: "futures" as const,
-      side: p.holdSide === 1 ? "long" : "short",
-    }))
+    .map(positionToTrade)
 }
