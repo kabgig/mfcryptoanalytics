@@ -29,6 +29,7 @@ const NAV_LINKS: NavLink[] = [
   { label: "EMon",  href: "/emon" },
   { label: "LvsS",  href: "/lvs" },
   { label: "DPnL",  href: "/dpnl" },
+  { label: "Spot",  href: "/spot" },
   { label: "Admin", href: "/admin", adminOnly: true },
 ]
 

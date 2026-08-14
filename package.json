@@ -10,6 +10,7 @@
     "test": "node --experimental-strip-types --import ./scripts/test/alias-hooks.mjs --test scripts/test/*.test.ts",
     "test:integration": "node --env-file=.env.local --experimental-strip-types --import ./scripts/test/alias-hooks.mjs scripts/test/softDelete.integration.ts",
     "test:ui": "node --env-file=.env.local scripts/test/softDelete.ui.mjs",
+    "test:ui:spot": "node --env-file=.env.local scripts/test/spot.ui.mjs",
     "db:migrate": "dbmate --env-file .env.local up",
     "db:rollback": "dbmate --env-file .env.local down",
     "db:status": "dbmate --env-file .env.local status"

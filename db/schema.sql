@@ -71,6 +71,56 @@ CREATE TABLE public.schema_migrations (
 
 
 --
+-- Name: spot_entries; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.spot_entries (
+    id bigint NOT NULL,
+    telegram_id bigint NOT NULL,
+    ticker text NOT NULL,
+    side character varying(4) DEFAULT 'BUY'::character varying NOT NULL,
+    qty numeric NOT NULL,
+    price numeric NOT NULL,
+    traded_at timestamp with time zone NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone,
+    CONSTRAINT spot_entries_price_check CHECK ((price >= (0)::numeric)),
+    CONSTRAINT spot_entries_qty_check CHECK ((qty > (0)::numeric)),
+    CONSTRAINT spot_entries_side_chk CHECK (((side)::text = ANY ((ARRAY['BUY'::character varying, 'SELL'::character varying])::text[])))
+);
+
+
+--
+-- Name: spot_entries_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.spot_entries_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: spot_entries_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.spot_entries_id_seq OWNED BY public.spot_entries.id;
+
+
+--
+-- Name: spot_price_history; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.spot_price_history (
+    ticker text NOT NULL,
+    day date NOT NULL,
+    close double precision NOT NULL
+);
+
+
+--
 -- Name: users; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -104,6 +154,13 @@ ALTER SEQUENCE public.users_id_seq OWNED BY public.users.id;
 
 
 --
+-- Name: spot_entries id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.spot_entries ALTER COLUMN id SET DEFAULT nextval('public.spot_entries_id_seq'::regclass);
+
+
+--
 -- Name: users id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -132,6 +189,22 @@ ALTER TABLE ONLY public.exchange_fetch_log
 
 ALTER TABLE ONLY public.schema_migrations
     ADD CONSTRAINT schema_migrations_pkey PRIMARY KEY (version);
+
+
+--
+-- Name: spot_entries spot_entries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.spot_entries
+    ADD CONSTRAINT spot_entries_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: spot_price_history spot_price_history_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.spot_price_history
+    ADD CONSTRAINT spot_price_history_pkey PRIMARY KEY (ticker, day);
 
 
 --
@@ -173,6 +246,13 @@ CREATE INDEX cached_trades_telegram_close_time ON public.cached_trades USING btr
 
 
 --
+-- Name: spot_entries_user_ticker_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX spot_entries_user_ticker_time ON public.spot_entries USING btree (telegram_id, ticker, traded_at) WHERE (deleted_at IS NULL);
+
+
+--
 -- Name: users_share_token_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -196,6 +276,14 @@ ALTER TABLE ONLY public.exchange_fetch_log
 
 
 --
+-- Name: spot_entries spot_entries_telegram_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.spot_entries
+    ADD CONSTRAINT spot_entries_telegram_id_fkey FOREIGN KEY (telegram_id) REFERENCES public.users(telegram_id) ON DELETE CASCADE;
+
+
+--
 -- PostgreSQL database dump complete
 --
 
@@ -216,4 +304,6 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260623000001'),
     ('20260708120000'),
     ('20260813000001'),
-    ('20260813000002');
+    ('20260813000002'),
+    ('20260814000001'),
+    ('20260814000002');

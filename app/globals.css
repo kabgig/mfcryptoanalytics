@@ -72,6 +72,24 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
+
+  /* Categorical series palette for the Spot views.
+     The --chart-* ramp above is monotone grayscale (chroma 0), which is right
+     for a single-series chart but cannot encode identity: an allocation of six
+     coins would render as six grays. These eight hues are a fixed-order
+     categorical palette, assigned by slot and never cycled.
+     Validated against this surface (#f7f7f7): worst adjacent CVD ΔE 9.1,
+     normal-vision ΔE 19.6. Four slots sit below 3:1 contrast, so every chart
+     using them ships direct labels or a table view as the relief channel. */
+  --spot-series-1: #2a78d6;
+  --spot-series-2: #eb6834;
+  --spot-series-3: #1baf7a;
+  --spot-series-4: #eda100;
+  --spot-series-5: #e87ba4;
+  --spot-series-6: #008300;
+  --spot-series-7: #4a3aa7;
+  --spot-series-8: #e34948;
+
   --radius: 0.75rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
@@ -107,6 +125,19 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
+
+  /* Same eight hues re-stepped for the dark card surface (#171717) — a
+     selected dark palette, not an automatic flip of the light one.
+     Validated: worst adjacent CVD ΔE 8.4, normal-vision ΔE 19.3, all 8 >= 3:1. */
+  --spot-series-1: #3987e5;
+  --spot-series-2: #d95926;
+  --spot-series-3: #199e70;
+  --spot-series-4: #c98500;
+  --spot-series-5: #d55181;
+  --spot-series-6: #008300;
+  --spot-series-7: #9085e9;
+  --spot-series-8: #e66767;
+
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
