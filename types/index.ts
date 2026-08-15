@@ -12,6 +12,18 @@ export interface Trade {
   side?: "long" | "short"
 }
 
+/** The three journalling moments of a trade. */
+export type TradeNotePhase = "before" | "during" | "after"
+
+/** A single trade's journal. A phase is absent when the user wrote nothing. */
+export type TradeNotes = Partial<Record<TradeNotePhase, string>>
+
+/**
+ * Every note a user has, keyed by `tradeKey(exchange, id)` — trade ids are only
+ * unique per exchange, so the exchange must be part of the key.
+ */
+export type TradeNotesMap = Record<string, TradeNotes>
+
 export interface ExchangeAdapter {
   name: string
   fetchTrades(walletAddress?: string): Promise<Trade[]>

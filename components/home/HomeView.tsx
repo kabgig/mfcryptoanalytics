@@ -10,7 +10,8 @@ import { fetchAllBalances, type BalanceResult } from '@/lib/services/balanceServ
 import { LandingPage } from '@/components/home/LandingPage'
 import { RefreshCw, TriangleAlert, Globe } from 'lucide-react'
 import Link from 'next/link'
-import type { Trade } from '@/types'
+import type { Trade, TradeNotePhase, TradeNotes, TradeNotesMap } from '@/types'
+import { tradeKey } from '@/lib/db/trades'
 import { fetchFuturesTrades as fetchBinanceFutures } from '@/lib/exchanges/adapters/binance/futures'
 import { fetchFuturesTrades as fetchBybitFutures } from '@/lib/exchanges/adapters/bybit/futures'
 import { PeriodSelector } from '@/components/ui/PeriodSelector'
@@ -121,6 +122,7 @@ export function HomeView() {
   const [balanceLoading, setBalanceLoading] = useState(false)
   const [deletedTrades, setDeletedTrades] = useState<Trade[]>([])
   const [showDeleted, setShowDeleted] = useState(false)
+  const [notes, setNotes] = useState<TradeNotesMap>({})
   const period = usePeriodStore((s) => s.selection)
   const setPeriod = usePeriodStore((s) => s.setSelection)
 
@@ -262,6 +264,57 @@ export function HomeView() {
       .then((data) => { if (!cancelled) setDeletedTrades((data.trades ?? []) as Trade[]) })
       .catch(() => { /* non-critical */ })
     return () => { cancelled = true }
+  }, [telegramId])
+
+  // Journal notes for every trade, loaded once and joined to the rows in memory.
+  // Keyed by exchange|id, so it survives trades arriving from several exchanges
+  // at different times without needing to re-fetch per batch.
+  useEffect(() => {
+    if (!telegramId) return
+    let cancelled = false
+    fetch(`/api/trades/notes?telegramId=${encodeURIComponent(telegramId)}`)
+      .then((r) => r.json())
+      .then((data) => { if (!cancelled) setNotes((data.notes ?? {}) as TradeNotesMap) })
+      .catch(() => { /* non-critical — the table just renders empty icons */ })
+    return () => { cancelled = true }
+  }, [telegramId])
+
+  // Writes one note. Optimistic like handleDelete, but it rethrows so the
+  // editor can keep the popover open and show the user what failed instead of
+  // silently swallowing their text.
+  const handleSaveNote = useCallback(async (
+    trade: Trade,
+    phase: TradeNotePhase,
+    body: string
+  ) => {
+    if (!telegramId) return
+    const key = tradeKey(trade.exchange, trade.id)
+    const trimmed = body.trim()
+
+    // Captured from inside the updater rather than from `notes` directly, so
+    // this callback does not depend on the notes map and stay stable across
+    // every save — otherwise each keystroke-save would re-render the whole table.
+    let previous: TradeNotes = {}
+    setNotes((prev) => {
+      previous = prev[key] ?? {}
+      const next = { ...previous }
+      if (trimmed) next[phase] = trimmed
+      else delete next[phase]
+      return { ...prev, [key]: next }
+    })
+
+    try {
+      const res = await fetch('/api/trades/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegramId, exchange: trade.exchange, id: trade.id, phase, body }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.status)
+    } catch (err) {
+      console.warn('[HomeView] note save failed, reverting:', err)
+      setNotes((prev) => ({ ...prev, [key]: previous }))
+      throw err
+    }
   }, [telegramId])
 
   // Removes a trade from whichever list holds it. Trade ids are only unique per
@@ -431,6 +484,9 @@ export function HomeView() {
         deletedTrades={filteredDeletedTrades}
         showDeleted={showDeleted}
         onToggleDeleted={setShowDeleted}
+        notes={notes}
+        onSaveNote={handleSaveNote}
+        exportable
       />
     </main>
   )

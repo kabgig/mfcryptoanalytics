@@ -1,6 +1,6 @@
 "use client"
 
-import type { Trade } from "@/types"
+import type { Trade, TradeNotePhase, TradeNotesMap } from "@/types"
 import {
   Table,
   TableBody,
@@ -13,7 +13,10 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { motion, useInView } from "motion/react"
 import { useRef } from "react"
-import { X, RotateCcw } from "lucide-react"
+import { X, RotateCcw, Download } from "lucide-react"
+import { TradeJournal } from "@/components/dashboard/TradeJournal"
+import { tradeKey } from "@/lib/db/trades"
+import { buildTradesCsv, downloadCsv } from "@/lib/services/exportService"
 
 interface TradesTableProps {
   trades: Trade[]
@@ -25,6 +28,15 @@ interface TradesTableProps {
   showDeleted?: boolean
   /** When provided, the header gets a "show deleted" toggle. */
   onToggleDeleted?: (next: boolean) => void
+  /**
+   * Journal notes keyed by `tradeKey(exchange, id)`. Supplying `onSaveNote`
+   * turns on the journal column — read-only tables (share links, import
+   * previews) omit it and never render, or leak, a user's notes.
+   */
+  notes?: TradeNotesMap
+  onSaveNote?: (trade: Trade, phase: TradeNotePhase, body: string) => Promise<void>
+  /** When true, the header gets a CSV export button. */
+  exportable?: boolean
 }
 
 function formatDate(iso: string) {
@@ -81,9 +93,13 @@ export function TradesTable({
   onRestore,
   showDeleted = false,
   onToggleDeleted,
+  notes,
+  onSaveNote,
+  exportable = false,
 }: TradesTableProps) {
   const tableRef = useRef<HTMLTableSectionElement>(null)
   const hasActions = Boolean(onDelete)
+  const hasJournal = Boolean(onSaveNote)
   // Revealed rows are merged into the chronological order rather than appended,
   // so a deleted trade shows up where the user left it instead of at the very
   // bottom of a long history.
@@ -98,6 +114,22 @@ export function TradesTable({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
         <CardTitle className="text-base">Trade History</CardTitle>
+        <div className="flex items-center gap-2">
+        {exportable && (
+          <button
+            type="button"
+            // Exports exactly what is on screen — the same period filter and the
+            // same deleted/not-deleted set the user is looking at.
+            onClick={() => downloadCsv(buildTradesCsv(rows.map((r) => r.trade), notes))}
+            disabled={rows.length === 0}
+            title="Download visible trades and notes as CSV"
+            data-testid="export-trades"
+            className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:opacity-40"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Export CSV
+          </button>
+        )}
         {onToggleDeleted && deletedTrades.length > 0 && (
           <button
             type="button"
@@ -114,6 +146,7 @@ export function TradesTable({
             {showDeleted ? "Hide deleted" : `Show deleted (${deletedTrades.length})`}
           </button>
         )}
+        </div>
       </CardHeader>
       <CardContent className="p-0">
         <div className="overflow-x-auto pl-2">
@@ -128,6 +161,7 @@ export function TradesTable({
                 <TableHead className="text-right">SL</TableHead>
                 <TableHead>Open Time</TableHead>
                 <TableHead>Close Time</TableHead>
+                {hasJournal && <TableHead className="w-24">Journal</TableHead>}
                 {hasActions && <TableHead className="w-10" />}
               </TableRow>
             </TableHeader>
@@ -179,6 +213,16 @@ export function TradesTable({
                     <TableCell className="text-sm text-muted-foreground">
                       {formatDate(trade.closeTime)}
                     </TableCell>
+                    {hasJournal && (
+                      <TableCell className="w-24">
+                        <TradeJournal
+                          trade={trade}
+                          notes={notes?.[tradeKey(trade.exchange, trade.id)] ?? {}}
+                          onSave={onSaveNote!}
+                          disabled={deleted}
+                        />
+                      </TableCell>
+                    )}
                     {hasActions && (
                       <TableCell className="w-10 pr-3">
                         {deleted ? (

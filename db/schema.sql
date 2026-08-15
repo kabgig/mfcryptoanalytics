@@ -121,6 +121,23 @@ CREATE TABLE public.spot_price_history (
 
 
 --
+-- Name: trade_notes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.trade_notes (
+    telegram_id bigint NOT NULL,
+    exchange text NOT NULL,
+    trade_id text NOT NULL,
+    phase text NOT NULL,
+    body text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT trade_notes_body_chk CHECK ((length(btrim(body)) > 0)),
+    CONSTRAINT trade_notes_phase_chk CHECK ((phase = ANY (ARRAY['before'::text, 'during'::text, 'after'::text])))
+);
+
+
+--
 -- Name: users; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -208,6 +225,14 @@ ALTER TABLE ONLY public.spot_price_history
 
 
 --
+-- Name: trade_notes trade_notes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.trade_notes
+    ADD CONSTRAINT trade_notes_pkey PRIMARY KEY (telegram_id, exchange, trade_id, phase);
+
+
+--
 -- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -284,6 +309,14 @@ ALTER TABLE ONLY public.spot_entries
 
 
 --
+-- Name: trade_notes trade_notes_telegram_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.trade_notes
+    ADD CONSTRAINT trade_notes_telegram_id_fkey FOREIGN KEY (telegram_id) REFERENCES public.users(telegram_id) ON DELETE CASCADE;
+
+
+--
 -- PostgreSQL database dump complete
 --
 
@@ -306,4 +339,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260813000001'),
     ('20260813000002'),
     ('20260814000001'),
-    ('20260814000002');
+    ('20260814000002'),
+    ('20260815000001');
