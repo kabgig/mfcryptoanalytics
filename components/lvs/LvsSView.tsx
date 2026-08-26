@@ -4,10 +4,11 @@ import { useState, useEffect, useCallback, useMemo } from "react"
 import { useUserStore } from "@/lib/store/userStore"
 import { computeLvsS } from "@/lib/services/lvsService"
 import type { SideStats } from "@/lib/services/lvsService"
+import Link from "next/link"
 import { LandingPage } from "@/components/home/LandingPage"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { RefreshCw, TriangleAlert, TrendingUp, TrendingDown, Minus } from "lucide-react"
-import type { Trade } from "@/types"
+import type { Trade, TradeOverridesMap } from "@/types"
 import { fetchFuturesTrades as fetchBinanceFutures } from "@/lib/exchanges/adapters/binance/futures"
 import { fetchFuturesTrades as fetchBybitFutures } from "@/lib/exchanges/adapters/bybit/futures"
 
@@ -108,17 +109,19 @@ function SideCard({
   stats,
   color,
   icon,
+  testid,
 }: {
   label: string
   stats: SideStats
   color: string
   icon: React.ReactNode
+  testid: string
 }) {
   const pnlPositive = stats.totalPnl >= 0
   const avgPositive = stats.avgPnl >= 0
 
   return (
-    <Card className="flex-1 min-w-[240px]">
+    <Card className="flex-1 min-w-[240px]" data-testid={testid}>
       <CardHeader className="pb-2">
         <div className="flex items-center gap-2">
           <span style={{ color }}>{icon}</span>
@@ -146,7 +149,9 @@ function SideCard({
             />
             <StatRow
               label="Trade Count"
-              value={stats.tradeCount.toLocaleString()}
+              value={
+                <span data-testid={`${testid}-count`}>{stats.tradeCount.toLocaleString()}</span>
+              }
             />
             <StatRow
               label="Wins / Losses"
@@ -190,6 +195,7 @@ export function LvsSView() {
   const [loading, setLoading] = useState(false)
   const [loadedExchanges, setLoadedExchanges] = useState<string[]>([])
   const [exchangeErrors, setExchangeErrors] = useState<Record<string, string>>({})
+  const [overrides, setOverrides] = useState<TradeOverridesMap>({})
   const period = usePeriodStore((s) => s.selection)
   const setPeriod = usePeriodStore((s) => s.setSelection)
 
@@ -313,6 +319,18 @@ export function LvsSView() {
     return () => { cancelled = true }
   }, [telegramId])
 
+  // The hand-set Bias for each trade. Most exchanges never report long/short, so
+  // for those this map is the only thing that puts a trade in a bucket at all.
+  useEffect(() => {
+    if (!telegramId) return
+    let cancelled = false
+    fetch(`/api/trades/overrides?telegramId=${encodeURIComponent(telegramId)}`)
+      .then((r) => r.json())
+      .then((data) => { if (!cancelled) setOverrides((data.overrides ?? {}) as TradeOverridesMap) })
+      .catch(() => { /* non-critical — the split falls back to the exchange's side */ })
+    return () => { cancelled = true }
+  }, [telegramId])
+
   const hasAnyKey = buildExchangeConfigs().length > 0
   const errorEntries = Object.entries(exchangeErrors)
 
@@ -322,7 +340,17 @@ export function LvsSView() {
     return filterTradesBySelection(all, period)
   }, [trades, importedTrades, period])
 
-  const result = useMemo(() => computeLvsS(filteredTrades), [filteredTrades])
+  const result = useMemo(
+    () => computeLvsS(filteredTrades, overrides),
+    [filteredTrades, overrides]
+  )
+
+  // Only worth naming the unbiased trades' exchanges when they are not simply
+  // the exchanges the notice has already called out as reporting no side.
+  const unknownFrom =
+    result.unknownExchanges.join(",") === result.exchangesWithoutSide.join(",")
+      ? null
+      : result.unknownExchanges.join(", ")
 
   if (!telegramId) return <LandingPage />
 
@@ -348,14 +376,38 @@ export function LvsSView() {
       )}
 
       {result.unknownCount > 0 && (
-        <div className="flex items-start gap-3 rounded-lg border border-yellow-400/50 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-700 dark:text-yellow-300">
+        <div
+          data-testid="lvs-unknown-note"
+          className="flex items-start gap-3 rounded-lg border border-yellow-400/50 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-700 dark:text-yellow-300"
+        >
           <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" />
           <span>
-            <strong>{result.unknownCount} trade{result.unknownCount !== 1 ? "s" : ""}</strong> from{" "}
-            {result.unknownExchanges.join(", ")} {result.unknownExchanges.length === 1 ? "does" : "do"} not include
-            side (long/short) data and {result.unknownExchanges.length === 1 ? "is" : "are"} excluded from this view.
+            {result.exchangesWithoutSide.length > 0 && (
+              <>
+                <strong>{result.exchangesWithoutSide.join(", ")}</strong>{" "}
+                {result.exchangesWithoutSide.length === 1 ? "does" : "do"} not report
+                long/short, so only a <strong>Bias</strong> you set by hand is counted for{" "}
+                {result.exchangesWithoutSide.length === 1 ? "it" : "them"}.{" "}
+              </>
+            )}
+            <strong>{result.unknownCount} trade{result.unknownCount !== 1 ? "s" : ""}</strong>{" "}
+            {result.unknownCount === 1 ? "has" : "have"} no bias yet and{" "}
+            {result.unknownCount === 1 ? "is" : "are"} left out of this view — set{" "}
+            {result.unknownCount === 1 ? "it" : "them"} in the{" "}
+            <Link href="/" className="underline underline-offset-2 hover:opacity-80">Bias column</Link>{" "}
+            on the dashboard{unknownFrom ? ` (${unknownFrom})` : ""}.
           </span>
         </div>
+      )}
+
+      {result.manualCount > 0 && (
+        <p className="text-xs text-muted-foreground" data-testid="lvs-manual-note">
+          Counting{" "}
+          <strong className="font-medium text-foreground">
+            {result.manualCount} trade{result.manualCount !== 1 ? "s" : ""}
+          </strong>{" "}
+          from a Bias you set by hand.
+        </p>
       )}
 
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -396,6 +448,7 @@ export function LvsSView() {
       ) : (
         <div className="flex flex-col sm:flex-row gap-4">
           <SideCard
+            testid="lvs-long"
             label="Long"
             stats={result.long}
             color="#22c55e"
@@ -405,6 +458,7 @@ export function LvsSView() {
             <Minus className="h-5 w-5 text-muted-foreground rotate-90" />
           </div>
           <SideCard
+            testid="lvs-short"
             label="Short"
             stats={result.short}
             color="#f87171"

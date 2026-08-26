@@ -39,12 +39,15 @@ const SHOTS = resolve(dirname(fileURLToPath(import.meta.url)), "screenshots")
 const sql = neon(process.env.DATABASE_URL)
 
 // ov-1 has no side (like every exchange except Bybit/Bitunix) → bias starts "—".
-// ov-2 arrives long, so its bias is derived as "buy" with nothing stored.
+// ov-2 is on Bybit and arrives long, so its bias is derived as "buy" with
+// nothing stored — and it keeps Bybit off the "does not report long/short" list
+// that the LvsS notice builds.
 // ov-3 already carries an exchange tp, to prove an override still wins.
+const SIDED_EXCHANGE = "Bybit"
 const TRADES = [
   { id: "ov-1", exchange: EXCHANGE, ticker: "BTCUSDT", positionSize: 1, tp: null, sl: null, pnl: 100,
     openTime: "2026-08-01T00:00:00.000Z", closeTime: "2026-08-02T00:00:00.000Z" },
-  { id: "ov-2", exchange: EXCHANGE, ticker: "ETHUSDT", positionSize: 2, tp: null, sl: null, pnl: -50,
+  { id: "ov-2", exchange: SIDED_EXCHANGE, ticker: "ETHUSDT", positionSize: 2, tp: null, sl: null, pnl: -50,
     side: "long",
     openTime: "2026-08-02T00:00:00.000Z", closeTime: "2026-08-03T00:00:00.000Z" },
   { id: "ov-3", exchange: EXCHANGE, ticker: "SOLUSDT", positionSize: 3, tp: 200, sl: null, pnl: 25,
@@ -339,6 +342,84 @@ async function main() {
       await post("/api/trades/overrides", {
         telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", sl: null,
       })
+    })
+
+    // At this point: ov-1 (OKX) has a manual bias of sell, ov-2 (Bybit) has none
+    // stored but arrived side=long, and ov-3 (OKX) has neither.
+    console.log("\nLvsS counts the manual bias")
+    const lvs = await context.newPage()
+    lvs.on("pageerror", (e) => pageErrors.push(`[lvs] ${e.stack ?? String(e)}`))
+    await lvs.goto(`${BASE}/lvs`, { waitUntil: "networkidle" })
+    // The manual note only renders once the overrides map has landed, so waiting
+    // on it means the cards below are settled rather than mid-fetch.
+    await lvs.waitForSelector('[data-testid="lvs-manual-note"]')
+    await lvs.screenshot({ path: `${SHOTS}/o5-lvs.png`, fullPage: true })
+
+    const lvsCount = async (side) =>
+      Number(await lvs.locator(`[data-testid="lvs-${side}-count"]`).innerText())
+
+    await check("a hand-set bias puts the trade in a bucket", async () => {
+      // ov-1 is on OKX, which reports no side at all — without the override it
+      // would sit in the excluded pile, as it did before this feature.
+      assert.equal(await lvsCount("short"), 1)
+      assert.match(await lvs.locator('[data-testid="lvs-short"]').innerText(), /\+\$100/)
+    })
+    await check("an exchange-reported side still counts on its own", async () => {
+      assert.equal(await lvsCount("long"), 1)
+      assert.match(await lvs.locator('[data-testid="lvs-long"]').innerText(), /-\$50/)
+    })
+    await check("the manual note reports how many came from a hand-set bias", async () => {
+      const note = await lvs.locator('[data-testid="lvs-manual-note"]').innerText()
+      assert.match(note, /1 trade/, note)
+    })
+    await check("the notice names the exchange that does not report long/short", async () => {
+      const note = await lvs.locator('[data-testid="lvs-unknown-note"]').innerText()
+      assert.match(note, /OKX/, note)
+      assert.match(note, /does not report/, note)
+      assert.match(note, /only a Bias you set by hand is counted/, note)
+      // Bybit does report one, so it must not be named as an exchange that does not.
+      assert.equal(
+        /Bybit does not report|Bybit, OKX do not report|OKX, Bybit do not report/.test(note),
+        false,
+        `Bybit was wrongly named as not reporting a side: ${note}`
+      )
+    })
+    await check("the notice says how many trades still have no bias", async () => {
+      const note = await lvs.locator('[data-testid="lvs-unknown-note"]').innerText()
+      assert.match(note, /1 trade has no bias yet/, note)
+      // OKX is already named as the exchange that reports nothing, so repeating
+      // it as the source of the unbiased trade would just be noise.
+      assert.equal((note.match(/OKX/g) ?? []).length, 1, `OKX named twice: ${note}`)
+    })
+
+    console.log("\nfilling the last bias empties the excluded pile")
+    await post("/api/trades/overrides", {
+      telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-3", bias: "buy",
+    })
+    const lvs2 = await context.newPage()
+    lvs2.on("pageerror", (e) => pageErrors.push(`[lvs2] ${e.stack ?? String(e)}`))
+    await lvs2.goto(`${BASE}/lvs`, { waitUntil: "networkidle" })
+    await lvs2.waitForSelector('[data-testid="lvs-manual-note"]')
+
+    await check("the newly biased trade joins its bucket", async () => {
+      const long = Number(await lvs2.locator('[data-testid="lvs-long-count"]').innerText())
+      assert.equal(long, 2, "ov-3 should have joined the long bucket")
+      // -50 (ov-2) + 25 (ov-3) = -25
+      assert.match(await lvs2.locator('[data-testid="lvs-long"]').innerText(), /-\$25/)
+    })
+    await check("the excluded-trades notice disappears once nothing is unbiased", async () => {
+      assert.equal(await lvs2.locator('[data-testid="lvs-unknown-note"]').count(), 0)
+    })
+    await check("the manual note still explains that two counts are hand-set", async () => {
+      assert.match(await lvs2.locator('[data-testid="lvs-manual-note"]').innerText(), /2 trades/)
+    })
+    await lvs2.screenshot({ path: `${SHOTS}/o6-lvs-complete.png`, fullPage: true })
+    await lvs.close()
+    await lvs2.close()
+
+    // Put ov-3 back the way the dashboard checks below expect it.
+    await post("/api/trades/overrides", {
+      telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-3", bias: null,
     })
 
     // NOTE ON ORDER: the cold-load check must run BEFORE the export block —
