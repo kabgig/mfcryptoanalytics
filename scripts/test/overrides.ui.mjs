@@ -368,6 +368,25 @@ async function main() {
       assert.equal(await lvsCount("long"), 1)
       assert.match(await lvs.locator('[data-testid="lvs-long"]').innerText(), /-\$50/)
     })
+    // The Long bucket here holds one losing trade and the Short bucket one
+    // winning trade, so "best" is a loss and "worst" is a profit — exactly the
+    // two cases the hardcoded +/green and bare/red used to render wrong.
+    await check("a bucket whose best trade is a loss does not render +-$50.00", async () => {
+      const best = lvs.locator('[data-testid="lvs-long-best"]')
+      assert.equal((await best.innerText()).trim(), "-$50.00")
+      const cls = await best.getAttribute("class")
+      assert.match(cls, /text-red-500/, `a losing best trade rendered green: ${cls}`)
+    })
+    await check("a bucket whose worst trade is a profit keeps its + and green", async () => {
+      const worst = lvs.locator('[data-testid="lvs-short-worst"]')
+      assert.equal((await worst.innerText()).trim(), "+$100.00")
+      const cls = await worst.getAttribute("class")
+      assert.match(cls, /text-emerald-500/, `a winning worst trade rendered red: ${cls}`)
+    })
+    await check("a genuinely winning best trade still reads as a gain", async () => {
+      assert.equal((await lvs.locator('[data-testid="lvs-short-best"]').innerText()).trim(), "+$100.00")
+    })
+
     await check("the manual note reports how many came from a hand-set bias", async () => {
       const note = await lvs.locator('[data-testid="lvs-manual-note"]').innerText()
       assert.match(note, /1 trade/, note)

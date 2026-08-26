@@ -93,6 +93,21 @@ function fmt(v: number) {
   return v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 })
 }
 
+/**
+ * A PnL figure with its sign and colour. "Best" and "worst" are positions in the
+ * bucket, not guarantees about profit: a losing bucket's best trade is still a
+ * loss, and an all-winning bucket's worst trade is still a profit, so neither
+ * row can hardcode a sign or a colour.
+ */
+function SignedPnl({ value, testid }: { value: number; testid?: string }) {
+  const positive = value >= 0
+  return (
+    <span data-testid={testid} className={positive ? "text-emerald-500" : "text-red-500"}>
+      {positive ? "+" : ""}{fmt(value)}
+    </span>
+  )
+}
+
 function StatRow({ label, value, colored }: { label: string; value: React.ReactNode; colored?: boolean }) {
   return (
     <div className="flex items-center justify-between py-2 border-b border-border last:border-0">
@@ -117,9 +132,6 @@ function SideCard({
   icon: React.ReactNode
   testid: string
 }) {
-  const pnlPositive = stats.totalPnl >= 0
-  const avgPositive = stats.avgPnl >= 0
-
   return (
     <Card className="flex-1 min-w-[240px]" data-testid={testid}>
       <CardHeader className="pb-2">
@@ -137,11 +149,7 @@ function SideCard({
           <>
             <StatRow
               label="Total PnL"
-              value={
-                <span className={pnlPositive ? "text-emerald-500" : "text-red-500"}>
-                  {pnlPositive ? "+" : ""}{fmt(stats.totalPnl)}
-                </span>
-              }
+              value={<SignedPnl value={stats.totalPnl} testid={`${testid}-pnl`} />}
             />
             <StatRow
               label="Win Rate"
@@ -165,19 +173,15 @@ function SideCard({
             />
             <StatRow
               label="Avg PnL"
-              value={
-                <span className={avgPositive ? "text-emerald-500" : "text-red-500"}>
-                  {avgPositive ? "+" : ""}{fmt(stats.avgPnl)}
-                </span>
-              }
+              value={<SignedPnl value={stats.avgPnl} testid={`${testid}-avg`} />}
             />
             <StatRow
               label="Best Trade"
-              value={<span className="text-emerald-500">+{fmt(stats.bestTrade)}</span>}
+              value={<SignedPnl value={stats.bestTrade} testid={`${testid}-best`} />}
             />
             <StatRow
               label="Worst Trade"
-              value={<span className="text-red-500">{fmt(stats.worstTrade)}</span>}
+              value={<SignedPnl value={stats.worstTrade} testid={`${testid}-worst`} />}
             />
           </>
         )}
