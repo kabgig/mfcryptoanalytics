@@ -10,8 +10,11 @@ import { fetchAllBalances, type BalanceResult } from '@/lib/services/balanceServ
 import { LandingPage } from '@/components/home/LandingPage'
 import { RefreshCw, TriangleAlert, Globe } from 'lucide-react'
 import Link from 'next/link'
-import type { Trade, TradeNotePhase, TradeNotes, TradeNotesMap } from '@/types'
+import type {
+  Trade, TradeNotePhase, TradeNotes, TradeNotesMap, TradeOverride, TradeOverridesMap,
+} from '@/types'
 import { tradeKey } from '@/lib/db/trades'
+import { mergeOverride, type OverridePatch, type ResolvedTrade } from '@/lib/services/overridesService'
 import { fetchFuturesTrades as fetchBinanceFutures } from '@/lib/exchanges/adapters/binance/futures'
 import { fetchFuturesTrades as fetchBybitFutures } from '@/lib/exchanges/adapters/bybit/futures'
 import { PeriodSelector } from '@/components/ui/PeriodSelector'
@@ -123,6 +126,7 @@ export function HomeView() {
   const [deletedTrades, setDeletedTrades] = useState<Trade[]>([])
   const [showDeleted, setShowDeleted] = useState(false)
   const [notes, setNotes] = useState<TradeNotesMap>({})
+  const [overrides, setOverrides] = useState<TradeOverridesMap>({})
   const period = usePeriodStore((s) => s.selection)
   const setPeriod = usePeriodStore((s) => s.setSelection)
 
@@ -279,6 +283,19 @@ export function HomeView() {
     return () => { cancelled = true }
   }, [telegramId])
 
+  // Manual TP / SL / Bias, loaded and joined exactly like the notes above. No
+  // exchange reports a tp or sl, so for most users this map is the only source
+  // those two columns ever have.
+  useEffect(() => {
+    if (!telegramId) return
+    let cancelled = false
+    fetch(`/api/trades/overrides?telegramId=${encodeURIComponent(telegramId)}`)
+      .then((r) => r.json())
+      .then((data) => { if (!cancelled) setOverrides((data.overrides ?? {}) as TradeOverridesMap) })
+      .catch(() => { /* non-critical — the cells just fall back to the exchange */ })
+    return () => { cancelled = true }
+  }, [telegramId])
+
   // Writes one note. Optimistic like handleDelete, but it rethrows so the
   // editor can keep the popover open and show the user what failed instead of
   // silently swallowing their text.
@@ -313,6 +330,47 @@ export function HomeView() {
     } catch (err) {
       console.warn('[HomeView] note save failed, reverting:', err)
       setNotes((prev) => ({ ...prev, [key]: previous }))
+      throw err
+    }
+  }, [telegramId])
+
+  // Writes one trade's TP / SL / Bias patch. Same optimistic-then-rethrow shape
+  // as handleSaveNote: the cell keeps its popover open and shows what failed
+  // rather than silently dropping the value.
+  const handleSaveOverride = useCallback(async (
+    trade: ResolvedTrade,
+    patch: OverridePatch
+  ) => {
+    if (!telegramId) return
+    const key = tradeKey(trade.exchange, trade.id)
+
+    // Captured from inside the updater rather than read from `overrides`, so the
+    // callback stays stable and every row does not re-render on each save.
+    let previous: TradeOverride = {}
+    setOverrides((prev) => {
+      previous = prev[key] ?? {}
+      const next = mergeOverride(previous, patch)
+      const copy = { ...prev }
+      if (next === null) delete copy[key]
+      else copy[key] = next
+      return copy
+    })
+
+    try {
+      const res = await fetch('/api/trades/overrides', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegramId, exchange: trade.exchange, id: trade.id, ...patch }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.status)
+    } catch (err) {
+      console.warn('[HomeView] override save failed, reverting:', err)
+      setOverrides((prev) => {
+        const copy = { ...prev }
+        if (Object.keys(previous).length === 0) delete copy[key]
+        else copy[key] = previous
+        return copy
+      })
       throw err
     }
   }, [telegramId])
@@ -486,6 +544,8 @@ export function HomeView() {
         onToggleDeleted={setShowDeleted}
         notes={notes}
         onSaveNote={handleSaveNote}
+        overrides={overrides}
+        onSaveOverride={handleSaveOverride}
         exportable
       />
     </main>

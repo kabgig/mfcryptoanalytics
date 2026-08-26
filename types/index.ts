@@ -24,6 +24,31 @@ export type TradeNotes = Partial<Record<TradeNotePhase, string>>
  */
 export type TradeNotesMap = Record<string, TradeNotes>
 
+/**
+ * Direction the user was trading. Distinct from `Trade.side` on purpose: `side`
+ * is whatever the exchange reported (only Bybit and Bitunix report one), while
+ * bias is the user's own answer. The UI derives a bias from `side` when there is
+ * one and lets a manual override win over it — `side` is never rewritten.
+ */
+export type TradeBias = "buy" | "sell"
+
+/**
+ * A user's manual corrections to one trade. A field is absent when it was never
+ * overridden, in which case the exchange's own value (or, for bias, the value
+ * derived from `side`) stands.
+ */
+export interface TradeOverride {
+  tp?: number
+  sl?: number
+  bias?: TradeBias
+}
+
+/**
+ * Every override a user has, keyed by `tradeKey(exchange, id)` — same keying as
+ * TradeNotesMap, and for the same reason: ids are only unique per exchange.
+ */
+export type TradeOverridesMap = Record<string, TradeOverride>
+
 export interface ExchangeAdapter {
   name: string
   fetchTrades(walletAddress?: string): Promise<Trade[]>

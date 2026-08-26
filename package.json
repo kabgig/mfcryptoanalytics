@@ -12,6 +12,7 @@
     "test:ui": "node --env-file=.env.local scripts/test/softDelete.ui.mjs",
     "test:ui:spot": "node --env-file=.env.local scripts/test/spot.ui.mjs",
     "test:ui:journal": "node --env-file=.env.local scripts/test/journal.ui.mjs",
+    "test:ui:overrides": "node --env-file=.env.local scripts/test/overrides.ui.mjs",
     "db:migrate": "dbmate --env-file .env.local up",
     "db:rollback": "dbmate --env-file .env.local down",
     "db:status": "dbmate --env-file .env.local status"

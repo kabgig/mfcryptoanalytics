@@ -1,5 +1,6 @@
 import { tradeKey } from "@/lib/db/trades"
-import type { Trade, TradeNotesMap } from "@/types"
+import { resolveTrade } from "@/lib/services/overridesService"
+import type { Trade, TradeNotesMap, TradeOverridesMap } from "@/types"
 
 /**
  * Trade history export, built for pasting into an LLM chat for pattern analysis.
@@ -18,6 +19,7 @@ export const EXPORT_COLUMNS = [
   "exchange",
   "ticker",
   "side",
+  "bias",
   "market",
   "positionSize",
   "pnl",
@@ -43,18 +45,30 @@ function cell(value: string | number | null | undefined): string {
  * One CSV row per trade, newest close first, with the journal notes joined in.
  * Numbers are written raw (no currency symbols or thousands separators) so a
  * spreadsheet — or an LLM — reads them as numbers rather than strings.
+ *
+ * `tp` and `sl` carry the user's manual value when there is one, and `bias` the
+ * manual bias or the one derived from `side` — the same resolution the table
+ * renders, so an export matches the screen it came from. `side` itself stays the
+ * exchange's own answer.
  */
-export function buildTradesCsv(trades: Trade[], notes: TradeNotesMap = {}): string {
+export function buildTradesCsv(
+  trades: Trade[],
+  notes: TradeNotesMap = {},
+  overrides: TradeOverridesMap = {}
+): string {
   const rows = [EXPORT_COLUMNS.join(",")]
 
-  for (const t of trades) {
-    const n = notes[tradeKey(t.exchange, t.id)] ?? {}
+  for (const trade of trades) {
+    const key = tradeKey(trade.exchange, trade.id)
+    const t = resolveTrade(trade, overrides[key])
+    const n = notes[key] ?? {}
     rows.push([
       cell(t.closeTime),
       cell(t.openTime),
       cell(t.exchange),
       cell(t.ticker),
       cell(t.side),
+      cell(t.bias),
       cell(t.market),
       cell(t.positionSize),
       cell(t.pnl),

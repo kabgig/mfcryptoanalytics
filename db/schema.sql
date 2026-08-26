@@ -1,6 +1,6 @@
 \restrict dbmate
 
--- Dumped from database version 17.10 (29ad1b7)
+-- Dumped from database version 17.11 (df1f1a3)
 -- Dumped by pg_dump version 18.3
 
 SET statement_timeout = 0;
@@ -138,6 +138,24 @@ CREATE TABLE public.trade_notes (
 
 
 --
+-- Name: trade_overrides; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.trade_overrides (
+    telegram_id bigint NOT NULL,
+    exchange text NOT NULL,
+    trade_id text NOT NULL,
+    tp numeric,
+    sl numeric,
+    bias text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT trade_overrides_bias_chk CHECK (((bias IS NULL) OR (bias = ANY (ARRAY['buy'::text, 'sell'::text])))),
+    CONSTRAINT trade_overrides_empty_chk CHECK (((tp IS NOT NULL) OR (sl IS NOT NULL) OR (bias IS NOT NULL)))
+);
+
+
+--
 -- Name: users; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -233,6 +251,14 @@ ALTER TABLE ONLY public.trade_notes
 
 
 --
+-- Name: trade_overrides trade_overrides_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.trade_overrides
+    ADD CONSTRAINT trade_overrides_pkey PRIMARY KEY (telegram_id, exchange, trade_id);
+
+
+--
 -- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -317,6 +343,14 @@ ALTER TABLE ONLY public.trade_notes
 
 
 --
+-- Name: trade_overrides trade_overrides_telegram_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.trade_overrides
+    ADD CONSTRAINT trade_overrides_telegram_id_fkey FOREIGN KEY (telegram_id) REFERENCES public.users(telegram_id) ON DELETE CASCADE;
+
+
+--
 -- PostgreSQL database dump complete
 --
 
@@ -340,4 +374,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260813000002'),
     ('20260814000001'),
     ('20260814000002'),
-    ('20260815000001');
+    ('20260815000001'),
+    ('20260826000001');

@@ -1,6 +1,6 @@
 "use client"
 
-import type { Trade, TradeNotePhase, TradeNotesMap } from "@/types"
+import type { Trade, TradeNotePhase, TradeNotesMap, TradeOverridesMap } from "@/types"
 import {
   Table,
   TableBody,
@@ -17,6 +17,8 @@ import { X, RotateCcw, Download } from "lucide-react"
 import { TradeJournal } from "@/components/dashboard/TradeJournal"
 import { tradeKey } from "@/lib/db/trades"
 import { buildTradesCsv, downloadCsv } from "@/lib/services/exportService"
+import { resolveTrade, type ResolvedTrade } from "@/lib/services/overridesService"
+import { BiasCell, PriceOverrideCell, type SaveOverride } from "@/components/dashboard/TradeOverrideCell"
 
 interface TradesTableProps {
   trades: Trade[]
@@ -35,6 +37,13 @@ interface TradesTableProps {
    */
   notes?: TradeNotesMap
   onSaveNote?: (trade: Trade, phase: TradeNotePhase, body: string) => Promise<void>
+  /**
+   * Manual TP / SL / Bias keyed by `tradeKey(exchange, id)`. Always applied when
+   * supplied; supplying `onSaveOverride` additionally makes those three cells
+   * editable, so read-only tables keep rendering plain values.
+   */
+  overrides?: TradeOverridesMap
+  onSaveOverride?: SaveOverride
   /** When true, the header gets a CSV export button. */
   exportable?: boolean
 }
@@ -47,11 +56,6 @@ function formatDate(iso: string) {
     minute: "2-digit",
     hour12: false,
   })
-}
-
-function formatPrice(value: number | null) {
-  if (value === null) return <span className="text-muted-foreground">—</span>
-  return `$${value.toLocaleString("en-US")}`
 }
 
 function AnimatedRow({
@@ -95,20 +99,26 @@ export function TradesTable({
   onToggleDeleted,
   notes,
   onSaveNote,
+  overrides,
+  onSaveOverride,
   exportable = false,
 }: TradesTableProps) {
   const tableRef = useRef<HTMLTableSectionElement>(null)
   const hasActions = Boolean(onDelete)
   const hasJournal = Boolean(onSaveNote)
+  // Overrides are folded in once here rather than at each cell, so the rendered
+  // rows and the CSV export can never disagree about which value won.
+  const resolve = (trade: Trade): ResolvedTrade =>
+    resolveTrade(trade, overrides?.[tradeKey(trade.exchange, trade.id)])
   // Revealed rows are merged into the chronological order rather than appended,
   // so a deleted trade shows up where the user left it instead of at the very
   // bottom of a long history.
-  const rows: { trade: Trade; deleted: boolean }[] = showDeleted
+  const rows: { trade: ResolvedTrade; deleted: boolean }[] = showDeleted
     ? [
-        ...trades.map((trade) => ({ trade, deleted: false })),
-        ...deletedTrades.map((trade) => ({ trade, deleted: true })),
+        ...trades.map((trade) => ({ trade: resolve(trade), deleted: false })),
+        ...deletedTrades.map((trade) => ({ trade: resolve(trade), deleted: true })),
       ].sort((a, b) => new Date(b.trade.closeTime).getTime() - new Date(a.trade.closeTime).getTime())
-    : trades.map((trade) => ({ trade, deleted: false }))
+    : trades.map((trade) => ({ trade: resolve(trade), deleted: false }))
 
   return (
     <Card>
@@ -120,7 +130,7 @@ export function TradesTable({
             type="button"
             // Exports exactly what is on screen — the same period filter and the
             // same deleted/not-deleted set the user is looking at.
-            onClick={() => downloadCsv(buildTradesCsv(rows.map((r) => r.trade), notes))}
+            onClick={() => downloadCsv(buildTradesCsv(rows.map((r) => r.trade), notes, overrides))}
             disabled={rows.length === 0}
             title="Download visible trades and notes as CSV"
             data-testid="export-trades"
@@ -157,6 +167,7 @@ export function TradesTable({
                 <TableHead className="w-24">Ticker</TableHead>
                 <TableHead className="w-24">Exchange</TableHead>
                 <TableHead className="text-right">Position Size</TableHead>
+                <TableHead className="w-20">Bias</TableHead>
                 <TableHead className="text-right">TP</TableHead>
                 <TableHead className="text-right">SL</TableHead>
                 <TableHead>Open Time</TableHead>
@@ -201,11 +212,24 @@ export function TradesTable({
                     <TableCell className="text-right font-mono">
                       {trade.positionSize === 0 ? "—" : trade.positionSize.toLocaleString("en-US")}
                     </TableCell>
-                    <TableCell className="text-right font-mono">
-                      {formatPrice(trade.tp)}
+                    <TableCell className="w-20 text-sm">
+                      <BiasCell trade={trade} onSave={onSaveOverride} disabled={deleted} />
                     </TableCell>
                     <TableCell className="text-right font-mono">
-                      {formatPrice(trade.sl)}
+                      <PriceOverrideCell
+                        trade={trade}
+                        field="tp"
+                        onSave={onSaveOverride}
+                        disabled={deleted}
+                      />
+                    </TableCell>
+                    <TableCell className="text-right font-mono">
+                      <PriceOverrideCell
+                        trade={trade}
+                        field="sl"
+                        onSave={onSaveOverride}
+                        disabled={deleted}
+                      />
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {formatDate(trade.openTime)}
