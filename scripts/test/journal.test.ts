@@ -152,7 +152,9 @@ test("buildTradesCsv writes numbers raw so a spreadsheet reads them as numbers",
   )
   assert.equal(row[header.indexOf("pnl")], "-1234.5")
   assert.equal(row[header.indexOf("positionSize")], "2000")
-  assert.equal(row[header.indexOf("tp")], "70000")
+  // The exchange's single tp is exported as tp1 — the column was renamed when a
+  // trade gained a second target.
+  assert.equal(row[header.indexOf("tp1")], "70000")
   // sl is null on this trade — an empty cell, not the string "null"
   assert.equal(row[header.indexOf("sl")], "")
 })

@@ -18,7 +18,8 @@ import { TradeJournal } from "@/components/dashboard/TradeJournal"
 import { tradeKey } from "@/lib/db/trades"
 import { buildTradesCsv, downloadCsv } from "@/lib/services/exportService"
 import { resolveTrade, type ResolvedTrade } from "@/lib/services/overridesService"
-import { BiasCell, PriceOverrideCell, type SaveOverride } from "@/components/dashboard/TradeOverrideCell"
+import { BiasCell, type SaveOverride } from "@/components/dashboard/TradeOverrideCell"
+import { TradeJournalButton } from "@/components/dashboard/TradeJournalForm"
 
 interface TradesTableProps {
   trades: Trade[]
@@ -38,9 +39,10 @@ interface TradesTableProps {
   notes?: TradeNotesMap
   onSaveNote?: (trade: Trade, phase: TradeNotePhase, body: string) => Promise<void>
   /**
-   * Manual TP / SL / Bias keyed by `tradeKey(exchange, id)`. Always applied when
-   * supplied; supplying `onSaveOverride` additionally makes those three cells
-   * editable, so read-only tables keep rendering plain values.
+   * The user's journal entries keyed by `tradeKey(exchange, id)`. Always applied
+   * when supplied; supplying `onSaveOverride` additionally turns on the Bias
+   * picker and the 📋 journal form, so read-only tables (share links, import
+   * previews) render plain values and never expose a journal.
    */
   overrides?: TradeOverridesMap
   onSaveOverride?: SaveOverride
@@ -168,11 +170,9 @@ export function TradesTable({
                 <TableHead className="w-24">Exchange</TableHead>
                 <TableHead className="text-right">Position Size</TableHead>
                 <TableHead className="w-20">Bias</TableHead>
-                <TableHead className="text-right">TP</TableHead>
-                <TableHead className="text-right">SL</TableHead>
                 <TableHead>Open Time</TableHead>
                 <TableHead>Close Time</TableHead>
-                {hasJournal && <TableHead className="w-24">Journal</TableHead>}
+                {hasJournal && <TableHead className="w-28">Journal</TableHead>}
                 {hasActions && <TableHead className="w-10" />}
               </TableRow>
             </TableHeader>
@@ -215,22 +215,6 @@ export function TradesTable({
                     <TableCell className="w-20 text-sm">
                       <BiasCell trade={trade} onSave={onSaveOverride} disabled={deleted} />
                     </TableCell>
-                    <TableCell className="text-right font-mono">
-                      <PriceOverrideCell
-                        trade={trade}
-                        field="tp"
-                        onSave={onSaveOverride}
-                        disabled={deleted}
-                      />
-                    </TableCell>
-                    <TableCell className="text-right font-mono">
-                      <PriceOverrideCell
-                        trade={trade}
-                        field="sl"
-                        onSave={onSaveOverride}
-                        disabled={deleted}
-                      />
-                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {formatDate(trade.openTime)}
                     </TableCell>
@@ -238,13 +222,20 @@ export function TradesTable({
                       {formatDate(trade.closeTime)}
                     </TableCell>
                     {hasJournal && (
-                      <TableCell className="w-24">
-                        <TradeJournal
-                          trade={trade}
-                          notes={notes?.[tradeKey(trade.exchange, trade.id)] ?? {}}
-                          onSave={onSaveNote!}
-                          disabled={deleted}
-                        />
+                      <TableCell className="w-28">
+                        <div className="flex items-center gap-0.5">
+                          <TradeJournal
+                            trade={trade}
+                            notes={notes?.[tradeKey(trade.exchange, trade.id)] ?? {}}
+                            onSave={onSaveNote!}
+                            disabled={deleted}
+                          />
+                          <TradeJournalButton
+                            trade={trade}
+                            onSave={onSaveOverride}
+                            disabled={deleted}
+                          />
+                        </div>
                       </TableCell>
                     )}
                     {hasActions && (

@@ -81,7 +81,9 @@ async function teardown() {
 /** The stored override row for a trade, or undefined. */
 async function storedRow(tradeId) {
   const rows = await sql`
-    SELECT tp, sl, bias FROM trade_overrides
+    SELECT bias, entry, tp1, tp2, sl, risk_pct, rr, rules_ok,
+           strategy, timeframe, killzone, exit_reason, mistake, emotion
+    FROM trade_overrides
     WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND trade_id = ${tradeId}
   `
   return rows[0]
@@ -134,12 +136,12 @@ async function main() {
     (await cell(ticker, field, p).getAttribute("data-overridden")) === "true"
 
   /**
-   * Opens a cell's editor, acts, and waits for the POST to land. The UI updates
-   * optimistically, so waiting on the DOM alone would let a later reload abort
-   * the in-flight write and silently lose the value.
+   * Opens the Bias cell's editor, acts, and waits for the POST to land. The UI
+   * updates optimistically, so waiting on the DOM alone would let a later reload
+   * abort the in-flight write and silently lose the value.
    */
-  async function edit(ticker, field, act) {
-    await cell(ticker, field).click()
+  async function editBias(ticker, act) {
+    await cell(ticker, "bias").click()
     await page.waitForSelector('[data-testid="override-popup"]')
     const responded = page.waitForResponse(
       (r) => r.url().includes("/api/trades/overrides") && r.request().method() === "POST"
@@ -150,17 +152,40 @@ async function main() {
     await page.waitForSelector('[data-testid="override-popup"]', { state: "detached" })
   }
 
-  const setPrice = (ticker, field, value) =>
-    edit(ticker, field, async () => {
-      await page.locator('[data-testid="override-input"]').fill(String(value))
-      await page.locator('[data-testid="override-save"]').click()
-    })
-
   const setBias = (ticker, bias) =>
-    edit(ticker, "bias", () => page.locator(`[data-testid="bias-${bias}"]`).click())
+    editBias(ticker, () => page.locator(`[data-testid="bias-${bias}"]`).click())
 
-  const clearField = (ticker, field) =>
-    edit(ticker, field, () => page.locator('[data-testid="override-clear"]').click())
+  const clearBias = (ticker) =>
+    editBias(ticker, () => page.locator('[data-testid="override-clear"]').click())
+
+  // --- the 📋 journal form ---------------------------------------------------
+  const journalIcon = (ticker, p = page) =>
+    p.locator("tbody tr").filter({ hasText: ticker }).locator('[data-testid="journal-open"]')
+
+  async function openJournal(ticker, p = page) {
+    await journalIcon(ticker, p).click()
+    await p.waitForSelector('[data-testid="journal-form"]')
+  }
+
+  /** Fills the given fields and saves, waiting for the write to land. */
+  async function fillJournal(ticker, fields) {
+    await openJournal(ticker)
+    for (const [field, value] of Object.entries(fields)) {
+      const el = page.locator(`[data-testid="journal-${field}"]`)
+      if ((await el.evaluate((n) => n.tagName)) === "SELECT") await el.selectOption(String(value))
+      else await el.fill(String(value))
+    }
+    const responded = page.waitForResponse(
+      (r) => r.url().includes("/api/trades/overrides") && r.request().method() === "POST"
+    )
+    await page.locator('[data-testid="journal-save"]').click()
+    const res = await responded
+    assert.equal(res.status(), 200, `journal save returned ${res.status()}`)
+    await page.waitForSelector('[data-testid="journal-form"]', { state: "detached" })
+  }
+
+  const journalValue = (field, p = page) =>
+    p.locator(`[data-testid="journal-${field}"]`).inputValue()
 
   try {
     await page.goto(BASE, { waitUntil: "networkidle" })
@@ -168,16 +193,16 @@ async function main() {
     await page.screenshot({ path: `${SHOTS}/o1-initial.png`, fullPage: true })
 
     console.log("\ninitial render")
-    await check("every row has a Bias, TP and SL cell", async () => {
-      for (const field of ["bias", "tp", "sl"]) {
-        assert.equal(
-          await page.locator(`[data-testid="${field}-cell"]`).count(), TRADES.length,
-          `expected one ${field} cell per row`
-        )
-      }
+    await check("every row has a Bias cell and a journal button", async () => {
+      assert.equal(await page.locator('[data-testid="bias-cell"]').count(), TRADES.length)
+      assert.equal(await page.locator('[data-testid="journal-open"]').count(), TRADES.length)
     })
-    await check("the Bias column header is on the table", async () => {
-      assert.equal(await page.locator("thead th", { hasText: "Bias" }).count(), 1)
+    await check("the TP and SL columns are gone from the table", async () => {
+      // They moved into the 📋 form when TP grew into TP1/TP2.
+      const headers = await page.locator("thead th").allInnerTexts()
+      assert.equal(headers.includes("TP"), false, headers.join("|"))
+      assert.equal(headers.includes("SL"), false, headers.join("|"))
+      assert.ok(headers.includes("Bias"), headers.join("|"))
     })
     await check("a trade with no side and no override shows an empty bias", async () => {
       assert.equal((await cellText("BTCUSDT", "bias")).trim(), "—")
@@ -189,46 +214,79 @@ async function main() {
       assert.equal(await isOverridden("ETHUSDT", "bias"), false)
       assert.equal(await storedRow("ov-2"), undefined, "derivation must not write a row")
     })
-    await check("TP and SL start empty when the exchange reported none", async () => {
-      assert.equal((await cellText("BTCUSDT", "tp")).trim(), "—")
-      assert.equal((await cellText("BTCUSDT", "sl")).trim(), "—")
-    })
-    await check("an exchange-reported TP is shown unmarked", async () => {
-      assert.match(await cellText("SOLUSDT", "tp"), /200/)
-      assert.equal(await isOverridden("SOLUSDT", "tp"), false)
+    await check("no row starts out marked as having a journal entry", async () => {
+      for (const t of ["BTCUSDT", "ETHUSDT", "SOLUSDT"]) {
+        assert.equal(await journalIcon(t).getAttribute("data-filled"), "false", t)
+      }
     })
 
-    console.log("\nsetting TP and SL by hand")
-    await cell("BTCUSDT", "tp").click()
-    await page.waitForSelector('[data-testid="override-popup"]')
-    await check("the editor opens empty for a cell with no override", async () => {
-      assert.equal(await page.locator('[data-testid="override-input"]').inputValue(), "")
+    console.log("\nthe journal form")
+    await openJournal("BTCUSDT")
+    await page.screenshot({ path: `${SHOTS}/o2-journal-form.png`, fullPage: true })
+    await check("the form opens empty for a trade with no entry", async () => {
+      for (const f of ["entry", "tp1", "tp2", "sl", "riskPct", "rr"]) {
+        assert.equal(await journalValue(f), "", `${f} should start empty`)
+      }
+      for (const f of ["strategy", "timeframe", "killzone", "rulesOK", "exitReason", "mistake", "emotion"]) {
+        assert.equal(await journalValue(f), "", `${f} should start unselected`)
+      }
     })
-    await page.keyboard.press("Escape")
-    await page.waitForSelector('[data-testid="override-popup"]', { state: "detached" })
+    await check("R:R says what it needs before any levels are typed", async () => {
+      assert.match(await page.locator('[data-testid="journal-rr-readout"]').innerText(), /needs an entry/)
+    })
+    await check("R:R computes itself as the levels are typed", async () => {
+      await page.locator('[data-testid="journal-entry"]').fill("100")
+      await page.locator('[data-testid="journal-tp1"]').fill("120")
+      await page.locator('[data-testid="journal-sl"]').fill("90")
+      // 20 of reward against 10 of risk.
+      assert.match(await page.locator('[data-testid="journal-rr-readout"]').innerText(), /R:R 2 from your levels/)
+    })
+    await check("a hand-typed R:R takes over and says so", async () => {
+      await page.locator('[data-testid="journal-rr"]').fill("1.5")
+      assert.match(
+        await page.locator('[data-testid="journal-rr-readout"]').innerText(),
+        /Computed R:R is 2 — clear the field to use it/
+      )
+      await page.locator('[data-testid="journal-rr"]').fill("")
+    })
+    await page.keyboard.press("Escape").catch(() => {})
+    await page.locator('[data-testid="journal-form"]').evaluate(() => {})
+    // Close without saving, so the next block starts from a clean row.
+    await page.locator('button[aria-label="Close journal"]').click()
+    await page.waitForSelector('[data-testid="journal-form"]', { state: "detached" })
+    await check("closing without saving stores nothing", async () => {
+      assert.equal(await storedRow("ov-1"), undefined)
+    })
 
-    await setPrice("BTCUSDT", "tp", 70000)
-    await setPrice("BTCUSDT", "sl", 65000.5)
-    await page.screenshot({ path: `${SHOTS}/o2-tp-sl-set.png`, fullPage: true })
+    console.log("\nfilling a full journal entry")
+    await fillJournal("BTCUSDT", {
+      strategy: "orderflow", timeframe: "15m", killzone: "london",
+      entry: 100, tp1: 120, tp2: 140, sl: 90, riskPct: 1.5,
+      rulesOK: "yes", exitReason: "tp1", mistake: "none", emotion: "greed",
+    })
+    await page.screenshot({ path: `${SHOTS}/o3-journal-filled.png`, fullPage: true })
 
-    await check("the cells show the values and mark them as the user's", async () => {
-      assert.match(await cellText("BTCUSDT", "tp"), /70,000/)
-      assert.match(await cellText("BTCUSDT", "sl"), /65,000\.5/)
-      assert.equal(await isOverridden("BTCUSDT", "tp"), true)
-      assert.equal(await isOverridden("BTCUSDT", "sl"), true)
+    await check("the icon marks the trade as journalled", async () => {
+      assert.equal(await journalIcon("BTCUSDT").getAttribute("data-filled"), "true")
     })
-    await check("both live on one row rather than two", async () => {
-      const rows = await sql`
-        SELECT tp, sl FROM trade_overrides
-        WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND trade_id = 'ov-1'
-      `
-      assert.equal(rows.length, 1)
-      assert.equal(Number(rows[0].tp), 70000)
-      assert.equal(Number(rows[0].sl), 65000.5)
+    await check("every field landed on one row in the database", async () => {
+      const row = await storedRow("ov-1")
+      assert.equal(row.strategy, "orderflow")
+      assert.equal(row.timeframe, "15m")
+      assert.equal(row.killzone, "london")
+      assert.equal(Number(row.entry), 100)
+      assert.equal(Number(row.tp1), 120)
+      assert.equal(Number(row.tp2), 140)
+      assert.equal(Number(row.sl), 90)
+      assert.equal(Number(row.risk_pct), 1.5)
+      assert.equal(row.rules_ok, true)
+      assert.equal(row.exit_reason, "tp1")
+      assert.equal(row.mistake, "none")
+      assert.equal(row.emotion, "greed")
     })
-    await check("nothing bled onto the other rows", async () => {
-      assert.equal((await cellText("ETHUSDT", "tp")).trim(), "—")
-      assert.equal(await storedRow("ov-2"), undefined)
+    await check("an auto-computed R:R is not written to the row", async () => {
+      // rr is only stored when the user overrides the arithmetic.
+      assert.equal((await storedRow("ov-1")).rr, null)
     })
     await check("cached_trades was not touched", async () => {
       // The whole point of the separate table: a sync rewrites cached_trades.tp
@@ -240,32 +298,64 @@ async function main() {
       assert.equal(rows[0].tp, null)
       assert.equal(rows[0].sl, null)
     })
-
-    console.log("\nediting an existing value")
-    await cell("BTCUSDT", "tp").click()
-    await page.waitForSelector('[data-testid="override-popup"]')
-    await check("reopening loads the stored value back into the editor", async () => {
-      assert.equal(await page.locator('[data-testid="override-input"]').inputValue(), "70000")
+    await check("nothing bled onto the other rows", async () => {
+      assert.equal(await journalIcon("ETHUSDT").getAttribute("data-filled"), "false")
+      assert.equal(await storedRow("ov-2"), undefined)
     })
-    await page.keyboard.press("Escape")
-    await page.waitForSelector('[data-testid="override-popup"]', { state: "detached" })
 
-    await setPrice("BTCUSDT", "tp", 72500)
-    await check("the edit replaces the value rather than adding a second row", async () => {
+    console.log("\nreopening and editing")
+    await openJournal("BTCUSDT")
+    await check("reopening loads every stored value back into the form", async () => {
+      assert.equal(await journalValue("strategy"), "orderflow")
+      assert.equal(await journalValue("entry"), "100")
+      assert.equal(await journalValue("tp2"), "140")
+      assert.equal(await journalValue("riskPct"), "1.5")
+      assert.equal(await journalValue("rulesOK"), "yes")
+      assert.equal(await journalValue("mistake"), "none")
+      assert.equal(await journalValue("emotion"), "greed")
+    })
+    await check("the reopened form recomputes R:R from the stored levels", async () => {
+      assert.match(await page.locator('[data-testid="journal-rr-readout"]').innerText(), /R:R 2 /)
+    })
+    await page.locator('button[aria-label="Close journal"]').click()
+    await page.waitForSelector('[data-testid="journal-form"]', { state: "detached" })
+
+    await fillJournal("BTCUSDT", { emotion: "fear", rr: 3 })
+    await check("editing replaces values rather than adding a second row", async () => {
       const rows = await sql`
-        SELECT tp FROM trade_overrides
+        SELECT emotion, rr, strategy FROM trade_overrides
         WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND trade_id = 'ov-1'
       `
       assert.equal(rows.length, 1)
-      assert.equal(Number(rows[0].tp), 72500)
+      assert.equal(rows[0].emotion, "fear")
+      assert.equal(Number(rows[0].rr), 3, "the hand-typed R:R should be stored")
+      assert.equal(rows[0].strategy, "orderflow", "an untouched field was clobbered")
     })
 
-    console.log("\nbias")
+    console.log("\nclearing")
+    await fillJournal("SOLUSDT", { mistake: "none" })
+    await check("mistake 'none' is stored, not treated as empty", async () => {
+      // "reviewed, nothing wrong" has to survive as a real answer.
+      assert.equal((await storedRow("ov-3")).mistake, "none")
+      assert.equal(await journalIcon("SOLUSDT").getAttribute("data-filled"), "true")
+    })
+    await fillJournal("SOLUSDT", { mistake: "" })
+    await check("clearing the last field deletes the row entirely", async () => {
+      assert.equal(await storedRow("ov-3"), undefined)
+      assert.equal(await journalIcon("SOLUSDT").getAttribute("data-filled"), "false")
+    })
+
+    console.log("\nbias stays its own column")
     await setBias("BTCUSDT", "sell")
     await check("a manually set bias shows and is marked", async () => {
       assert.match(await cellText("BTCUSDT", "bias"), /sell/i)
       assert.equal(await isOverridden("BTCUSDT", "bias"), true)
       assert.equal((await storedRow("ov-1")).bias, "sell")
+    })
+    await check("setting a bias leaves the journal fields alone", async () => {
+      const row = await storedRow("ov-1")
+      assert.equal(row.strategy, "orderflow")
+      assert.equal(Number(row.entry), 100)
     })
     await setBias("ETHUSDT", "sell")
     await check("a manual bias overrides the one derived from side", async () => {
@@ -279,50 +369,34 @@ async function main() {
       `
       assert.equal(rows[0].side, "long", "the bias override rewrote cached_trades.side")
     })
-    await page.screenshot({ path: `${SHOTS}/o3-bias-set.png`, fullPage: true })
-
-    console.log("\noverride beats the exchange")
-    await setPrice("SOLUSDT", "tp", 250)
-    await check("a user's TP wins over the one the exchange reported", async () => {
-      assert.match(await cellText("SOLUSDT", "tp"), /250/)
-      assert.equal(await isOverridden("SOLUSDT", "tp"), true)
-      // The exchange's own 200 is untouched underneath.
-      const rows = await sql`
-        SELECT tp FROM cached_trades
-        WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND id = 'ov-3'
-      `
-      assert.equal(Number(rows[0].tp), 200)
-    })
-    await clearField("SOLUSDT", "tp")
-    await check("clearing hands the cell back to the exchange value", async () => {
-      assert.match(await cellText("SOLUSDT", "tp"), /200/)
-      assert.equal(await isOverridden("SOLUSDT", "tp"), false)
-    })
-    await check("clearing the only override deletes the row", async () => {
-      assert.equal(await storedRow("ov-3"), undefined)
-    })
-
-    console.log("\nclearing one field of several")
-    await clearField("ETHUSDT", "bias")
+    await clearBias("ETHUSDT")
     await check("clearing a bias falls back to the derived one", async () => {
       assert.match(await cellText("ETHUSDT", "bias"), /buy/i, "should fall back to side=long")
       assert.equal(await isOverridden("ETHUSDT", "bias"), false)
-    })
-    await clearField("BTCUSDT", "sl")
-    await check("clearing one field leaves the others on the row", async () => {
-      const row = await storedRow("ov-1")
-      assert.equal(row.sl, null)
-      assert.equal(Number(row.tp), 72500)
-      assert.equal(row.bias, "sell")
+      assert.equal(await storedRow("ov-2"), undefined, "the emptied row should be gone")
     })
 
     console.log("\nvalidation")
     await check("a negative price is refused before it reaches the DB", async () => {
       const res = await post("/api/trades/overrides", {
-        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", tp: -5,
+        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", tp1: -5,
       })
-      assert.match(res.error ?? "", /non-negative/)
-      assert.equal(Number((await storedRow("ov-1")).tp), 72500, "the stored value changed")
+      assert.match(res.error ?? "", /at least 0/)
+      assert.equal(Number((await storedRow("ov-1")).tp1), 120, "the stored value changed")
+    })
+    await check("a risk % above 100 is refused", async () => {
+      const res = await post("/api/trades/overrides", {
+        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", riskPct: 150,
+      })
+      assert.match(res.error ?? "", /between 0 and 100/)
+    })
+    await check("a value outside a choice list is refused", async () => {
+      for (const [field, bad] of [["emotion", "furious"], ["strategy", "scalping"], ["killzone", "tokyo"]]) {
+        const res = await post("/api/trades/overrides", {
+          telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", [field]: bad,
+        })
+        assert.match(res.error ?? "", new RegExp(`${field} must be one of`), `${field} accepted ${bad}`)
+      }
     })
     await check("a bias outside buy/sell is refused", async () => {
       const res = await post("/api/trades/overrides", {
@@ -336,11 +410,12 @@ async function main() {
       })
       const row = await storedRow("ov-1")
       assert.equal(Number(row.sl), 60000)
-      assert.equal(Number(row.tp), 72500, "tp was clobbered by an sl-only patch")
+      assert.equal(Number(row.tp1), 120, "tp1 was clobbered by an sl-only patch")
+      assert.equal(row.strategy, "orderflow", "strategy was clobbered by an sl-only patch")
       assert.equal(row.bias, "sell", "bias was clobbered by an sl-only patch")
-      // Put the row back the way the UI left it for the checks below.
+      // Put the row back the way the form left it for the checks below.
       await post("/api/trades/overrides", {
-        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", sl: null,
+        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", sl: 90,
       })
     })
 
@@ -453,17 +528,31 @@ async function main() {
     await fresh.waitForSelector('[data-testid="bias-cell"]')
     await fresh.screenshot({ path: `${SHOTS}/o4-fresh-load.png`, fullPage: true })
 
-    await check("overrides survive a fresh load of the app", async () => {
-      assert.match(await cellText("BTCUSDT", "tp", fresh), /72,500/)
-      assert.equal(await isOverridden("BTCUSDT", "tp", fresh), true)
-      assert.match(await cellText("BTCUSDT", "bias", fresh), /sell/i)
-      // The one we cleared must come back cleared.
-      assert.equal((await cellText("BTCUSDT", "sl", fresh)).trim(), "—")
-      assert.equal(await isOverridden("BTCUSDT", "sl", fresh), false)
+    await check("the journal survives a fresh load of the app", async () => {
+      assert.equal(await journalIcon("BTCUSDT", fresh).getAttribute("data-filled"), "true")
+      await openJournal("BTCUSDT", fresh)
+      assert.equal(await journalValue("strategy", fresh), "orderflow")
+      assert.equal(await journalValue("timeframe", fresh), "15m")
+      assert.equal(await journalValue("killzone", fresh), "london")
+      assert.equal(await journalValue("entry", fresh), "100")
+      assert.equal(await journalValue("tp1", fresh), "120")
+      assert.equal(await journalValue("tp2", fresh), "140")
+      assert.equal(await journalValue("sl", fresh), "90")
+      assert.equal(await journalValue("riskPct", fresh), "1.5")
+      assert.equal(await journalValue("rulesOK", fresh), "yes")
+      assert.equal(await journalValue("exitReason", fresh), "tp1")
+      assert.equal(await journalValue("emotion", fresh), "fear")
+      // The hand-typed R:R came back as the user's, not recomputed away.
+      assert.equal(await journalValue("rr", fresh), "3")
+      await fresh.locator('button[aria-label="Close journal"]').click()
+      await fresh.waitForSelector('[data-testid="journal-form"]', { state: "detached" })
     })
-    await check("a cleared override still reads from the exchange after a reload", async () => {
-      assert.match(await cellText("SOLUSDT", "tp", fresh), /200/)
+    await check("a cleared journal stays cleared after a reload", async () => {
+      assert.equal(await journalIcon("SOLUSDT", fresh).getAttribute("data-filled"), "false")
+    })
+    await check("a cleared bias still reads from the exchange after a reload", async () => {
       assert.match(await cellText("ETHUSDT", "bias", fresh), /buy/i)
+      assert.match(await cellText("BTCUSDT", "bias", fresh), /sell/i)
     })
     await fresh.close()
 
@@ -487,11 +576,36 @@ async function main() {
       assert.ok(header.includes("bias"), records[0])
       assert.equal(header.indexOf("bias"), header.indexOf("side") + 1)
     })
-    await check("the csv exports the overridden numbers, not the exchange's", async () => {
+    await check("the csv carries every journal column", async () => {
+      for (const c of ["strategy","timeframe","killzone","entry","tp1","tp2","sl",
+                       "riskPct","rr","rulesOK","exitReason","mistake","emotion"]) {
+        assert.ok(header.includes(c), `${c} missing from: ${records[0]}`)
+      }
+    })
+    await check("the csv exports the journal entry the form saved", async () => {
       const btc = rowFields("BTCUSDT")
-      assert.equal(btc[header.indexOf("tp")], "72500")
-      assert.equal(btc[header.indexOf("sl")], "")
+      assert.equal(btc[header.indexOf("strategy")], "orderflow")
+      assert.equal(btc[header.indexOf("timeframe")], "15m")
+      assert.equal(btc[header.indexOf("killzone")], "london")
+      assert.equal(btc[header.indexOf("entry")], "100")
+      assert.equal(btc[header.indexOf("tp1")], "120")
+      assert.equal(btc[header.indexOf("tp2")], "140")
+      assert.equal(btc[header.indexOf("sl")], "90")
+      assert.equal(btc[header.indexOf("riskPct")], "1.5")
+      assert.equal(btc[header.indexOf("rr")], "3", "the hand-typed R:R should export")
+      assert.equal(btc[header.indexOf("rulesOK")], "yes")
+      assert.equal(btc[header.indexOf("mistake")], "none")
+      assert.equal(btc[header.indexOf("emotion")], "fear")
       assert.equal(btc[header.indexOf("bias")], "sell")
+    })
+    await check("a trade with no journal exports blank cells, not 'undefined'", async () => {
+      const sol = rowFields("SOLUSDT")
+      for (const c of ["strategy","entry","tp2","riskPct","rr","rulesOK","mistake","emotion"]) {
+        assert.equal(sol[header.indexOf(c)], "", `${c} should be blank`)
+      }
+      // tp1 is not blank here: ov-3 carries an exchange-reported tp of 200, and
+      // the exchange's single take-profit falls back into TP1.
+      assert.equal(sol[header.indexOf("tp1")], "200")
     })
     await check("a derived bias is exported, with side left as the exchange sent it", async () => {
       const eth = rowFields("ETHUSDT")
@@ -499,8 +613,8 @@ async function main() {
       assert.equal(eth[header.indexOf("side")], "long")
     })
     await check("the app is still usable after exporting", async () => {
-      await setPrice("ETHUSDT", "sl", 1500)
-      assert.match(await cellText("ETHUSDT", "sl"), /1,500/)
+      await setBias("SOLUSDT", "buy")
+      assert.match(await cellText("SOLUSDT", "bias"), /buy/i)
     })
 
     console.log("\nisolation")
@@ -515,7 +629,8 @@ async function main() {
       const res = await fetch(`${BASE}/api/share/${token}`)
       const payload = JSON.stringify(await res.json())
       assert.ok(payload.includes("BTCUSDT"), "share payload should still carry trades")
-      assert.equal(payload.includes("72500"), false, "share payload leaked an override")
+      assert.equal(payload.includes("orderflow"), false, "share payload leaked a journal entry")
+      assert.equal(payload.includes("london"), false, "share payload leaked a journal entry")
     })
 
     console.log("\nhygiene")

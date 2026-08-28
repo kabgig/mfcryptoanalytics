@@ -23,8 +23,19 @@ export const EXPORT_COLUMNS = [
   "market",
   "positionSize",
   "pnl",
-  "tp",
+  "strategy",
+  "timeframe",
+  "killzone",
+  "entry",
+  "tp1",
+  "tp2",
   "sl",
+  "riskPct",
+  "rr",
+  "rulesOK",
+  "exitReason",
+  "mistake",
+  "emotion",
   "noteBefore",
   "noteDuring",
   "noteAfter",
@@ -46,10 +57,13 @@ function cell(value: string | number | null | undefined): string {
  * Numbers are written raw (no currency symbols or thousands separators) so a
  * spreadsheet — or an LLM — reads them as numbers rather than strings.
  *
- * `tp` and `sl` carry the user's manual value when there is one, and `bias` the
- * manual bias or the one derived from `side` — the same resolution the table
- * renders, so an export matches the screen it came from. `side` itself stays the
- * exchange's own answer.
+ * The journal columns carry what the user recorded by hand; `bias` is theirs or
+ * the one derived from `side`, and `rr` theirs or the one computed from
+ * entry/TP1/SL — the same resolution the app renders, so an export matches the
+ * screen it came from. `side` itself stays the exchange's own answer.
+ *
+ * This is the surface built for pasting into an LLM to hunt for patterns, which
+ * is exactly what the journal fields are for, so all of them ship.
  */
 export function buildTradesCsv(
   trades: Trade[],
@@ -72,8 +86,19 @@ export function buildTradesCsv(
       cell(t.market),
       cell(t.positionSize),
       cell(t.pnl),
-      cell(t.tp),
+      cell(t.journal.strategy),
+      cell(t.journal.timeframe),
+      cell(t.journal.killzone),
+      cell(t.journal.entry),
+      cell(t.tp1),
+      cell(t.tp2),
       cell(t.sl),
+      cell(t.journal.riskPct),
+      cell(t.rr),
+      cell(t.journal.rulesOK === undefined ? undefined : t.journal.rulesOK ? "yes" : "no"),
+      cell(t.journal.exitReason),
+      cell(t.journal.mistake),
+      cell(t.journal.emotion),
       cell(n.before),
       cell(n.during),
       cell(n.after),

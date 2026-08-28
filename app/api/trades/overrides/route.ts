@@ -1,10 +1,12 @@
 import { getOverrides, saveOverride } from "@/lib/db/tradeOverrides"
 import {
   isBias,
-  isStorablePrice,
-  PRICE_FIELDS,
+  isStorableNumber,
+  NUMBER_FIELDS,
+  NUMBER_LIMITS,
   type OverridePatch,
 } from "@/lib/services/overridesService"
+import { CHOICE_FIELDS, CHOICES, isChoice } from "@/lib/services/journalFields"
 
 export const dynamic = "force-dynamic"
 
@@ -16,12 +18,12 @@ export const dynamic = "force-dynamic"
  * one user reaching another's overrides by trade id alone, it is not
  * authentication.
  *
- * GET  ?telegramId=…                            → { overrides: { "EXCH|id": { tp?, sl?, bias? } } }
- * POST { telegramId, exchange, id, tp?, sl?, bias? }
- *                                               → { ok: true, override: {…} | null }
+ * GET  ?telegramId=…    → { overrides: { "EXCH|id": { tp1?, sl?, bias?, … } } }
+ * POST { telegramId, exchange, id, …any journal field }
+ *                       → { ok: true, override: {…} | null }
  *   Patch semantics: a field left out is untouched, a field sent as null is
- *   cleared (the exchange value takes over again). Clearing the last one
- *   deletes the row and comes back as override: null.
+ *   cleared (the exchange value, or the computed R:R, takes over again).
+ *   Clearing the last one deletes the row and comes back as override: null.
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -45,9 +47,7 @@ export async function POST(request: Request) {
       telegramId?: string
       exchange?: string
       id?: string
-      tp?: unknown
-      sl?: unknown
-      bias?: unknown
+      [field: string]: unknown
     }
 
     const { telegramId, exchange, id } = body
@@ -62,28 +62,53 @@ export async function POST(request: Request) {
     // Only keys actually present become part of the patch, so an absent field
     // and a null one mean different things: leave alone vs. clear.
     const patch: OverridePatch = {}
+    const raw = body as Record<string, unknown>
 
-    for (const field of PRICE_FIELDS) {
-      if (!(field in body)) continue
-      const value = body[field]
+    for (const field of NUMBER_FIELDS) {
+      if (!(field in raw)) continue
+      const value = raw[field]
       if (value === null || value === "") {
         patch[field] = null
         continue
       }
       const num = typeof value === "string" ? Number(value) : value
-      if (!isStorablePrice(num)) {
+      if (!isStorableNumber(field, num)) {
+        const { min, max } = NUMBER_LIMITS[field]
+        const range = max === Infinity ? `at least ${min}` : `between ${min} and ${max}`
         return Response.json(
-          { error: `${field} must be a non-negative number or null` },
+          { error: `${field} must be a number ${range}, or null` },
           { status: 400 }
         )
       }
       patch[field] = num
     }
 
-    if ("bias" in body) {
-      if (body.bias === null || body.bias === "") patch.bias = null
-      else if (isBias(body.bias)) patch.bias = body.bias
+    for (const field of CHOICE_FIELDS) {
+      if (!(field in raw)) continue
+      const value = raw[field]
+      if (value === null || value === "") {
+        patch[field] = null
+        continue
+      }
+      if (!isChoice(field, value)) {
+        return Response.json(
+          { error: `${field} must be one of: ${CHOICES[field].join(", ")}` },
+          { status: 400 }
+        )
+      }
+      patch[field] = value as string
+    }
+
+    if ("bias" in raw) {
+      if (raw.bias === null || raw.bias === "") patch.bias = null
+      else if (isBias(raw.bias)) patch.bias = raw.bias
       else return Response.json({ error: "bias must be buy, sell or null" }, { status: 400 })
+    }
+
+    if ("rulesOK" in raw) {
+      if (raw.rulesOK === null || raw.rulesOK === "") patch.rulesOK = null
+      else if (typeof raw.rulesOK === "boolean") patch.rulesOK = raw.rulesOK
+      else return Response.json({ error: "rulesOK must be true, false or null" }, { status: 400 })
     }
 
     if (Object.keys(patch).length === 0) {

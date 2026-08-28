@@ -1,6 +1,13 @@
 import { getSql } from "@/lib/db"
 import { tradeKey } from "@/lib/db/trades"
-import { isBias, mergeOverride, type OverridePatch } from "@/lib/services/overridesService"
+import {
+  isBias,
+  isStorableNumber,
+  mergeOverride,
+  NUMBER_FIELDS,
+  type OverridePatch,
+} from "@/lib/services/overridesService"
+import { CHOICE_FIELDS, isChoice } from "@/lib/services/journalFields"
 import type { TradeOverride, TradeOverridesMap } from "@/types"
 
 /**
@@ -9,37 +16,68 @@ import type { TradeOverride, TradeOverridesMap } from "@/types"
  * can share them; this file only reads and writes rows.
  */
 
-type OverrideRow = {
+/** The snake_case column names, paired with the camelCase field they carry. */
+const NUMBER_COLUMNS = {
+  entry: "entry",
+  tp1: "tp1",
+  tp2: "tp2",
+  sl: "sl",
+  riskPct: "risk_pct",
+  rr: "rr",
+} as const
+
+const CHOICE_COLUMNS = {
+  strategy: "strategy",
+  timeframe: "timeframe",
+  killzone: "killzone",
+  exitReason: "exit_reason",
+  mistake: "mistake",
+  emotion: "emotion",
+} as const
+
+export type OverrideRow = {
   exchange: string
   trade_id: string
-  tp: string | number | null
-  sl: string | number | null
   bias: string | null
-}
-
-/** NUMERIC comes back from the driver as a string — never hand it to the UI raw. */
-function toPrice(value: string | number | null): number | undefined {
-  if (value === null) return undefined
-  const n = Number(value)
-  return Number.isFinite(n) ? n : undefined
-}
+  rules_ok: boolean | null
+} & Record<
+  (typeof NUMBER_COLUMNS)[keyof typeof NUMBER_COLUMNS],
+  string | number | null
+> &
+  Record<(typeof CHOICE_COLUMNS)[keyof typeof CHOICE_COLUMNS], string | null>
 
 /**
  * Folds flat override rows into the map the UI indexes by `exchange|id`.
+ *
+ * Every value is re-validated on the way out, not just parsed: NUMERIC comes
+ * back from the driver as a string, and `mistake`/`emotion` carry no CHECK
+ * constraint, so a value written outside the app must not reach the UI as if it
+ * were a real option.
+ *
  * Pure — exported for testing.
  */
 export function rowsToOverridesMap(rows: OverrideRow[]): TradeOverridesMap {
   const map: TradeOverridesMap = {}
   for (const r of rows) {
     const override: TradeOverride = {}
-    const tp = toPrice(r.tp)
-    const sl = toPrice(r.sl)
-    if (tp !== undefined) override.tp = tp
-    if (sl !== undefined) override.sl = sl
+
+    for (const field of NUMBER_FIELDS) {
+      const raw = r[NUMBER_COLUMNS[field]]
+      if (raw === null || raw === undefined) continue
+      const n = Number(raw)
+      if (isStorableNumber(field, n)) override[field] = n
+    }
+
+    for (const field of CHOICE_FIELDS) {
+      const raw = r[CHOICE_COLUMNS[field]]
+      if (isChoice(field, raw)) override[field] = raw as string
+    }
+
     if (isBias(r.bias)) override.bias = r.bias
-    // A row that survived the table's CHECK but carries nothing usable (e.g. a
-    // bias written by hand outside the app) is dropped rather than surfaced as
-    // an empty override.
+    if (typeof r.rules_ok === "boolean") override.rulesOK = r.rules_ok
+
+    // A row that survived the table's CHECK but carries nothing usable is
+    // dropped rather than surfaced as an empty journal entry.
     if (Object.keys(override).length > 0) map[tradeKey(r.exchange, r.trade_id)] = override
   }
   return map
@@ -54,7 +92,8 @@ export function rowsToOverridesMap(rows: OverrideRow[]): TradeOverridesMap {
 export async function getOverrides(telegramId: string): Promise<TradeOverridesMap> {
   const sql = getSql()
   const rows = (await sql`
-    SELECT exchange, trade_id, tp, sl, bias
+    SELECT exchange, trade_id, bias, entry, tp1, tp2, sl, risk_pct, rr, rules_ok,
+           strategy, timeframe, killzone, exit_reason, mistake, emotion
     FROM trade_overrides
     WHERE telegram_id = ${BigInt(telegramId)}
   `) as OverrideRow[]
@@ -69,7 +108,8 @@ async function getOverride(
 ): Promise<TradeOverride> {
   const sql = getSql()
   const rows = (await sql`
-    SELECT exchange, trade_id, tp, sl, bias
+    SELECT exchange, trade_id, bias, entry, tp1, tp2, sl, risk_pct, rr, rules_ok,
+           strategy, timeframe, killzone, exit_reason, mistake, emotion
     FROM trade_overrides
     WHERE telegram_id = ${BigInt(telegramId)}
       AND exchange    = ${exchange}
@@ -116,15 +156,38 @@ export async function saveOverride(
     ON CONFLICT (telegram_id) DO NOTHING
   `
 
+  // The whole row is written every time — `next` is the merged result, so a
+  // field the patch did not mention is re-written with the value it already had.
   await sql`
-    INSERT INTO trade_overrides (telegram_id, exchange, trade_id, tp, sl, bias)
-    VALUES (${tid}, ${exchange}, ${tradeId},
-            ${next.tp ?? null}, ${next.sl ?? null}, ${next.bias ?? null})
+    INSERT INTO trade_overrides (
+      telegram_id, exchange, trade_id,
+      bias, entry, tp1, tp2, sl, risk_pct, rr, rules_ok,
+      strategy, timeframe, killzone, exit_reason, mistake, emotion
+    )
+    VALUES (
+      ${tid}, ${exchange}, ${tradeId},
+      ${next.bias ?? null}, ${next.entry ?? null}, ${next.tp1 ?? null},
+      ${next.tp2 ?? null}, ${next.sl ?? null}, ${next.riskPct ?? null},
+      ${next.rr ?? null}, ${next.rulesOK ?? null},
+      ${next.strategy ?? null}, ${next.timeframe ?? null}, ${next.killzone ?? null},
+      ${next.exitReason ?? null}, ${next.mistake ?? null}, ${next.emotion ?? null}
+    )
     ON CONFLICT (telegram_id, exchange, trade_id) DO UPDATE SET
-      tp         = EXCLUDED.tp,
-      sl         = EXCLUDED.sl,
-      bias       = EXCLUDED.bias,
-      updated_at = NOW()
+      bias        = EXCLUDED.bias,
+      entry       = EXCLUDED.entry,
+      tp1         = EXCLUDED.tp1,
+      tp2         = EXCLUDED.tp2,
+      sl          = EXCLUDED.sl,
+      risk_pct    = EXCLUDED.risk_pct,
+      rr          = EXCLUDED.rr,
+      rules_ok    = EXCLUDED.rules_ok,
+      strategy    = EXCLUDED.strategy,
+      timeframe   = EXCLUDED.timeframe,
+      killzone    = EXCLUDED.killzone,
+      exit_reason = EXCLUDED.exit_reason,
+      mistake     = EXCLUDED.mistake,
+      emotion     = EXCLUDED.emotion,
+      updated_at  = NOW()
   `
 
   return next

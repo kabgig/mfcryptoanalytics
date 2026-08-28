@@ -73,7 +73,7 @@ test("a manual bias overrides the exchange's own side", () => {
 test("a tp/sl-only override does not bucket a trade", () => {
   // Filling in a stop loss says nothing about direction.
   const result = computeLvsS([trade({ id: "1", exchange: "OKX" })], {
-    "OKX|1": { tp: 70000, sl: 65000 },
+    "OKX|1": { tp1: 70000, sl: 65000 },
   })
   assert.equal(result.unknownCount, 1)
   assert.equal(result.manualCount, 0)

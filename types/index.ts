@@ -32,15 +32,47 @@ export type TradeNotesMap = Record<string, TradeNotes>
  */
 export type TradeBias = "buy" | "sell"
 
+/** The journal fields that take one value from a controlled list. */
+export type TradeJournalChoice =
+  | "strategy"
+  | "timeframe"
+  | "killzone"
+  | "exitReason"
+  | "mistake"
+  | "emotion"
+
 /**
- * A user's manual corrections to one trade. A field is absent when it was never
- * overridden, in which case the exchange's own value (or, for bias, the value
- * derived from `side`) stands.
+ * Everything the user records about one trade by hand: the corrections to what
+ * the exchange reported (tp1/sl/bias) and the journal proper — the plan made
+ * before the entry and the review written after the exit.
+ *
+ * A field is absent when it was never set, in which case the exchange's own
+ * value stands (for bias, the value derived from `side`; for rr, the figure
+ * computed from entry/tp1/sl).
+ *
+ * The accepted values for the choice fields live in
+ * lib/services/journalFields.ts, deliberately not in this type: `mistake` and
+ * `emotion` are open vocabularies that grow without a migration.
  */
 export interface TradeOverride {
-  tp?: number
+  // — corrections to the exchange's own numbers —
+  tp1?: number
   sl?: number
   bias?: TradeBias
+  // — the plan, before the entry —
+  strategy?: string
+  timeframe?: string
+  killzone?: string
+  entry?: number
+  tp2?: number
+  riskPct?: number
+  /** Set only when the user overrides the R:R computed from entry/tp1/sl. */
+  rr?: number
+  // — the review, after the exit —
+  rulesOK?: boolean
+  exitReason?: string
+  mistake?: string
+  emotion?: string
 }
 
 /**

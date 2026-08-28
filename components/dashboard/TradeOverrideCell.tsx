@@ -4,26 +4,17 @@ import { useState } from "react"
 import { Popover } from "@base-ui/react/popover"
 import { Loader2, Pencil } from "lucide-react"
 import type { TradeBias } from "@/types"
-import type { OverridePatch, PriceField, ResolvedTrade } from "@/lib/services/overridesService"
+import type { OverridePatch, ResolvedTrade } from "@/lib/services/overridesService"
 
 /**
- * The editable TP / SL / Bias cells.
+ * The editable Bias cell.
  *
- * No exchange adapter reports a take-profit or stop-loss (they all hardcode
- * null), so in practice these cells are how those numbers get filled in at all.
- * A saved value always wins over whatever the exchange sent, and clearing it
- * hands the cell back to the exchange value.
+ * TP / SL used to live here too; they moved into the journal form (📋) when they
+ * grew into entry / TP1 / TP2 / SL, so this file is now just the one cell that
+ * is still worth editing inline.
  */
 
 export type SaveOverride = (trade: ResolvedTrade, patch: OverridePatch) => Promise<void>
-
-const FIELD_LABEL: Record<PriceField, string> = { tp: "Take profit", sl: "Stop loss" }
-
-export function formatPrice(value: number | null) {
-  if (value === null) return "—"
-  // Up to 8 decimals so sub-cent tickers survive; trailing zeros trimmed.
-  return `$${value.toLocaleString("en-US", { maximumFractionDigits: 8 })}`
-}
 
 /** Shared chrome: a cell that turns into a popover editor when clicked. */
 function EditableCell({
@@ -137,125 +128,6 @@ function EditorActions({
         )}
       </div>
     </div>
-  )
-}
-
-function PriceEditor({
-  trade,
-  field,
-  onSave,
-  onDone,
-}: {
-  trade: ResolvedTrade
-  field: PriceField
-  onSave: SaveOverride
-  onDone: () => void
-}) {
-  const stored = trade.overridden[field] ? trade[field] : null
-  // Seeded once — the popup unmounts on close, so every open starts from what
-  // is currently stored rather than from stale state.
-  const [text, setText] = useState(stored === null ? "" : String(stored))
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function submit(value: number | null) {
-    if (saving) return
-    setSaving(true)
-    setError(null)
-    try {
-      await onSave(trade, { [field]: value } as OverridePatch)
-      onDone()
-    } catch (err) {
-      setError(String(err))
-      setSaving(false)
-    }
-  }
-
-  function save() {
-    const trimmed = text.trim()
-    if (trimmed === "") return void submit(null)
-    const num = Number(trimmed)
-    if (!Number.isFinite(num) || num < 0) {
-      setError("Enter a non-negative number")
-      return
-    }
-    void submit(num)
-  }
-
-  return (
-    <div className="flex w-60 flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs font-semibold">
-          {FIELD_LABEL[field]} · <span className="font-mono">{trade.ticker}</span>
-        </span>
-      </div>
-      <p className="text-[11px] leading-tight text-muted-foreground">
-        {trade.overridden[field]
-          ? "Your value. Clear it to fall back to the exchange."
-          : "Not reported by the exchange — set it yourself."}
-      </p>
-      <input
-        autoFocus
-        type="number"
-        inputMode="decimal"
-        step="any"
-        min="0"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault()
-            save()
-          }
-        }}
-        data-testid="override-input"
-        placeholder="e.g. 70000"
-        className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
-      />
-      {error && <p className="text-[11px] text-destructive">{error}</p>}
-      <EditorActions
-        onClear={() => void submit(null)}
-        onSave={save}
-        onCancel={onDone}
-        saving={saving}
-        canClear={trade.overridden[field]}
-        hint="↵ to save"
-      />
-    </div>
-  )
-}
-
-export function PriceOverrideCell({
-  trade,
-  field,
-  onSave,
-  disabled,
-}: {
-  trade: ResolvedTrade
-  field: PriceField
-  onSave?: SaveOverride
-  disabled?: boolean
-}) {
-  const value = trade[field]
-  return (
-    <EditableCell
-      label={FIELD_LABEL[field]}
-      testid={`${field}-cell`}
-      overridden={trade.overridden[field]}
-      disabled={disabled}
-      editable={Boolean(onSave)}
-      display={
-        value === null ? (
-          <span className="text-muted-foreground">—</span>
-        ) : (
-          <span>{formatPrice(value)}</span>
-        )
-      }
-    >
-      {(close) => (
-        <PriceEditor trade={trade} field={field} onSave={onSave!} onDone={close} />
-      )}
-    </EditableCell>
   )
 }
 
