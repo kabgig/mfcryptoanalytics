@@ -59,8 +59,22 @@ test("the choice vocabularies hold exactly the agreed options", () => {
   assert.deepEqual(TIMEFRAMES, ["5m", "15m", "1h"])
   assert.deepEqual(KILLZONES, ["asia", "london", "nyam", "nypm", "outside"])
   assert.deepEqual(EXIT_REASONS, ["tp1", "tp2", "sl", "be", "manual"])
-  assert.equal(MISTAKES.length, 12)
+  assert.equal(MISTAKES.length, 13)
   assert.equal(MISTAKES[0], "none", "a clean trade needs its own tag")
+})
+
+test("both break-even failures are taggable and read as a pair", () => {
+  // Never moving the stop to break-even and moving it back off break-even are
+  // different errors, so one tag cannot stand in for the other.
+  assert.ok(isChoice("mistake", "no_move_to_be"))
+  assert.ok(isChoice("mistake", "moved_sl_away_from_be"))
+  assert.equal(choiceLabel("no_move_to_be"), "Did not move to break-even")
+  assert.equal(choiceLabel("moved_sl_away_from_be"), "Moved SL away from break-even")
+  // They sit next to each other so the dropdown reads as one pair.
+  assert.equal(
+    MISTAKES.indexOf("moved_sl_away_from_be"),
+    MISTAKES.indexOf("no_move_to_be") + 1
+  )
 })
 
 test("the emotion list carries greed alongside thrill", () => {

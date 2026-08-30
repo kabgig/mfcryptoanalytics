@@ -332,6 +332,27 @@ async function main() {
       assert.equal(rows[0].strategy, "orderflow", "an untouched field was clobbered")
     })
 
+    console.log("\nthe two break-even mistakes")
+    await fillJournal("SOLUSDT", { mistake: "moved_sl_away_from_be" })
+    await check("moving the stop off break-even is its own tag", async () => {
+      assert.equal((await storedRow("ov-3")).mistake, "moved_sl_away_from_be")
+    })
+    await check("the dropdown offers it under a readable label", async () => {
+      await journalIcon("SOLUSDT").click()
+      await page.waitForSelector('[data-testid="journal-form"]')
+      const labels = await page
+        .locator('[data-testid="journal-mistake"] option')
+        .allTextContents()
+      assert.ok(
+        labels.includes("Moved SL away from break-even"),
+        `label missing from the dropdown: ${labels.join(" | ")}`
+      )
+      // The opposite failure must still be offered separately.
+      assert.ok(labels.includes("Did not move to break-even"), labels.join(" | "))
+      await page.locator('button[aria-label="Close journal"]').click()
+      await page.waitForSelector('[data-testid="journal-form"]', { state: "detached" })
+    })
+
     console.log("\nclearing")
     await fillJournal("SOLUSDT", { mistake: "none" })
     await check("mistake 'none' is stored, not treated as empty", async () => {
