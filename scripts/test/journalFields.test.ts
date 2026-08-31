@@ -59,8 +59,32 @@ test("the choice vocabularies hold exactly the agreed options", () => {
   assert.deepEqual(TIMEFRAMES, ["5m", "15m", "1h"])
   assert.deepEqual(KILLZONES, ["asia", "london", "nyam", "nypm", "outside"])
   assert.deepEqual(EXIT_REASONS, ["tp1", "tp2", "sl", "be", "manual"])
-  assert.equal(MISTAKES.length, 14)
+  assert.equal(MISTAKES.length, 16)
   assert.equal(MISTAKES[0], "none", "a clean trade needs its own tag")
+})
+
+test("the 'should not have been trading' mistakes group together", () => {
+  // Neither is about the trade itself — both say the user was in no state to be
+  // taking one, so they sit next to each other rather than among the entry tags.
+  assert.ok(isChoice("mistake", "over_2_losses_today"))
+  assert.ok(isChoice("mistake", "decided_while_tired"))
+  assert.equal(choiceLabel("decided_while_tired"), "Took a decision while tired")
+  assert.equal(
+    MISTAKES.indexOf("decided_while_tired"),
+    MISTAKES.indexOf("over_2_losses_today") + 1
+  )
+})
+
+test("the two 'did not wait' mistakes read in the order they happen", () => {
+  // Rushing in before the setup even forms comes first; failing to wait for
+  // displacement to confirm it comes second. Separate errors, sequenced.
+  assert.ok(isChoice("mistake", "rushed_no_setup"))
+  assert.ok(isChoice("mistake", "no_displacement"))
+  assert.equal(choiceLabel("rushed_no_setup"), "Rushed, did not wait for the setup")
+  assert.equal(
+    MISTAKES.indexOf("no_displacement"),
+    MISTAKES.indexOf("rushed_no_setup") + 1
+  )
 })
 
 test("the entry-context mistakes sit together and are taggable", () => {
