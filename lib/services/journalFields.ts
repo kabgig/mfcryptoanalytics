@@ -32,6 +32,7 @@ export const MISTAKES = [
   "chased_price",
   "over_2_losses_today",
   "entry_outside_killzone",
+  "entered_against_liquidity",
   "rr_below_1_8",
   "traded_the_news",
 ] as const
@@ -95,6 +96,7 @@ const LABELS: Record<string, string> = {
   chased_price: "Chased price",
   over_2_losses_today: "More than 2 losses that day",
   entry_outside_killzone: "Entered outside the killzone",
+  entered_against_liquidity: "Entered against thick liquidity on the other side",
   rr_below_1_8: "R:R below 1.8",
   traded_the_news: "Traded the news",
 }

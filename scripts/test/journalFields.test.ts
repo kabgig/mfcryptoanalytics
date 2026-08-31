@@ -59,8 +59,23 @@ test("the choice vocabularies hold exactly the agreed options", () => {
   assert.deepEqual(TIMEFRAMES, ["5m", "15m", "1h"])
   assert.deepEqual(KILLZONES, ["asia", "london", "nyam", "nypm", "outside"])
   assert.deepEqual(EXIT_REASONS, ["tp1", "tp2", "sl", "be", "manual"])
-  assert.equal(MISTAKES.length, 13)
+  assert.equal(MISTAKES.length, 14)
   assert.equal(MISTAKES[0], "none", "a clean trade needs its own tag")
+})
+
+test("the entry-context mistakes sit together and are taggable", () => {
+  // Both describe something wrong about *where* the entry was taken, so they
+  // read as a group in the dropdown rather than being scattered through it.
+  assert.ok(isChoice("mistake", "entry_outside_killzone"))
+  assert.ok(isChoice("mistake", "entered_against_liquidity"))
+  assert.equal(
+    choiceLabel("entered_against_liquidity"),
+    "Entered against thick liquidity on the other side"
+  )
+  assert.equal(
+    MISTAKES.indexOf("entered_against_liquidity"),
+    MISTAKES.indexOf("entry_outside_killzone") + 1
+  )
 })
 
 test("both break-even failures are taggable and read as a pair", () => {
