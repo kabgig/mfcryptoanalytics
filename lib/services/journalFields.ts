@@ -1,13 +1,24 @@
-import type { TradeJournalChoice } from "@/types"
+import type {
+  TradeJournalChoice,
+  TradeJournalMultiChoice,
+  TradeJournalSingleChoice,
+} from "@/types"
 
 /**
  * The controlled vocabularies behind the trade journal form.
  *
- * One module so the dropdowns, the API validator and the CSV export can never
+ * One module so the inputs, the API validator and the CSV export can never
  * disagree about what a tag means. Adding a value here is all it takes for the
- * three of them to accept it — only `strategy`, `timeframe`, `killzone` and
- * `exitReason` are additionally pinned by a CHECK constraint in the database,
- * so extending *those* four needs a migration as well.
+ * three of them to accept it — only `strategy`, `timeframe` and `killzone` are
+ * additionally pinned by a CHECK constraint in the database, so extending
+ * *those* three needs a migration as well.
+ *
+ * Two kinds of field live here. `strategy`, `timeframe` and `killzone` take one
+ * answer: a trade has a single setup, on a single timeframe, in a single
+ * session. `exitReason`, `mistake` and `emotion` take several — a position can
+ * scale out at TP1 and get stopped out of the runner, and a trade that went
+ * wrong rarely went wrong in exactly one way. Holding those three to one answer
+ * was making the user pick a headline and lose the rest of the review.
  */
 
 export const STRATEGIES = ["orderflow", "pa", "macro"] as const
@@ -16,12 +27,14 @@ export const KILLZONES = ["asia", "london", "nyam", "nypm", "outside"] as const
 export const EXIT_REASONS = ["tp1", "tp2", "sl", "be", "manual"] as const
 
 /**
- * `none` is a stored value, not an empty one: "I reviewed this and there was no
- * mistake" has to stay distinguishable from "I have not reviewed it yet". A
- * clean trade is the goal, so it gets its own tag rather than a blank.
+ * No `none` tag any more: with several mistakes selectable at once, an empty
+ * list already reads as "nothing went wrong", and a "No mistake" checkbox
+ * sitting alongside fifteen real ones only invites contradicting itself. The
+ * distinction that tag used to carry — "reviewed, clean" against "not reviewed
+ * yet" — belongs to `rulesOK`, which stores `false` and unset as different
+ * things already.
  */
 export const MISTAKES = [
-  "none",
   "no_stop",
   "added_to_loser",
   "mixed_strategies",
@@ -69,9 +82,91 @@ export const CHOICES = {
 
 export const CHOICE_FIELDS = Object.keys(CHOICES) as TradeJournalChoice[]
 
+/** The choice fields that hold exactly one value. */
+export const SINGLE_CHOICE_FIELDS = [
+  "strategy",
+  "timeframe",
+  "killzone",
+] as const satisfies readonly TradeJournalSingleChoice[]
+
+/** The choice fields that hold a list — none, one, or several tags. */
+export const MULTI_CHOICE_FIELDS = [
+  "exitReason",
+  "mistake",
+  "emotion",
+] as const satisfies readonly TradeJournalMultiChoice[]
+
+export function isMultiChoiceField(field: TradeJournalChoice): field is TradeJournalMultiChoice {
+  return (MULTI_CHOICE_FIELDS as readonly string[]).includes(field)
+}
+
+/**
+ * What separates the tags of a multi-select field inside its single text column.
+ *
+ * A pipe rather than a comma because the CSV export is the surface these fields
+ * exist for: a comma would force the writer to quote the cell, and the export is
+ * meant to paste into a spreadsheet — or an LLM — without anything having to
+ * unpick quoting first. No slug in any vocabulary may contain it, which
+ * scripts/test/journalFields.test.ts holds to.
+ */
+export const CHOICE_DELIMITER = "|"
+
 /** Whether `value` is an accepted option for `field`. */
 export function isChoice(field: TradeJournalChoice, value: unknown): boolean {
   return typeof value === "string" && (CHOICES[field] as readonly string[]).includes(value)
+}
+
+/**
+ * Whether `value` is a usable selection for a multi-select field: a non-empty
+ * array of that field's own options, with nothing repeated.
+ *
+ * Strict, because it guards the API boundary — a request naming a tag that does
+ * not exist is a bug in the caller and comes back as a 400 rather than being
+ * quietly narrowed to the tags that did parse. Storage-side code uses
+ * `normalizeChoices` instead, which drops what it cannot use.
+ */
+export function isChoiceList(field: TradeJournalChoice, value: unknown): value is string[] {
+  if (!Array.isArray(value) || value.length === 0) return false
+  if (new Set(value).size !== value.length) return false
+  return value.every((v) => isChoice(field, v))
+}
+
+/**
+ * The storable form of a selection: known options only, de-duplicated, and put
+ * back into the order the vocabulary lists them.
+ *
+ * Canonical order rather than click order, so the same set of tags always
+ * serializes to the same string. That is what keeps a CSV diff meaningful and
+ * stops a re-save that changed nothing from looking like an edit.
+ *
+ * Returns an empty array when nothing survives, which every caller reads as
+ * "this field is unset" — the same signal an empty single-choice field gives.
+ */
+export function normalizeChoices(field: TradeJournalChoice, values: unknown): string[] {
+  if (!Array.isArray(values)) return []
+  const vocabulary = CHOICES[field] as readonly string[]
+  const kept = new Set(values.filter((v) => isChoice(field, v)) as string[])
+  return vocabulary.filter((option) => kept.has(option))
+}
+
+/** A selection as it is stored in its text column, or null when it is empty. */
+export function serializeChoices(values: readonly string[]): string | null {
+  return values.length === 0 ? null : values.join(CHOICE_DELIMITER)
+}
+
+/**
+ * A stored text column back into a selection. Tolerant by design: this reads
+ * what is already in the database, including a row written before the field went
+ * multi-select (a bare "tp1" is a one-tag list) and one written outside the app.
+ */
+export function parseChoices(field: TradeJournalChoice, raw: unknown): string[] {
+  if (typeof raw !== "string" || raw === "") return []
+  return normalizeChoices(field, raw.split(CHOICE_DELIMITER))
+}
+
+/** The tags of a selection, joined for a human to read. */
+export function choiceListLabel(values: readonly string[]): string {
+  return values.map(choiceLabel).join(", ")
 }
 
 /**
@@ -87,7 +182,6 @@ const LABELS: Record<string, string> = {
   tp1: "TP1",
   tp2: "TP2",
   sl: "SL",
-  none: "No mistake",
   no_stop: "No stop loss",
   added_to_loser: "Added to a loser",
   mixed_strategies: "Mixed strategies",

@@ -10,12 +10,22 @@ import {
   KILLZONES,
   MISTAKES,
   EMOTIONS,
+  MULTI_CHOICE_FIELDS,
+  normalizeChoices,
+  parseChoices,
+  serializeChoices,
+  SINGLE_CHOICE_FIELDS,
   STRATEGIES,
   TIMEFRAMES,
 } from "@/lib/services/journalFields"
 import type { OverridePatch, ResolvedTrade } from "@/lib/services/overridesService"
 import type { SaveOverride } from "@/components/dashboard/TradeOverrideCell"
-import type { TradeJournalChoice, TradeOverride } from "@/types"
+import type {
+  TradeJournalChoice,
+  TradeJournalMultiChoice,
+  TradeJournalSingleChoice,
+  TradeOverride,
+} from "@/types"
 
 /**
  * The full journal entry for one trade: the plan written before the entry and
@@ -31,18 +41,19 @@ const inputClass =
   "w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm shadow-sm " +
   "focus:outline-none focus:ring-2 focus:ring-ring"
 
-/** The form's own state: every field as the string an <input>/<select> holds. */
+/**
+ * The form's own state: every field as a string.
+ *
+ * The multi-select fields ride in the same flat string map as everything else,
+ * holding their tags '|'-joined — the same shape the column stores. Keeping one
+ * `Record<string, string>` means `set()`, the dirty-checking and the seeding all
+ * stay one code path rather than forking on which kind of field they touch.
+ */
 type Draft = Record<string, string>
 
 const NUMBER_KEYS = ["entry", "tp1", "tp2", "sl", "riskPct", "rr"] as const
-const CHOICE_KEYS: TradeJournalChoice[] = [
-  "strategy",
-  "timeframe",
-  "killzone",
-  "exitReason",
-  "mistake",
-  "emotion",
-]
+const SINGLE_CHOICE_KEYS: readonly TradeJournalSingleChoice[] = SINGLE_CHOICE_FIELDS
+const MULTI_CHOICE_KEYS: readonly TradeJournalMultiChoice[] = MULTI_CHOICE_FIELDS
 
 function toDraft(journal: TradeOverride): Draft {
   const draft: Draft = {}
@@ -50,7 +61,10 @@ function toDraft(journal: TradeOverride): Draft {
     const value = journal[key]
     draft[key] = value === undefined ? "" : String(value)
   }
-  for (const key of CHOICE_KEYS) draft[key] = journal[key] ?? ""
+  for (const key of SINGLE_CHOICE_KEYS) draft[key] = journal[key] ?? ""
+  for (const key of MULTI_CHOICE_KEYS) {
+    draft[key] = serializeChoices(journal[key] ?? []) ?? ""
+  }
   draft.rulesOK = journal.rulesOK === undefined ? "" : journal.rulesOK ? "yes" : "no"
   return draft
 }
@@ -62,7 +76,13 @@ function toPatch(draft: Draft): OverridePatch {
     const raw = draft[key].trim()
     patch[key] = raw === "" ? null : Number(raw)
   }
-  for (const key of CHOICE_KEYS) patch[key] = draft[key] === "" ? null : draft[key]
+  for (const key of SINGLE_CHOICE_KEYS) patch[key] = draft[key] === "" ? null : draft[key]
+  for (const key of MULTI_CHOICE_KEYS) {
+    // An empty selection is sent as null rather than [], so clearing the last
+    // field still deletes the row instead of writing an empty one.
+    const values = parseChoices(key, draft[key])
+    patch[key] = values.length === 0 ? null : values
+  }
   patch.rulesOK = draft.rulesOK === "" ? null : draft.rulesOK === "yes"
   return patch
 }
@@ -108,6 +128,75 @@ function Choice({
         <option key={option} value={option}>{choiceLabel(option)}</option>
       ))}
     </select>
+  )
+}
+
+/**
+ * A checkbox group for a field that takes several tags at once.
+ *
+ * Checkboxes rather than a multi-select listbox: every option stays on screen
+ * with its full label, and picking a second one does not need a modifier key
+ * that half of users do not know about. The whole selection lives in the draft
+ * as one '|'-joined string, so the group is as controlled as the <select> it
+ * replaced — and `data-value` exposes that string for tests to assert on, since
+ * a fieldset has no inputValue().
+ */
+function MultiChoice({
+  field,
+  value,
+  onChange,
+  options,
+  columns = 2,
+}: {
+  field: TradeJournalChoice
+  value: string
+  onChange: (next: string) => void
+  options: readonly string[]
+  columns?: 1 | 2 | 3
+}) {
+  const selected = useMemo(() => new Set(parseChoices(field, value)), [field, value])
+
+  function toggle(option: string) {
+    const next = new Set(selected)
+    if (next.has(option)) next.delete(option)
+    else next.add(option)
+    // Normalized on every toggle, so the stored order is the vocabulary's and
+    // not the order the user happened to click in.
+    onChange(serializeChoices(normalizeChoices(field, [...next])) ?? "")
+  }
+
+  const gridClass =
+    columns === 3 ? "sm:grid-cols-3" : columns === 2 ? "sm:grid-cols-2" : "sm:grid-cols-1"
+
+  return (
+    <fieldset
+      data-testid={`journal-${field}`}
+      data-value={value}
+      className={`grid grid-cols-1 gap-x-3 gap-y-1.5 rounded-md border border-input bg-background px-2.5 py-2 shadow-sm ${gridClass}`}
+    >
+      {options.map((option) => (
+        <label
+          key={option}
+          data-testid={`journal-${field}-${option}`}
+          // min-w-0 so the label can shrink below its content: a grid item will
+          // not do that by default, and the longest mistake labels are wider
+          // than half the modal.
+          className="flex min-w-0 cursor-pointer items-start gap-2 text-sm leading-snug"
+        >
+          <input
+            type="checkbox"
+            checked={selected.has(option)}
+            onChange={() => toggle(option)}
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer accent-sky-500"
+          />
+          {/* whitespace-normal is load-bearing: this modal is rendered from
+              inside a table cell that sets whitespace-nowrap, and the rule
+              inherits through the fixed-position overlay. Without it the long
+              labels refuse to wrap and overlap the next column's checkbox. */}
+          <span className="whitespace-normal">{choiceLabel(option)}</span>
+        </label>
+      ))}
+    </fieldset>
   )
 }
 
@@ -286,19 +375,22 @@ export function TradeJournalForm({
                   <option value="no">No</option>
                 </select>
               </Field>
-              <Field label="Exit reason">
-                <Choice field="exitReason" value={draft.exitReason} onChange={set("exitReason")}
-                  options={EXIT_REASONS} placeholder="—" />
-              </Field>
-              <Field label="Mistake">
-                <Choice field="mistake" value={draft.mistake} onChange={set("mistake")}
-                  options={MISTAKES} placeholder="—" />
-              </Field>
-              <Field label="Emotion">
-                <Choice field="emotion" value={draft.emotion} onChange={set("emotion")}
-                  options={EMOTIONS} placeholder="—" />
-              </Field>
             </div>
+            {/* Full width, not in the two-column grid above: fifteen mistake
+                labels are sentences, and squeezing them into half the modal
+                wraps every one of them. */}
+            <Field label="Exit reason" hint="tick every one that applied">
+              <MultiChoice field="exitReason" value={draft.exitReason}
+                onChange={set("exitReason")} options={EXIT_REASONS} columns={3} />
+            </Field>
+            <Field label="Mistakes" hint="tick every one that applied">
+              <MultiChoice field="mistake" value={draft.mistake}
+                onChange={set("mistake")} options={MISTAKES} columns={2} />
+            </Field>
+            <Field label="Emotions" hint="tick every one that applied">
+              <MultiChoice field="emotion" value={draft.emotion}
+                onChange={set("emotion")} options={EMOTIONS} columns={3} />
+            </Field>
           </section>
 
           {error && <p className="text-xs text-destructive">{error}</p>}

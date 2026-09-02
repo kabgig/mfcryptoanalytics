@@ -6,7 +6,13 @@ import {
   NUMBER_LIMITS,
   type OverridePatch,
 } from "@/lib/services/overridesService"
-import { CHOICE_FIELDS, CHOICES, isChoice } from "@/lib/services/journalFields"
+import {
+  CHOICES,
+  isChoice,
+  isChoiceList,
+  MULTI_CHOICE_FIELDS,
+  SINGLE_CHOICE_FIELDS,
+} from "@/lib/services/journalFields"
 
 export const dynamic = "force-dynamic"
 
@@ -24,6 +30,8 @@ export const dynamic = "force-dynamic"
  *   Patch semantics: a field left out is untouched, a field sent as null is
  *   cleared (the exchange value, or the computed R:R, takes over again).
  *   Clearing the last one deletes the row and comes back as override: null.
+ *   exitReason, mistake and emotion take an array; a bare string still means the
+ *   one-tag list it used to, and [] clears the field like null does.
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -83,7 +91,7 @@ export async function POST(request: Request) {
       patch[field] = num
     }
 
-    for (const field of CHOICE_FIELDS) {
+    for (const field of SINGLE_CHOICE_FIELDS) {
       if (!(field in raw)) continue
       const value = raw[field]
       if (value === null || value === "") {
@@ -97,6 +105,31 @@ export async function POST(request: Request) {
         )
       }
       patch[field] = value as string
+    }
+
+    for (const field of MULTI_CHOICE_FIELDS) {
+      if (!(field in raw)) continue
+      const value = raw[field]
+      // Three ways to say "unset": null, "", and []. All clear the field.
+      if (value === null || value === "" || (Array.isArray(value) && value.length === 0)) {
+        patch[field] = null
+        continue
+      }
+      // A bare string is still accepted, so a caller written against the
+      // single-valued version of this route keeps working — it means the
+      // one-tag list it always did.
+      const values = typeof value === "string" ? [value] : value
+      if (!isChoiceList(field, values)) {
+        return Response.json(
+          {
+            error:
+              `${field} must be a list of: ${CHOICES[field].join(", ")}` +
+              " — with no repeats, or null to clear",
+          },
+          { status: 400 }
+        )
+      }
+      patch[field] = values
     }
 
     if ("bias" in raw) {

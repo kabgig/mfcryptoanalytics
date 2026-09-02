@@ -1,5 +1,12 @@
 import { tradeKey } from "@/lib/db/trades"
-import { CHOICE_FIELDS, computeRr, isChoice } from "@/lib/services/journalFields"
+import {
+  CHOICE_FIELDS,
+  computeRr,
+  isChoice,
+  MULTI_CHOICE_FIELDS,
+  normalizeChoices,
+  SINGLE_CHOICE_FIELDS,
+} from "@/lib/services/journalFields"
 import type {
   Trade,
   TradeBias,
@@ -148,6 +155,11 @@ export function resolveTrades(
  * out is untouched — so the Bias cell can save one field without having to send
  * the other thirteen.
  *
+ * For a multi-valued field an empty array clears it exactly as null does: an
+ * unticked list and a never-touched one are the same answer, and letting `[]`
+ * through would store a field the table's CHECK counts as content while the UI
+ * renders it as blank.
+ *
  * Returns null when nothing is left set, which is the signal to delete the row
  * rather than store an empty one.
  */
@@ -168,10 +180,19 @@ export function mergeOverride(
     else delete next[field]
   }
 
-  for (const field of CHOICE_FIELDS) {
+  for (const field of SINGLE_CHOICE_FIELDS) {
     if (!(field in patch)) continue
     const value = patch[field]
     if (isChoice(field, value)) next[field] = value as string
+    else delete next[field]
+  }
+
+  for (const field of MULTI_CHOICE_FIELDS) {
+    if (!(field in patch)) continue
+    // Anything unrecognised is dropped rather than stored, the same way a bad
+    // single choice is — and a selection left with nothing in it clears.
+    const values = normalizeChoices(field, patch[field])
+    if (values.length > 0) next[field] = values
     else delete next[field]
   }
 
@@ -188,5 +209,5 @@ export function mergeOverride(
   return OVERRIDE_FIELDS.every((f) => next[f] === undefined) ? null : next
 }
 
-export { CHOICE_FIELDS, computeRr, isChoice }
+export { CHOICE_FIELDS, computeRr, isChoice, MULTI_CHOICE_FIELDS, SINGLE_CHOICE_FIELDS }
 export type { TradeJournalChoice }

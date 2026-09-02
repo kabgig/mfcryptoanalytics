@@ -2,14 +2,22 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import {
   CHOICES,
+  CHOICE_DELIMITER,
   CHOICE_FIELDS,
   choiceLabel,
+  choiceListLabel,
   computeRr,
   EMOTIONS,
   EXIT_REASONS,
   isChoice,
+  isChoiceList,
   KILLZONES,
   MISTAKES,
+  MULTI_CHOICE_FIELDS,
+  normalizeChoices,
+  parseChoices,
+  serializeChoices,
+  SINGLE_CHOICE_FIELDS,
   STRATEGIES,
   TIMEFRAMES,
 } from "@/lib/services/journalFields"
@@ -59,8 +67,18 @@ test("the choice vocabularies hold exactly the agreed options", () => {
   assert.deepEqual(TIMEFRAMES, ["5m", "15m", "1h"])
   assert.deepEqual(KILLZONES, ["asia", "london", "nyam", "nypm", "outside"])
   assert.deepEqual(EXIT_REASONS, ["tp1", "tp2", "sl", "be", "manual"])
-  assert.equal(MISTAKES.length, 16)
-  assert.equal(MISTAKES[0], "none", "a clean trade needs its own tag")
+  assert.equal(MISTAKES.length, 15)
+})
+
+test("the mistake list no longer carries a 'no mistake' tag", () => {
+  // With several mistakes tickable at once, an empty list already says it, and
+  // a "No mistake" box next to fifteen real ones only invites ticking both.
+  assert.equal(MISTAKES.includes("none" as never), false)
+  assert.equal(isChoice("mistake", "none"), false)
+  // "reviewed and clean" is rulesOK's job, and it still distinguishes itself
+  // from "not reviewed" — false is stored, undefined is not.
+  assert.deepEqual(mergeOverride({}, { rulesOK: true }), { rulesOK: true })
+  assert.equal(mergeOverride({}, { rulesOK: null }), null)
 })
 
 test("the 'should not have been trading' mistakes group together", () => {
@@ -123,7 +141,7 @@ test("the emotion list carries greed alongside thrill", () => {
 })
 
 test("isChoice only accepts a field's own options", () => {
-  assert.deepEqual(CHOICE_FIELDS.sort(), [
+  assert.deepEqual([...CHOICE_FIELDS].sort(), [
     "emotion", "exitReason", "killzone", "mistake", "strategy", "timeframe",
   ])
   assert.ok(isChoice("emotion", "greed"))
@@ -207,22 +225,15 @@ test("a journal patch stores every field it carries", () => {
     sl: 90,
     riskPct: 1,
     rulesOK: true,
-    exitReason: "tp1",
-    mistake: "none",
-    emotion: "greed",
+    exitReason: ["tp1"],
+    mistake: ["chased_price"],
+    emotion: ["greed"],
   })
   assert.deepEqual(merged, {
     strategy: "orderflow", timeframe: "15m", killzone: "london",
     entry: 100, tp1: 120, tp2: 140, sl: 90, riskPct: 1,
-    rulesOK: true, exitReason: "tp1", mistake: "none", emotion: "greed",
+    rulesOK: true, exitReason: ["tp1"], mistake: ["chased_price"], emotion: ["greed"],
   })
-})
-
-test("mistake 'none' is a stored value, not an empty one", () => {
-  // "reviewed, nothing wrong" must stay distinguishable from "not reviewed".
-  const merged = mergeOverride({}, { mistake: "none" })
-  assert.deepEqual(merged, { mistake: "none" })
-  assert.equal(mergeOverride({ mistake: "none" }, { mistake: null }), null)
 })
 
 test("rulesOK stores false rather than treating it as unset", () => {
@@ -232,22 +243,149 @@ test("rulesOK stores false rather than treating it as unset", () => {
 })
 
 test("a patch touching one field leaves the other thirteen alone", () => {
-  const stored = { strategy: "macro", entry: 100, emotion: "calm", bias: "buy" } as const
-  const merged = mergeOverride(stored, { emotion: "fear" })
-  assert.deepEqual(merged, { strategy: "macro", entry: 100, emotion: "fear", bias: "buy" })
+  const stored = { strategy: "macro", entry: 100, emotion: ["calm"], bias: "buy" as const }
+  const merged = mergeOverride(stored, { emotion: ["fear"] })
+  assert.deepEqual(merged, { strategy: "macro", entry: 100, emotion: ["fear"], bias: "buy" })
 })
 
 test("an invalid choice is dropped rather than stored", () => {
-  assert.equal(mergeOverride({}, { emotion: "furious" }), null)
+  assert.equal(mergeOverride({}, { emotion: ["furious"] }), null)
   assert.equal(mergeOverride({}, { strategy: "scalping" }), null)
   assert.equal(mergeOverride({}, { riskPct: 150 }), null, "riskPct is capped at 100")
 })
 
 test("clearing the last journal field returns null, the signal to delete the row", () => {
-  assert.equal(mergeOverride({ emotion: "calm" }, { emotion: null }), null)
+  assert.equal(mergeOverride({ emotion: ["calm"] }, { emotion: null }), null)
   assert.equal(mergeOverride({ rulesOK: false }, { rulesOK: null }), null)
   // Bias alone still counts as content — it has its own column in the table.
-  assert.deepEqual(mergeOverride({ bias: "buy", emotion: "calm" }, { emotion: null }), { bias: "buy" })
+  assert.deepEqual(
+    mergeOverride({ bias: "buy", emotion: ["calm"] }, { emotion: null }),
+    { bias: "buy" }
+  )
+})
+
+// ------------------------------------------------------- multi-select fields
+
+test("a multi-select field stores every tag the user ticked", () => {
+  // THE point of the feature: a position can scale out at TP1 and then get
+  // stopped out of the runner, and one bad trade is rarely bad in one way.
+  const merged = mergeOverride({}, {
+    exitReason: ["tp1", "sl"],
+    mistake: ["no_stop", "chased_price"],
+    emotion: ["fear", "greed"],
+  })
+  assert.deepEqual(merged, {
+    exitReason: ["tp1", "sl"],
+    mistake: ["no_stop", "chased_price"],
+    emotion: ["fear", "greed"],
+  })
+})
+
+test("exactly three fields are multi-select and the other three are not", () => {
+  assert.deepEqual([...MULTI_CHOICE_FIELDS], ["exitReason", "mistake", "emotion"])
+  assert.deepEqual([...SINGLE_CHOICE_FIELDS], ["strategy", "timeframe", "killzone"])
+  // Together they still account for every choice field, or a field would slip
+  // through both the API validator and the form untouched.
+  assert.deepEqual(
+    [...SINGLE_CHOICE_FIELDS, ...MULTI_CHOICE_FIELDS].sort(),
+    [...CHOICE_FIELDS].sort()
+  )
+})
+
+test("a selection is stored in vocabulary order however it was ticked", () => {
+  // Click order is not information. Canonicalising means the same set of tags
+  // always serializes to the same string, so a re-save that changed nothing
+  // does not read as an edit.
+  assert.deepEqual(normalizeChoices("mistake", ["chased_price", "no_stop"]), [
+    "no_stop", "chased_price",
+  ])
+  assert.deepEqual(
+    mergeOverride({}, { exitReason: ["sl", "tp1"] })?.exitReason,
+    ["tp1", "sl"]
+  )
+})
+
+test("a repeated tag is stored once", () => {
+  assert.deepEqual(normalizeChoices("emotion", ["fear", "fear", "calm"]), ["calm", "fear"])
+  // The API is stricter than storage: a repeat there is a caller bug, not
+  // something to quietly tidy up.
+  assert.equal(isChoiceList("emotion", ["fear", "fear"]), false)
+})
+
+test("an unticked multi-select field clears, exactly as null does", () => {
+  // The row-delete signal depends on this: an empty array left in the override
+  // would count as content and the table's empty_chk would accept a row the UI
+  // renders as blank.
+  assert.equal(mergeOverride({ mistake: ["no_stop"] }, { mistake: [] }), null)
+  assert.equal(mergeOverride({ mistake: ["no_stop"] }, { mistake: null }), null)
+  assert.deepEqual(
+    mergeOverride({ bias: "buy", mistake: ["no_stop"] }, { mistake: [] }),
+    { bias: "buy" }
+  )
+})
+
+test("an empty selection never counts as a field the user set", () => {
+  // resolveTrade marks a field overridden with `!== undefined`, so storing []
+  // would light up the UI's "you set this" marker for an empty list.
+  const resolved = resolveTrade(trade({ id: "1", exchange: "OKX" }), {
+    ...(mergeOverride({}, { mistake: [], emotion: ["calm"] }) ?? {}),
+  })
+  assert.equal(resolved.overridden.mistake, false)
+  assert.equal(resolved.overridden.emotion, true)
+})
+
+test("one bad tag drops at storage but is refused at the API boundary", () => {
+  // Storage is forgiving so a row written outside the app cannot break a page;
+  // isChoiceList is strict so a buggy caller gets a 400 rather than a silently
+  // narrowed selection.
+  assert.deepEqual(mergeOverride({}, { mistake: ["no_stop", "typo"] })?.mistake, ["no_stop"])
+  assert.equal(isChoiceList("mistake", ["no_stop", "typo"]), false)
+  assert.equal(isChoiceList("mistake", []), false, "an empty list is not a selection")
+  assert.equal(isChoiceList("mistake", "no_stop"), false, "a bare string is not a list")
+  assert.ok(isChoiceList("mistake", ["no_stop", "chased_price"]))
+})
+
+test("no vocabulary slug contains the delimiter that joins them", () => {
+  // The whole '|'-joined storage format rests on this.
+  assert.equal(CHOICE_DELIMITER, "|")
+  for (const field of CHOICE_FIELDS) {
+    for (const option of CHOICES[field]) {
+      assert.equal(
+        option.includes(CHOICE_DELIMITER), false,
+        `${option} contains the delimiter and would split into two tags`
+      )
+    }
+  }
+})
+
+test("a selection survives the round trip through its text column", () => {
+  const stored = serializeChoices(["tp1", "sl"])
+  assert.equal(stored, "tp1|sl")
+  assert.deepEqual(parseChoices("exitReason", stored), ["tp1", "sl"])
+  // Nothing selected is stored as NULL, not as an empty string.
+  assert.equal(serializeChoices([]), null)
+  assert.deepEqual(parseChoices("exitReason", null), [])
+  assert.deepEqual(parseChoices("exitReason", ""), [])
+})
+
+test("a row written before the field went multi-select still reads", () => {
+  // Every existing row holds a bare slug. It is the one-tag list it always was,
+  // which is why this change needed no backfill.
+  assert.deepEqual(parseChoices("exitReason", "sl"), ["sl"])
+  assert.deepEqual(parseChoices("mistake", "chased_price"), ["chased_price"])
+  assert.deepEqual(parseChoices("emotion", "greed"), ["greed"])
+  // Including the tag that was removed: it drops, rather than reaching the UI
+  // as an option that no longer exists.
+  assert.deepEqual(parseChoices("mistake", "none"), [])
+  assert.deepEqual(parseChoices("mistake", "none|chased_price"), ["chased_price"])
+})
+
+test("a selection reads as a sentence, not as slugs", () => {
+  assert.equal(
+    choiceListLabel(["no_stop", "chased_price"]),
+    "No stop loss, Chased price"
+  )
+  assert.equal(choiceListLabel([]), "")
 })
 
 // ---------------------------------------------------------------------- csv
@@ -267,7 +405,7 @@ test("the csv exports a journal entry, including the computed R:R", () => {
       "OKX|1": {
         strategy: "pa", timeframe: "1h", killzone: "nyam",
         entry: 100, tp1: 120, tp2: 140, sl: 90, riskPct: 1.5,
-        rulesOK: false, exitReason: "be", mistake: "chased_price", emotion: "greed",
+        rulesOK: false, exitReason: ["be"], mistake: ["chased_price"], emotion: ["greed"],
       },
     })
   )
@@ -285,6 +423,41 @@ test("the csv exports a journal entry, including the computed R:R", () => {
   assert.equal(col("exitReason"), "be")
   assert.equal(col("mistake"), "chased_price")
   assert.equal(col("emotion"), "greed")
+})
+
+test("the csv writes a multi-tag field into one pipe-joined cell", () => {
+  const [header, csvRow] = parseCsv(
+    buildTradesCsv([trade({ id: "1", exchange: "OKX" })], {}, {
+      "OKX|1": {
+        exitReason: ["tp1", "sl"],
+        mistake: ["no_stop", "chased_price"],
+        emotion: ["fear", "greed"],
+      },
+    })
+  )
+  const col = (name: string) => csvRow[header.indexOf(name)]
+  assert.equal(col("exitReason"), "tp1|sl")
+  assert.equal(col("mistake"), "no_stop|chased_price")
+  assert.equal(col("emotion"), "fear|greed")
+})
+
+test("a multi-tag cell needs no csv quoting", () => {
+  // The point of choosing '|' over ',': the export is meant to paste into a
+  // spreadsheet or an LLM without anything having to unpick quoting first.
+  const csv = buildTradesCsv([trade({ id: "1", exchange: "OKX" })], {}, {
+    "OKX|1": { mistake: ["no_stop", "chased_price", "traded_the_news"] },
+  })
+  assert.ok(csv.includes("no_stop|chased_price|traded_the_news"), csv)
+  assert.equal(csv.includes('"'), false, "a pipe-joined cell should not be quoted")
+  // Still exactly one header row and one record.
+  assert.equal(csv.trimEnd().split("\r\n").length, 2)
+})
+
+test("an unset multi-tag field exports blank, not an empty list", () => {
+  const [header, csvRow] = parseCsv(buildTradesCsv([trade({ id: "1", exchange: "OKX" })]))
+  for (const name of ["exitReason", "mistake", "emotion"]) {
+    assert.equal(csvRow[header.indexOf(name)], "", `${name} should export blank`)
+  }
 })
 
 test("rulesOK exports blank when unset, not 'no'", () => {

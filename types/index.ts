@@ -32,14 +32,18 @@ export type TradeNotesMap = Record<string, TradeNotes>
  */
 export type TradeBias = "buy" | "sell"
 
-/** The journal fields that take one value from a controlled list. */
-export type TradeJournalChoice =
-  | "strategy"
-  | "timeframe"
-  | "killzone"
-  | "exitReason"
-  | "mistake"
-  | "emotion"
+/** The journal fields that take exactly one value from a controlled list. */
+export type TradeJournalSingleChoice = "strategy" | "timeframe" | "killzone"
+
+/**
+ * The journal fields that take a list of values from a controlled list. A trade
+ * can scale out at TP1 and be stopped out of the runner, and one that went wrong
+ * usually went wrong in more than one way.
+ */
+export type TradeJournalMultiChoice = "exitReason" | "mistake" | "emotion"
+
+/** Every journal field backed by a controlled list, single- or multi-valued. */
+export type TradeJournalChoice = TradeJournalSingleChoice | TradeJournalMultiChoice
 
 /**
  * Everything the user records about one trade by hand: the corrections to what
@@ -48,11 +52,13 @@ export type TradeJournalChoice =
  *
  * A field is absent when it was never set, in which case the exchange's own
  * value stands (for bias, the value derived from `side`; for rr, the figure
- * computed from entry/tp1/sl).
+ * computed from entry/tp1/sl). A multi-valued field is absent rather than an
+ * empty array when nothing is selected — `[]` is never stored, so "has the user
+ * set this?" stays a single `=== undefined` check across every field.
  *
  * The accepted values for the choice fields live in
- * lib/services/journalFields.ts, deliberately not in this type: `mistake` and
- * `emotion` are open vocabularies that grow without a migration.
+ * lib/services/journalFields.ts, deliberately not in this type: `exitReason`,
+ * `mistake` and `emotion` are open vocabularies that grow without a migration.
  */
 export interface TradeOverride {
   // — corrections to the exchange's own numbers —
@@ -70,9 +76,10 @@ export interface TradeOverride {
   rr?: number
   // — the review, after the exit —
   rulesOK?: boolean
-  exitReason?: string
-  mistake?: string
-  emotion?: string
+  /** Several are possible: scaled out at TP1, then stopped out of the runner. */
+  exitReason?: string[]
+  mistake?: string[]
+  emotion?: string[]
 }
 
 /**

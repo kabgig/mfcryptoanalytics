@@ -1,5 +1,6 @@
 import { tradeKey } from "@/lib/db/trades"
 import { resolveTrade } from "@/lib/services/overridesService"
+import { serializeChoices } from "@/lib/services/journalFields"
 import type { Trade, TradeNotesMap, TradeOverridesMap } from "@/types"
 
 /**
@@ -62,6 +63,11 @@ function cell(value: string | number | null | undefined): string {
  * entry/TP1/SL — the same resolution the app renders, so an export matches the
  * screen it came from. `side` itself stays the exchange's own answer.
  *
+ * exitReason, mistake and emotion each hold a list, written into their one cell
+ * '|'-separated — a comma would have forced the writer to quote the cell, and
+ * this export is meant to land in a spreadsheet or an LLM without anything
+ * having to unpick quoting first.
+ *
  * This is the surface built for pasting into an LLM to hunt for patterns, which
  * is exactly what the journal fields are for, so all of them ship.
  */
@@ -96,9 +102,9 @@ export function buildTradesCsv(
       cell(t.journal.riskPct),
       cell(t.rr),
       cell(t.journal.rulesOK === undefined ? undefined : t.journal.rulesOK ? "yes" : "no"),
-      cell(t.journal.exitReason),
-      cell(t.journal.mistake),
-      cell(t.journal.emotion),
+      cell(serializeChoices(t.journal.exitReason ?? [])),
+      cell(serializeChoices(t.journal.mistake ?? [])),
+      cell(serializeChoices(t.journal.emotion ?? [])),
       cell(n.before),
       cell(n.during),
       cell(n.after),

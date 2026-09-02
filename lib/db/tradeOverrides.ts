@@ -7,7 +7,13 @@ import {
   NUMBER_FIELDS,
   type OverridePatch,
 } from "@/lib/services/overridesService"
-import { CHOICE_FIELDS, isChoice } from "@/lib/services/journalFields"
+import {
+  isChoice,
+  MULTI_CHOICE_FIELDS,
+  parseChoices,
+  serializeChoices,
+  SINGLE_CHOICE_FIELDS,
+} from "@/lib/services/journalFields"
 import type { TradeOverride, TradeOverridesMap } from "@/types"
 
 /**
@@ -50,9 +56,13 @@ export type OverrideRow = {
  * Folds flat override rows into the map the UI indexes by `exchange|id`.
  *
  * Every value is re-validated on the way out, not just parsed: NUMERIC comes
- * back from the driver as a string, and `mistake`/`emotion` carry no CHECK
- * constraint, so a value written outside the app must not reach the UI as if it
- * were a real option.
+ * back from the driver as a string, and none of the three multi-valued columns
+ * carries a CHECK constraint, so a value written outside the app must not reach
+ * the UI as if it were a real option.
+ *
+ * The multi-valued columns hold a '|'-joined list. A row written before those
+ * fields went multi-select holds a bare slug, which parses as the one-tag list
+ * it always was — no backfill, and an old row and a new one read the same.
  *
  * Pure — exported for testing.
  */
@@ -68,9 +78,16 @@ export function rowsToOverridesMap(rows: OverrideRow[]): TradeOverridesMap {
       if (isStorableNumber(field, n)) override[field] = n
     }
 
-    for (const field of CHOICE_FIELDS) {
+    for (const field of SINGLE_CHOICE_FIELDS) {
       const raw = r[CHOICE_COLUMNS[field]]
       if (isChoice(field, raw)) override[field] = raw as string
+    }
+
+    for (const field of MULTI_CHOICE_FIELDS) {
+      const values = parseChoices(field, r[CHOICE_COLUMNS[field]])
+      // An empty list is left off entirely, so `field in override` keeps meaning
+      // "the user set this" for a multi-valued field as much as a single one.
+      if (values.length > 0) override[field] = values
     }
 
     if (isBias(r.bias)) override.bias = r.bias
@@ -158,6 +175,9 @@ export async function saveOverride(
 
   // The whole row is written every time — `next` is the merged result, so a
   // field the patch did not mention is re-written with the value it already had.
+  // The three multi-valued fields collapse to a '|'-joined string here, and to
+  // NULL when nothing is selected, which is what keeps the table's empty_chk
+  // reading them as unset.
   await sql`
     INSERT INTO trade_overrides (
       telegram_id, exchange, trade_id,
@@ -170,7 +190,9 @@ export async function saveOverride(
       ${next.tp2 ?? null}, ${next.sl ?? null}, ${next.riskPct ?? null},
       ${next.rr ?? null}, ${next.rulesOK ?? null},
       ${next.strategy ?? null}, ${next.timeframe ?? null}, ${next.killzone ?? null},
-      ${next.exitReason ?? null}, ${next.mistake ?? null}, ${next.emotion ?? null}
+      ${serializeChoices(next.exitReason ?? [])},
+      ${serializeChoices(next.mistake ?? [])},
+      ${serializeChoices(next.emotion ?? [])}
     )
     ON CONFLICT (telegram_id, exchange, trade_id) DO UPDATE SET
       bias        = EXCLUDED.bias,

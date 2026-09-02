@@ -167,10 +167,32 @@ async function main() {
     await p.waitForSelector('[data-testid="journal-form"]')
   }
 
-  /** Fills the given fields and saves, waiting for the write to land. */
+  /**
+   * Sets a multi-select field to exactly the given tags by toggling only the
+   * boxes that disagree — the form has no "clear all", so reaching a target
+   * selection means reading what is ticked first.
+   */
+  async function setTags(field, wanted) {
+    const boxes = page.locator(`[data-testid^="journal-${field}-"] input[type="checkbox"]`)
+    const n = await boxes.count()
+    for (let i = 0; i < n; i++) {
+      const box = boxes.nth(i)
+      const option = await box.evaluate((el) =>
+        el.closest("label").getAttribute("data-testid").split("-").slice(2).join("-")
+      )
+      const shouldBe = wanted.includes(option)
+      if ((await box.isChecked()) !== shouldBe) await box.click()
+    }
+  }
+
+  /**
+   * Fills the given fields and saves, waiting for the write to land.
+   * An array value means a multi-select field; anything else is a select/input.
+   */
   async function fillJournal(ticker, fields) {
     await openJournal(ticker)
     for (const [field, value] of Object.entries(fields)) {
+      if (Array.isArray(value)) { await setTags(field, value); continue }
       const el = page.locator(`[data-testid="journal-${field}"]`)
       if ((await el.evaluate((n) => n.tagName)) === "SELECT") await el.selectOption(String(value))
       else await el.fill(String(value))
@@ -184,8 +206,16 @@ async function main() {
     await page.waitForSelector('[data-testid="journal-form"]', { state: "detached" })
   }
 
-  const journalValue = (field, p = page) =>
-    p.locator(`[data-testid="journal-${field}"]`).inputValue()
+  /**
+   * A field's current value. A checkbox group is a <fieldset>, which has no
+   * inputValue(), so it publishes its '|'-joined selection as data-value —
+   * the same string the column stores.
+   */
+  const journalValue = async (field, p = page) => {
+    const el = p.locator(`[data-testid="journal-${field}"]`)
+    const tag = await el.evaluate((n) => n.tagName)
+    return tag === "FIELDSET" ? (await el.getAttribute("data-value")) ?? "" : el.inputValue()
+  }
 
   try {
     await page.goto(BASE, { waitUntil: "networkidle" })
@@ -230,6 +260,11 @@ async function main() {
       for (const f of ["strategy", "timeframe", "killzone", "rulesOK", "exitReason", "mistake", "emotion"]) {
         assert.equal(await journalValue(f), "", `${f} should start unselected`)
       }
+      // Nothing pre-ticked in any of the three checkbox groups.
+      assert.equal(
+        await page.locator('[data-testid="journal-form"] input[type="checkbox"]:checked').count(),
+        0
+      )
     })
     await check("R:R says what it needs before any levels are typed", async () => {
       assert.match(await page.locator('[data-testid="journal-rr-readout"]').innerText(), /needs an entry/)
@@ -262,7 +297,12 @@ async function main() {
     await fillJournal("BTCUSDT", {
       strategy: "orderflow", timeframe: "15m", killzone: "london",
       entry: 100, tp1: 120, tp2: 140, sl: 90, riskPct: 1.5,
-      rulesOK: "yes", exitReason: "tp1", mistake: "none", emotion: "greed",
+      rulesOK: "yes",
+      // Several tags each: scaled out at TP1 then stopped out of the runner,
+      // two things wrong with the trade, two feelings during it.
+      exitReason: ["tp1", "sl"],
+      mistake: ["no_stop", "chased_price"],
+      emotion: ["fear", "greed"],
     })
     await page.screenshot({ path: `${SHOTS}/o3-journal-filled.png`, fullPage: true })
 
@@ -280,9 +320,11 @@ async function main() {
       assert.equal(Number(row.sl), 90)
       assert.equal(Number(row.risk_pct), 1.5)
       assert.equal(row.rules_ok, true)
-      assert.equal(row.exit_reason, "tp1")
-      assert.equal(row.mistake, "none")
-      assert.equal(row.emotion, "greed")
+      // The three multi-valued fields land '|'-joined in their one column, in
+      // vocabulary order rather than the order the boxes were ticked.
+      assert.equal(row.exit_reason, "tp1|sl")
+      assert.equal(row.mistake, "no_stop|chased_price")
+      assert.equal(row.emotion, "fear|greed")
     })
     await check("an auto-computed R:R is not written to the row", async () => {
       // rr is only stored when the user overrides the arithmetic.
@@ -311,8 +353,28 @@ async function main() {
       assert.equal(await journalValue("tp2"), "140")
       assert.equal(await journalValue("riskPct"), "1.5")
       assert.equal(await journalValue("rulesOK"), "yes")
-      assert.equal(await journalValue("mistake"), "none")
-      assert.equal(await journalValue("emotion"), "greed")
+      assert.equal(await journalValue("exitReason"), "tp1|sl")
+      assert.equal(await journalValue("mistake"), "no_stop|chased_price")
+      assert.equal(await journalValue("emotion"), "fear|greed")
+    })
+    await check("every tag the user ticked comes back ticked", async () => {
+      for (const [field, options] of [
+        ["exitReason", ["tp1", "sl"]],
+        ["mistake", ["no_stop", "chased_price"]],
+        ["emotion", ["fear", "greed"]],
+      ]) {
+        for (const o of options) {
+          assert.equal(
+            await page.locator(`[data-testid="journal-${field}-${o}"] input`).isChecked(),
+            true, `${field}/${o} should be ticked`
+          )
+        }
+      }
+      // And one that was not ticked is not.
+      assert.equal(
+        await page.locator('[data-testid="journal-mistake-traded_the_news"] input').isChecked(),
+        false
+      )
     })
     await check("the reopened form recomputes R:R from the stored levels", async () => {
       assert.match(await page.locator('[data-testid="journal-rr-readout"]').innerText(), /R:R 2 /)
@@ -320,48 +382,89 @@ async function main() {
     await page.locator('button[aria-label="Close journal"]').click()
     await page.waitForSelector('[data-testid="journal-form"]', { state: "detached" })
 
-    await fillJournal("BTCUSDT", { emotion: "fear", rr: 3 })
+    await fillJournal("BTCUSDT", { emotion: ["fear"], rr: 3 })
     await check("editing replaces values rather than adding a second row", async () => {
       const rows = await sql`
         SELECT emotion, rr, strategy FROM trade_overrides
         WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND trade_id = 'ov-1'
       `
       assert.equal(rows.length, 1)
-      assert.equal(rows[0].emotion, "fear")
+      assert.equal(rows[0].emotion, "fear", "unticking greed should leave fear alone")
       assert.equal(Number(rows[0].rr), 3, "the hand-typed R:R should be stored")
       assert.equal(rows[0].strategy, "orderflow", "an untouched field was clobbered")
     })
 
     console.log("\nthe two break-even mistakes")
-    await fillJournal("SOLUSDT", { mistake: "moved_sl_away_from_be" })
+    await fillJournal("SOLUSDT", { mistake: ["moved_sl_away_from_be"] })
     await check("moving the stop off break-even is its own tag", async () => {
       assert.equal((await storedRow("ov-3")).mistake, "moved_sl_away_from_be")
     })
-    await check("the dropdown offers it under a readable label", async () => {
+    await check("the checkbox list offers it under a readable label", async () => {
       await journalIcon("SOLUSDT").click()
       await page.waitForSelector('[data-testid="journal-form"]')
       const labels = await page
-        .locator('[data-testid="journal-mistake"] option')
-        .allTextContents()
+        .locator('[data-testid="journal-mistake"] label')
+        .allInnerTexts()
       assert.ok(
         labels.includes("Moved SL away from break-even"),
-        `label missing from the dropdown: ${labels.join(" | ")}`
+        `label missing from the list: ${labels.join(" | ")}`
       )
       // The opposite failure must still be offered separately.
       assert.ok(labels.includes("Did not move to break-even"), labels.join(" | "))
       await page.locator('button[aria-label="Close journal"]').click()
       await page.waitForSelector('[data-testid="journal-form"]', { state: "detached" })
     })
+    await check("a long mistake label wraps instead of overlapping its neighbour", async () => {
+      // This modal renders from inside a table cell that sets whitespace-nowrap,
+      // and the rule inherits through the fixed-position overlay — so the
+      // longest labels used to run over the next column's checkbox.
+      await journalIcon("SOLUSDT").click()
+      await page.waitForSelector('[data-testid="journal-form"]')
+      const box = await page
+        .locator('[data-testid="journal-mistake-entered_against_liquidity"]')
+        .evaluate((el) => {
+          const span = el.querySelector("span")
+          return {
+            wrap: getComputedStyle(span).whiteSpace,
+            overflow: span.getBoundingClientRect().right - el.getBoundingClientRect().right,
+          }
+        })
+      assert.equal(box.wrap, "normal", "the label inherited whitespace-nowrap")
+      assert.ok(box.overflow <= 1, `the label overflows its column by ${box.overflow}px`)
+      await page.locator('button[aria-label="Close journal"]').click()
+      await page.waitForSelector('[data-testid="journal-form"]', { state: "detached" })
+    })
+    await check("the removed 'No mistake' tag is gone from the list", async () => {
+      await journalIcon("SOLUSDT").click()
+      await page.waitForSelector('[data-testid="journal-form"]')
+      const labels = await page
+        .locator('[data-testid="journal-mistake"] label')
+        .allInnerTexts()
+      assert.equal(labels.includes("No mistake"), false, labels.join(" | "))
+      assert.equal(await page.locator('[data-testid="journal-mistake-none"]').count(), 0)
+      // Fifteen real mistakes remain, all of them tickable.
+      assert.equal(labels.length, 15, labels.join(" | "))
+      await page.locator('button[aria-label="Close journal"]').click()
+      await page.waitForSelector('[data-testid="journal-form"]', { state: "detached" })
+    })
 
-    console.log("\nclearing")
-    await fillJournal("SOLUSDT", { mistake: "none" })
-    await check("mistake 'none' is stored, not treated as empty", async () => {
-      // "reviewed, nothing wrong" has to survive as a real answer.
-      assert.equal((await storedRow("ov-3")).mistake, "none")
+    console.log("\nticking and unticking")
+    await fillJournal("SOLUSDT", { mistake: ["moved_sl_away_from_be", "traded_the_news"] })
+    await check("adding a second tag keeps the first", async () => {
+      // Stored in vocabulary order, not the order they were ticked.
+      assert.equal((await storedRow("ov-3")).mistake, "moved_sl_away_from_be|traded_the_news")
+    })
+    await fillJournal("SOLUSDT", { mistake: ["traded_the_news"] })
+    await check("unticking one tag leaves the other", async () => {
+      assert.equal((await storedRow("ov-3")).mistake, "traded_the_news")
       assert.equal(await journalIcon("SOLUSDT").getAttribute("data-filled"), "true")
     })
-    await fillJournal("SOLUSDT", { mistake: "" })
-    await check("clearing the last field deletes the row entirely", async () => {
+
+    console.log("\nclearing")
+    await fillJournal("SOLUSDT", { mistake: [] })
+    await check("unticking every box deletes the row entirely", async () => {
+      // An empty selection is unset, not an empty value: the row goes, exactly
+      // as clearing the last single-valued field always did.
       assert.equal(await storedRow("ov-3"), undefined)
       assert.equal(await journalIcon("SOLUSDT").getAttribute("data-filled"), "false")
     })
@@ -411,13 +514,95 @@ async function main() {
       })
       assert.match(res.error ?? "", /between 0 and 100/)
     })
-    await check("a value outside a choice list is refused", async () => {
-      for (const [field, bad] of [["emotion", "furious"], ["strategy", "scalping"], ["killzone", "tokyo"]]) {
+    await check("a value outside a single-choice list is refused", async () => {
+      for (const [field, bad] of [["strategy", "scalping"], ["killzone", "tokyo"]]) {
         const res = await post("/api/trades/overrides", {
           telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", [field]: bad,
         })
         assert.match(res.error ?? "", new RegExp(`${field} must be one of`), `${field} accepted ${bad}`)
       }
+    })
+    await check("a bad tag anywhere in a multi-select list is refused", async () => {
+      // One unknown tag rejects the whole request rather than being quietly
+      // dropped, so a buggy caller finds out.
+      for (const [field, bad] of [
+        ["emotion", ["furious"]],
+        ["emotion", ["calm", "furious"]],
+        ["mistake", ["none"]],
+        ["exitReason", ["tp1", "tp3"]],
+      ]) {
+        const res = await post("/api/trades/overrides", {
+          telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", [field]: bad,
+        })
+        assert.match(
+          res.error ?? "", new RegExp(`${field} must be a list of`),
+          `${field} accepted ${JSON.stringify(bad)}`
+        )
+      }
+    })
+    await check("a repeated tag is refused", async () => {
+      const res = await post("/api/trades/overrides", {
+        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", emotion: ["calm", "calm"],
+      })
+      assert.match(res.error ?? "", /emotion must be a list of/)
+    })
+    await check("a bare string is still accepted as a one-tag list", async () => {
+      // A caller written against the single-valued version of this route keeps
+      // working — that is what makes the API change non-breaking.
+      const res = await post("/api/trades/overrides", {
+        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", exitReason: "be",
+      })
+      assert.equal(res.ok, true, JSON.stringify(res))
+      assert.deepEqual(res.override.exitReason, ["be"])
+      assert.equal((await storedRow("ov-1")).exit_reason, "be")
+    })
+    await check("several exit reasons reach the column the CHECK used to guard", async () => {
+      // The one genuinely breaking part of this change: exit_reason carried a
+      // CHECK constraint that would have rejected 'tp1|sl' outright.
+      const res = await post("/api/trades/overrides", {
+        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", exitReason: ["tp1", "sl"],
+      })
+      assert.equal(res.ok, true, JSON.stringify(res))
+      assert.equal((await storedRow("ov-1")).exit_reason, "tp1|sl")
+    })
+    await check("an empty list clears a multi-select field", async () => {
+      await post("/api/trades/overrides", {
+        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", exitReason: [],
+      })
+      assert.equal((await storedRow("ov-1")).exit_reason, null)
+      // The row itself survives — it still holds a strategy, levels and a bias.
+      assert.equal((await storedRow("ov-1")).strategy, "orderflow")
+      // Put it back for the persistence and export checks below.
+      await post("/api/trades/overrides", {
+        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", exitReason: ["tp1", "sl"],
+      })
+    })
+    await check("a legacy single value in the column reads back as a one-tag list", async () => {
+      // Every row written before this change holds a bare slug. Write one the
+      // way the old code would have, and the app must read it as one tag.
+      await sql`
+        UPDATE trade_overrides SET mistake = 'chased_price'
+        WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND trade_id = 'ov-1'
+      `
+      const res = await fetch(`${BASE}/api/trades/overrides?telegramId=${TEST_TELEGRAM_ID}`)
+      const { overrides } = await res.json()
+      assert.deepEqual(overrides[`${EXCHANGE}|ov-1`].mistake, ["chased_price"])
+    })
+    await check("a value retired from the vocabulary is dropped on read", async () => {
+      // 'none' no longer exists. A row still holding it must not surface it as
+      // if it were an option the form could show.
+      await sql`
+        UPDATE trade_overrides SET mistake = 'none|chased_price'
+        WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND trade_id = 'ov-1'
+      `
+      const res = await fetch(`${BASE}/api/trades/overrides?telegramId=${TEST_TELEGRAM_ID}`)
+      const { overrides } = await res.json()
+      assert.deepEqual(overrides[`${EXCHANGE}|ov-1`].mistake, ["chased_price"])
+      // Put the row back the way the form left it for the checks below.
+      await post("/api/trades/overrides", {
+        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1",
+        mistake: ["no_stop", "chased_price"],
+      })
     })
     await check("a bias outside buy/sell is refused", async () => {
       const res = await post("/api/trades/overrides", {
@@ -561,8 +746,21 @@ async function main() {
       assert.equal(await journalValue("sl", fresh), "90")
       assert.equal(await journalValue("riskPct", fresh), "1.5")
       assert.equal(await journalValue("rulesOK", fresh), "yes")
-      assert.equal(await journalValue("exitReason", fresh), "tp1")
+      // A multi-tag selection comes back whole, not just its first tag.
+      assert.equal(await journalValue("exitReason", fresh), "tp1|sl")
+      assert.equal(await journalValue("mistake", fresh), "no_stop|chased_price")
       assert.equal(await journalValue("emotion", fresh), "fear")
+      // …and as ticked boxes, not just as a data attribute.
+      for (const o of ["tp1", "sl"]) {
+        assert.equal(
+          await fresh.locator(`[data-testid="journal-exitReason-${o}"] input`).isChecked(),
+          true, `exitReason/${o} should come back ticked`
+        )
+      }
+      assert.equal(
+        await fresh.locator('[data-testid="journal-exitReason-be"] input').isChecked(),
+        false, "an unticked exit reason should stay unticked"
+      )
       // The hand-typed R:R came back as the user's, not recomputed away.
       assert.equal(await journalValue("rr", fresh), "3")
       await fresh.locator('button[aria-label="Close journal"]').click()
@@ -615,13 +813,27 @@ async function main() {
       assert.equal(btc[header.indexOf("riskPct")], "1.5")
       assert.equal(btc[header.indexOf("rr")], "3", "the hand-typed R:R should export")
       assert.equal(btc[header.indexOf("rulesOK")], "yes")
-      assert.equal(btc[header.indexOf("mistake")], "none")
       assert.equal(btc[header.indexOf("emotion")], "fear")
       assert.equal(btc[header.indexOf("bias")], "sell")
     })
+    await check("the csv writes several tags into one pipe-joined cell", async () => {
+      // Split on "," above, so a comma-joined list would have shifted every
+      // column after it — a pipe keeps the row one field per column.
+      const btc = rowFields("BTCUSDT")
+      assert.equal(btc[header.indexOf("mistake")], "no_stop|chased_price")
+      assert.equal(btc[header.indexOf("exitReason")], "tp1|sl")
+      assert.equal(btc.length, header.length, "a multi-tag cell split the row")
+    })
+    await check("no journal cell needed csv quoting", async () => {
+      // The reason '|' was chosen over ',': the export pastes into a
+      // spreadsheet or an LLM without anything unpicking quotes first.
+      const btcRecord = records.slice(1).find((r) => r.includes("BTCUSDT"))
+      assert.equal(btcRecord.includes('"'), false, btcRecord)
+    })
     await check("a trade with no journal exports blank cells, not 'undefined'", async () => {
       const sol = rowFields("SOLUSDT")
-      for (const c of ["strategy","entry","tp2","riskPct","rr","rulesOK","mistake","emotion"]) {
+      for (const c of ["strategy","entry","tp2","riskPct","rr","rulesOK",
+                       "exitReason","mistake","emotion"]) {
         assert.equal(sol[header.indexOf(c)], "", `${c} should be blank`)
       }
       // tp1 is not blank here: ov-3 carries an exchange-reported tp of 200, and
