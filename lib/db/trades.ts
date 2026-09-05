@@ -307,15 +307,37 @@ export async function insertTradesSkipExisting(
   return saved
 }
 
+/** Trades stop counting as current this long after they closed. */
+export const ARCHIVE_AFTER_YEARS = 4
+
 /**
- * Deletes trades older than 2 years across all users.
- * Intended for cron cleanup.
+ * Archives trades older than ARCHIVE_AFTER_YEARS across all users, by setting
+ * `deleted_at` — the same soft-delete flag the user's own delete button uses.
+ * Returns how many rows this run archived. Intended for cron cleanup.
+ *
+ * This used to be a hard DELETE. Nothing else in the app destroys a row, and a
+ * scheduled job that silently drops history across every user — with no backup
+ * and no audit trail — was the one exception. Archiving keeps the data
+ * recoverable: every normal read path already filters `deleted_at IS NULL`, so
+ * the rows disappear from the dashboard, admin totals and share links exactly as
+ * before, but they remain in the table and can be restored.
+ *
+ * `AND deleted_at IS NULL` matters twice over: it makes re-running the job a
+ * no-op, and it stops the job overwriting the timestamp on a trade the user
+ * deleted themselves years earlier.
+ *
+ * RETURNING is what makes the count real — the Neon HTTP driver hands back a
+ * bare array with no affected-row count, so an UPDATE without it always looks
+ * like zero rows.
  */
-export async function deleteOldTrades(): Promise<number> {
+export async function archiveOldTrades(): Promise<number> {
   const sql = getSql()
-  const result = await sql`
-    DELETE FROM cached_trades
-    WHERE close_time < NOW() - INTERVAL '2 years'
-  ` as Record<string, unknown>[]
-  return result.length
+  const rows = await sql`
+    UPDATE cached_trades
+    SET deleted_at = NOW()
+    WHERE close_time < NOW() - (${ARCHIVE_AFTER_YEARS} * INTERVAL '1 year')
+      AND deleted_at IS NULL
+    RETURNING id
+  ` as { id: string }[]
+  return rows.length
 }
