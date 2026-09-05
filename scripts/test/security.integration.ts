@@ -271,19 +271,54 @@ async function main() {
         tp: null, sl: null, pnl: 1,
         openTime: "2026-08-01T00:00:00.000Z", closeTime: "2026-08-02T00:00:00.000Z",
       }))
-      const { status } = await post("/api/trades-store", {
+      const { status, json } = await post("/api/trades-store", {
         telegramId: USER_ID, exchange: "OKX", trades, skipExisting: true,
       })
       assert.equal(status, 200)
+      assert.equal(json.saved, 50, "import under-reported what it wrote")
 
-      // The rows landing is the invariant that matters. The route's `saved`
-      // counter reads `result.count`, which is postgres.js semantics left over
-      // from before the move to the Neon HTTP driver, so it always reports 0.
-      // Verified pre-existing, unrelated to the size caps, and out of scope here.
       const stored = await sql`
         SELECT id FROM cached_trades WHERE telegram_id = ${BigInt(USER_ID)}
       ` as { id: string }[]
       assert.equal(stored.length, 50, "a normal-sized import did not reach the DB")
+    })
+
+    // The skip half of skipExisting: a re-upload must report 0 new, not 0 total.
+    await check("re-importing the same trades reports 0 saved and writes nothing", async () => {
+      const trades = Array.from({ length: 50 }, (_, i) => ({
+        id: `sec-ok-${i}`, exchange: "OKX", ticker: "BTCUSDT", positionSize: 1,
+        tp: null, sl: null, pnl: 1,
+        openTime: "2026-08-01T00:00:00.000Z", closeTime: "2026-08-02T00:00:00.000Z",
+      }))
+      const { status, json } = await post("/api/trades-store", {
+        telegramId: USER_ID, exchange: "OKX", trades, skipExisting: true,
+      })
+      assert.equal(status, 200)
+      assert.equal(json.saved, 0, "a pure re-upload should save nothing")
+
+      const stored = await sql`
+        SELECT id FROM cached_trades WHERE telegram_id = ${BigInt(USER_ID)}
+      ` as { id: string }[]
+      assert.equal(stored.length, 50, "re-upload duplicated rows")
+    })
+
+    await check("a partial re-import counts only the genuinely new trades", async () => {
+      // 40 already stored above, 10 new.
+      const trades = Array.from({ length: 50 }, (_, i) => ({
+        id: `sec-ok-${i + 40}`, exchange: "OKX", ticker: "BTCUSDT", positionSize: 1,
+        tp: null, sl: null, pnl: 1,
+        openTime: "2026-08-01T00:00:00.000Z", closeTime: "2026-08-02T00:00:00.000Z",
+      }))
+      const { status, json } = await post("/api/trades-store", {
+        telegramId: USER_ID, exchange: "OKX", trades, skipExisting: true,
+      })
+      assert.equal(status, 200)
+      assert.equal(json.saved, 40, "expected only the 40 unseen ids to count")
+
+      const stored = await sql`
+        SELECT id FROM cached_trades WHERE telegram_id = ${BigInt(USER_ID)}
+      ` as { id: string }[]
+      assert.equal(stored.length, 90, "expected 50 + 40 distinct rows")
 
       const check2 = await post("/api/import/check-ids", {
         telegramId: USER_ID, ids: trades.map((t) => t.id),

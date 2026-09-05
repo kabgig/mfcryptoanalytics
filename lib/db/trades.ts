@@ -286,9 +286,16 @@ export async function insertTradesSkipExisting(
         ${t.pnl}, ${t.market ?? null}, ${t.side ?? null}
       )
       ON CONFLICT (telegram_id, exchange, id) DO NOTHING
-    ` as unknown[]
-    // postgres.js returns the affected rows count via result.count
-    if ((result as unknown as { count: number }).count > 0) saved++
+      RETURNING id
+    ` as { id: string }[]
+    // RETURNING is what makes an insert distinguishable from a skip: the row
+    // comes back only when it was actually written, so a conflict yields [].
+    //
+    // The previous check read `result.count`, which is postgres.js's affected-row
+    // count and does not exist on the Neon HTTP driver — it returns a bare array,
+    // so `.count` was undefined and `undefined > 0` was always false. Every import
+    // therefore reported "0 saved" no matter how many rows it wrote.
+    if (result.length > 0) saved++
   }
 
   await sql`
