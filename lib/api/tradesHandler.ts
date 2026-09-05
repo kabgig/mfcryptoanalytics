@@ -7,6 +7,7 @@ import { BitunixAdapter } from "@/lib/exchanges/adapters/bitunix"
 import { BYDFiAdapter } from "@/lib/exchanges/adapters/bydfi"
 import { getIfFresh, upsertTrades, getStoredTrades, getDeletedKeys, filterDeleted } from "@/lib/db/trades"
 import type { Trade } from "@/types"
+import { serverError } from "@/lib/api/errors"
 
 export interface TradesRequestBody {
   telegramId: string
@@ -87,7 +88,6 @@ export async function handleTradesRequest(request: Request): Promise<Response> {
       return Response.json({ trades: storedTrades, fromCache: true, stale: true })
     }
   } catch (err) {
-    console.error(`[trades] ${exchange} ERROR:`, err)
-    return Response.json({ error: String(err) }, { status: 502 })
+    return serverError("trades", err, 502)
   }
 }

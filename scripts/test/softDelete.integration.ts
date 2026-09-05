@@ -19,6 +19,9 @@ const TEST_TELEGRAM_ID = "990000000001"
 // The share route only accepts 48 hex chars (see app/api/share/[token]/route.ts).
 const TEST_SHARE_TOKEN = "5d1e7e57000000000000000000000000000000000000dead"
 const EXCHANGE = "OKX"
+// /api/admin/users now requires an admin caller, so the suite needs one of its
+// own rather than reading the endpoint anonymously.
+const TEST_ADMIN_ID = "990000000004"
 
 const sql = getSql()
 
@@ -71,6 +74,7 @@ async function teardown() {
   await sql`DELETE FROM cached_trades      WHERE telegram_id = ${tid}`
   await sql`DELETE FROM exchange_fetch_log WHERE telegram_id = ${tid}`
   await sql`DELETE FROM users             WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM users             WHERE telegram_id = ${BigInt(TEST_ADMIN_ID)}`
 }
 
 async function main() {
@@ -86,6 +90,11 @@ async function main() {
     await sql`
       UPDATE users SET share_token = ${TEST_SHARE_TOKEN}
       WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)}
+    `
+    await sql`
+      INSERT INTO users (telegram_id, telegram_name, role)
+      VALUES (${BigInt(TEST_ADMIN_ID)}, ${"sd-test-admin"}, ${"ADMIN"}::user_role)
+      ON CONFLICT (telegram_id) DO UPDATE SET role = ${"ADMIN"}::user_role
     `
     console.log(`  seeded ${TRADES.length} trades for synthetic user ${TEST_TELEGRAM_ID}`)
 
@@ -152,10 +161,11 @@ async function main() {
       assert.ok(!shareJson.trades.some((t) => t.id === "sd-test-2"))
     })
 
-    const adminRes = await fetch(`${BASE}/api/admin/users`)
+    const adminRes = await fetch(`${BASE}/api/admin/users?telegramId=${TEST_ADMIN_ID}`)
     const adminJson = await adminRes.json() as { telegramId: string; tradeCount: number; totalPnl: number }[]
     const row = adminJson.find((u) => u.telegramId === TEST_TELEGRAM_ID)
     await check("admin counts and total PnL exclude the deleted trade", () => {
+      assert.equal(adminRes.status, 200, `admin list refused: ${JSON.stringify(adminJson)}`)
       assert.ok(row, "test user missing from admin list")
       assert.equal(row!.tradeCount, 2)
       assert.equal(row!.totalPnl, 125) // 100 + 25, the -50 is deleted

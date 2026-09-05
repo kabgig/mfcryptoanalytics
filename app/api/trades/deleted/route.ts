@@ -1,4 +1,5 @@
 import { getDeletedTrades } from "@/lib/db/trades"
+import { serverError } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -18,6 +19,6 @@ export async function POST(request: Request) {
     const trades = await getDeletedTrades(String(telegramId))
     return Response.json({ trades })
   } catch (err) {
-    return Response.json({ error: String(err) }, { status: 500 })
+    return serverError("trades/deleted", err, 500)
   }
 }

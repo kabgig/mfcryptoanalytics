@@ -1,4 +1,10 @@
 import { getSql } from "@/lib/db"
+import { serverError } from "@/lib/api/errors"
+import {
+  enforceBodyLimit,
+  MAX_IDS_PER_REQUEST,
+  TRADE_BATCH_BODY_LIMIT,
+} from "@/lib/api/body-limit"
 
 export const dynamic = "force-dynamic"
 
@@ -10,6 +16,9 @@ export const dynamic = "force-dynamic"
  * re-uploading the same CSV should leave a deleted trade deleted, not resurrect it.
  */
 export async function POST(request: Request) {
+  const tooLarge = enforceBodyLimit(request, TRADE_BATCH_BODY_LIMIT)
+  if (tooLarge) return tooLarge
+
   try {
     const { telegramId, ids } = await request.json() as {
       telegramId: string
@@ -18,6 +27,13 @@ export async function POST(request: Request) {
 
     if (!telegramId || !Array.isArray(ids) || ids.length === 0) {
       return Response.json({ existingIds: [] })
+    }
+
+    if (ids.length > MAX_IDS_PER_REQUEST) {
+      return Response.json(
+        { error: `Too many ids (max ${MAX_IDS_PER_REQUEST} per request)` },
+        { status: 413 }
+      )
     }
 
     const sql = getSql()
@@ -30,6 +46,6 @@ export async function POST(request: Request) {
 
     return Response.json({ existingIds: rows.map((r) => r.id) })
   } catch (err) {
-    return Response.json({ error: String(err) }, { status: 500 })
+    return serverError("import/check-ids", err, 500)
   }
 }

@@ -15,7 +15,9 @@
     "test:ui:overrides": "node --env-file=.env.local scripts/test/overrides.ui.mjs",
     "db:migrate": "dbmate --env-file .env.local up",
     "db:rollback": "dbmate --env-file .env.local down",
-    "db:status": "dbmate --env-file .env.local status"
+    "db:status": "dbmate --env-file .env.local status",
+    "test:security": "node --env-file=.env.local --experimental-strip-types --import ./scripts/test/alias-hooks.mjs scripts/test/security.integration.ts",
+    "test:ui:admin": "node --env-file=.env.local scripts/test/admin.ui.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",

@@ -1,4 +1,5 @@
 import { getIfFresh } from "@/lib/db/trades"
+import { serverError } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -12,6 +13,6 @@ export async function POST(request: Request) {
     if (result.fresh) return Response.json({ fresh: true, trades: result.trades })
     return Response.json({ fresh: false, trades: [] })
   } catch (err) {
-    return Response.json({ error: String(err) }, { status: 500 })
+    return serverError("trades-cache", err, 500)
   }
 }

@@ -1,5 +1,6 @@
 import { fetchBalance as fetchBingXBalance } from "@/lib/exchanges/adapters/bingx/balance"
 import { fetchBalance as fetchMEXCBalance } from "@/lib/exchanges/adapters/mexc/balance"
+import { upstreamError } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 export const preferredRegion = "sin1"
@@ -34,6 +35,6 @@ export async function POST(request: Request) {
     }
     return Response.json({ balance })
   } catch (err) {
-    return Response.json({ error: String(err) }, { status: 502 })
+    return upstreamError("balance", err, 502)
   }
 }

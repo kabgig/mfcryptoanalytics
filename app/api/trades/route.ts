@@ -5,6 +5,7 @@ import { BingXAdapter } from "@/lib/exchanges/adapters/bingx"
 import { MEXCAdapter } from "@/lib/exchanges/adapters/mexc"
 import { getIfFresh, upsertTrades, getStoredTrades, getDeletedKeys, filterDeleted } from "@/lib/db/trades"
 import type { Trade } from "@/types"
+import { serverError } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 export const preferredRegion = "sin1" // Singapore — avoids geo-blocks for BingX/MEXC
@@ -84,8 +85,7 @@ export async function POST(request: Request) {
       return Response.json({ trades: storedTrades, fromCache: true, stale: true })
     }
   } catch (err) {
-    console.error(`[trades] ${exchange} ERROR:`, err)
-    return Response.json({ error: String(err) }, { status: 502 })
+    return serverError("trades", err, 502)
   }
 }
 

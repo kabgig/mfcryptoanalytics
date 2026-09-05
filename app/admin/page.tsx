@@ -40,7 +40,7 @@ export default function AdminPage() {
   const fetchUsers = () => {
     setLoading(true)
     setError(null)
-    fetch("/api/admin/users")
+    fetch(`/api/admin/users?telegramId=${encodeURIComponent(telegramId ?? "")}`)
       .then((r) => r.json())
       .then((data) => {
         if (data.error) throw new Error(data.error)
@@ -51,8 +51,9 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
-    if (role === "ADMIN") fetchUsers()
-  }, [role])
+    if (role === "ADMIN" && telegramId) fetchUsers()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role, telegramId])
 
   if (!telegramId || role === null) {
     return (

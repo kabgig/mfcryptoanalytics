@@ -1,4 +1,6 @@
 import { getStoredTrades } from "@/lib/db/trades"
+import { serverError } from "@/lib/api/errors"
+import { enforceBodyLimit } from "@/lib/api/body-limit"
 
 export const dynamic = "force-dynamic"
 
@@ -8,6 +10,9 @@ export const dynamic = "force-dynamic"
  * Used for manual imports like Jupiter Perps.
  */
 export async function POST(request: Request) {
+  const tooLarge = enforceBodyLimit(request)
+  if (tooLarge) return tooLarge
+
   try {
     const { telegramId, exchange } = await request.json() as {
       telegramId: string
@@ -21,6 +26,6 @@ export async function POST(request: Request) {
     const trades = await getStoredTrades(String(telegramId), exchange)
     return Response.json({ trades })
   } catch (err) {
-    return Response.json({ error: String(err) }, { status: 500 })
+    return serverError("import/trades", err, 500)
   }
 }

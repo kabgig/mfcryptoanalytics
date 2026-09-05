@@ -1,4 +1,5 @@
 import { softDeleteTrade } from "@/lib/db/trades"
+import { serverError } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -29,6 +30,6 @@ export async function POST(request: Request) {
 
     return Response.json({ ok: true })
   } catch (err) {
-    return Response.json({ error: String(err) }, { status: 500 })
+    return serverError("trades/delete", err, 500)
   }
 }

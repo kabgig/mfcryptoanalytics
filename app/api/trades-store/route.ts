@@ -1,10 +1,19 @@
 import { getSql } from "@/lib/db"
 import { upsertTrades, insertTradesSkipExisting, getDeletedKeys } from "@/lib/db/trades"
 import type { Trade } from "@/types"
+import { serverError } from "@/lib/api/errors"
+import {
+  enforceBodyLimit,
+  MAX_TRADES_PER_REQUEST,
+  TRADE_BATCH_BODY_LIMIT,
+} from "@/lib/api/body-limit"
 
 export const dynamic = "force-dynamic"
 
 export async function POST(request: Request) {
+  const tooLarge = enforceBodyLimit(request, TRADE_BATCH_BODY_LIMIT)
+  if (tooLarge) return tooLarge
+
   try {
     const { telegramId, exchange, trades, skipExisting } = await request.json() as {
       telegramId: string
@@ -15,6 +24,15 @@ export async function POST(request: Request) {
 
     if (!telegramId || !exchange || !Array.isArray(trades)) {
       return Response.json({ error: "Missing fields" }, { status: 400 })
+    }
+
+    // upsertTrades issues one round-trip per trade, so an unbounded array is a
+    // database-fill and compute-cost DoS in a single request.
+    if (trades.length > MAX_TRADES_PER_REQUEST) {
+      return Response.json(
+        { error: `Too many trades (max ${MAX_TRADES_PER_REQUEST} per request)` },
+        { status: 413 }
+      )
     }
 
     const sql = getSql()
@@ -37,6 +55,6 @@ export async function POST(request: Request) {
     await upsertTrades(telegramId, exchange, trades)
     return Response.json({ ok: true, deletedIds })
   } catch (err) {
-    return Response.json({ error: String(err) }, { status: 500 })
+    return serverError("trades-store", err, 500)
   }
 }
