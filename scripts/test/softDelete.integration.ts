@@ -12,6 +12,7 @@
  */
 import assert from "node:assert/strict"
 import { getSql } from "@/lib/db"
+import { signIn } from "./helpers/session.mjs"
 import type { Trade } from "@/types"
 
 const BASE = process.env.TEST_BASE_URL ?? "http://localhost:3000"
@@ -21,7 +22,7 @@ const TEST_SHARE_TOKEN = "5d1e7e57000000000000000000000000000000000000dead"
 const EXCHANGE = "OKX"
 // /api/admin/users now requires an admin caller, so the suite needs one of its
 // own rather than reading the endpoint anonymously.
-const TEST_ADMIN_ID = "990000000004"
+const TEST_ADMIN_ID = "990000000006"
 
 const sql = getSql()
 
@@ -50,10 +51,17 @@ async function check(name: string, fn: () => void | Promise<void>) {
   console.log(`  ✓ ${name}`)
 }
 
-async function post(path: string, body: unknown) {
+/**
+ * Routes take identity from the session cookie now, so the suite signs in and
+ * replays the cookie. Node's fetch has no jar.
+ */
+let cookie = ""
+let adminCookie = ""
+
+async function post(path: string, body: unknown, jar = cookie) {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", cookie: jar },
     body: JSON.stringify(body),
   })
   return { status: res.status, json: await res.json() as Record<string, unknown> }
@@ -71,10 +79,11 @@ async function deletedTrades(): Promise<Trade[]> {
 
 async function teardown() {
   const tid = BigInt(TEST_TELEGRAM_ID)
-  await sql`DELETE FROM cached_trades      WHERE telegram_id = ${tid}`
-  await sql`DELETE FROM exchange_fetch_log WHERE telegram_id = ${tid}`
-  await sql`DELETE FROM users             WHERE telegram_id = ${tid}`
-  await sql`DELETE FROM users             WHERE telegram_id = ${BigInt(TEST_ADMIN_ID)}`
+  await sql`DELETE FROM public.cached_trades      WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.exchange_fetch_log WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.users             WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.users             WHERE telegram_id = ${BigInt(TEST_ADMIN_ID)}`
+  await sql`DELETE FROM public.users             WHERE telegram_id = ${BigInt("990000009999")}`
 }
 
 async function main() {
@@ -83,18 +92,19 @@ async function main() {
 
   try {
     console.log("\nsetup")
+    cookie = await signIn(BASE, TEST_TELEGRAM_ID, "sd-test")
     const seed = await post("/api/trades-store", {
-      telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, trades: TRADES,
+      exchange: EXCHANGE, trades: TRADES,
     })
     assert.equal(seed.status, 200, `seed failed: ${JSON.stringify(seed.json)}`)
     await sql`
-      UPDATE users SET share_token = ${TEST_SHARE_TOKEN}
+      UPDATE public.users SET share_token = ${TEST_SHARE_TOKEN}
       WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)}
     `
+    adminCookie = await signIn(BASE, TEST_ADMIN_ID, "sd-test-admin")
     await sql`
-      INSERT INTO users (telegram_id, telegram_name, role)
-      VALUES (${BigInt(TEST_ADMIN_ID)}, ${"sd-test-admin"}, ${"ADMIN"}::user_role)
-      ON CONFLICT (telegram_id) DO UPDATE SET role = ${"ADMIN"}::user_role
+      UPDATE public.users SET role = ${"ADMIN"}::user_role
+      WHERE telegram_id = ${BigInt(TEST_ADMIN_ID)}
     `
     console.log(`  seeded ${TRADES.length} trades for synthetic user ${TEST_TELEGRAM_ID}`)
 
@@ -108,7 +118,7 @@ async function main() {
 
     console.log("\ndelete")
     const del = await post("/api/trades/delete", {
-      telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "sd-test-2",
+      exchange: EXCHANGE, id: "sd-test-2",
     })
     await check("delete returns ok", () => assert.equal(del.status, 200))
 
@@ -127,7 +137,7 @@ async function main() {
 
     console.log("\nre-sync (the case soft delete exists for)")
     const resync = await post("/api/trades-store", {
-      telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, trades: TRADES,
+      exchange: EXCHANGE, trades: TRADES,
     })
     await check("re-syncing all 3 trades does NOT resurrect the deleted one", async () => {
       assert.equal(resync.status, 200)
@@ -139,14 +149,14 @@ async function main() {
     })
 
     const importPath = await post("/api/import/trades", {
-      telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE,
+      exchange: EXCHANGE,
     })
     await check("import feed also hides the deleted trade", () => {
       assert.equal((importPath.json.trades as Trade[]).length, 2)
     })
 
     const checkIds = await post("/api/import/check-ids", {
-      telegramId: TEST_TELEGRAM_ID, ids: TRADES.map((t) => t.id),
+      ids: TRADES.map((t) => t.id),
     })
     await check("check-ids still reports the deleted trade as existing (re-upload keeps it deleted)", () => {
       assert.ok((checkIds.json.existingIds as string[]).includes("sd-test-2"))
@@ -161,7 +171,7 @@ async function main() {
       assert.ok(!shareJson.trades.some((t) => t.id === "sd-test-2"))
     })
 
-    const adminRes = await fetch(`${BASE}/api/admin/users?telegramId=${TEST_ADMIN_ID}`)
+    const adminRes = await fetch(`${BASE}/api/admin/users`, { headers: { cookie: adminCookie } })
     const adminJson = await adminRes.json() as { telegramId: string; tradeCount: number; totalPnl: number }[]
     const row = adminJson.find((u) => u.telegramId === TEST_TELEGRAM_ID)
     await check("admin counts and total PnL exclude the deleted trade", () => {
@@ -173,10 +183,10 @@ async function main() {
 
     console.log("\ncache freshness (JOIN-vs-WHERE regression guard)")
     for (const t of TRADES) {
-      await post("/api/trades/delete", { telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: t.id })
+      await post("/api/trades/delete", { exchange: EXCHANGE, id: t.id })
     }
     const allDeleted = await post("/api/trades-cache", {
-      telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE,
+      exchange: EXCHANGE,
     })
     await check("cache still reads as fresh when every trade is deleted", () => {
       assert.equal(allDeleted.json.fresh, true, "would re-hit the exchange on every page load")
@@ -186,7 +196,7 @@ async function main() {
     console.log("\nrestore")
     for (const t of TRADES) {
       const res = await post("/api/trades/restore", {
-        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: t.id,
+        exchange: EXCHANGE, id: t.id,
       })
       assert.equal(res.status, 200)
     }
@@ -198,16 +208,19 @@ async function main() {
     })
 
     console.log("\nscoping")
-    const wrongUser = await post("/api/trades/delete", {
-      telegramId: "990000009999", exchange: EXCHANGE, id: "sd-test-1",
-    })
-    await check("deleting under a different telegramId does not touch this user's trade", async () => {
+    // The old version passed someone else's telegramId in the body. That field no
+    // longer exists, so the real test is a genuinely different signed-in user.
+    const otherCookie = await signIn(BASE, "990000009999", "sd-other")
+    const wrongUser = await post(
+      "/api/trades/delete", { exchange: EXCHANGE, id: "sd-test-1" }, otherCookie
+    )
+    await check("another signed-in user cannot delete this user's trade", async () => {
       assert.equal(wrongUser.status, 404)
       assert.equal((await visibleTrades()).length, 3)
     })
 
     const wrongExchange = await post("/api/trades/delete", {
-      telegramId: TEST_TELEGRAM_ID, exchange: "Bybit", id: "sd-test-1",
+      exchange: "Bybit", id: "sd-test-1",
     })
     await check("deleting with the wrong exchange is a 404, not a cross-exchange hit", async () => {
       assert.equal(wrongExchange.status, 404)

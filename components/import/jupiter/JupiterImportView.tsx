@@ -99,7 +99,7 @@ export function JupiterImportView() {
       const res = await fetch('/api/import/check-ids', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegramId, ids }),
+        body: JSON.stringify({ ids }),
       })
       const { existingIds, error } = await res.json()
       if (error) throw new Error(error)
@@ -120,7 +120,6 @@ export function JupiterImportView() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          telegramId,
           exchange: 'Jupiter Perps',
           trades,
           skipExisting: true,

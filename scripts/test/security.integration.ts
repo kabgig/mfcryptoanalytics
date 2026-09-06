@@ -12,6 +12,7 @@
  */
 import assert from "node:assert/strict"
 import { getSql } from "@/lib/db"
+import { signIn } from "./helpers/session.mjs"
 
 const BASE = process.env.TEST_BASE_URL ?? "http://localhost:3000"
 const ADMIN_ID = "990000000101"
@@ -48,25 +49,27 @@ async function check(name: string, fn: () => void | Promise<void>) {
 async function setup() {
   await teardown()
   await sql`
-    INSERT INTO users (telegram_id, telegram_name, role)
+    INSERT INTO public.users (telegram_id, telegram_name, role)
     VALUES (${BigInt(ADMIN_ID)}, ${"sec-test-admin"}, ${"ADMIN"}::user_role)
   `
   await sql`
-    INSERT INTO users (telegram_id, telegram_name, role)
+    INSERT INTO public.users (telegram_id, telegram_name, role)
     VALUES (${BigInt(USER_ID)}, ${"sec-test-user"}, ${"USER"}::user_role)
   `
 }
 
 async function teardown() {
   for (const id of [ADMIN_ID, USER_ID, WEBHOOK_ID]) {
-    await sql`DELETE FROM users WHERE telegram_id = ${BigInt(id)}`
+    await sql`DELETE FROM public.users WHERE telegram_id = ${BigInt(id)}`
   }
 }
+
+let cookie = ""
 
 async function post(path: string, body: unknown, headers: Record<string, string> = {}) {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...headers },
+    headers: { "Content-Type": "application/json", cookie, ...headers },
     body: typeof body === "string" ? body : JSON.stringify(body),
   })
   const text = await res.text()
@@ -78,6 +81,11 @@ async function post(path: string, body: unknown, headers: Record<string, string>
 async function main() {
   if (!SECRET) throw new Error("TELEGRAM_WEBHOOK_SECRET must be set (run with --env-file=.env.local)")
   await setup()
+  // Routes take identity from the session now; these checks are about error
+  // shape and size limits, so they run as a normal signed-in user.
+  cookie = await signIn(BASE, USER_ID, "sec-test-user")
+  const adminCookie = await signIn(BASE, ADMIN_ID, "sec-test-admin")
+  await sql`UPDATE public.users SET role = ${"ADMIN"}::user_role WHERE telegram_id = ${BigInt(ADMIN_ID)}`
 
   try {
     // ---------------------------------------------------------------- admin
@@ -85,40 +93,27 @@ async function main() {
 
     await check("anonymous request is refused", async () => {
       const res = await fetch(`${BASE}/api/admin/users`)
-      assert.equal(res.status, 403)
+      assert.equal(res.status, 401)
       const body = await res.text()
       assert.ok(!body.includes("sec-test-admin"), "leaked the user list")
       assert.ok(!body.includes("telegramId"), "leaked the user list")
     })
 
-    await check("a non-admin telegramId is refused", async () => {
-      const res = await fetch(`${BASE}/api/admin/users?telegramId=${USER_ID}`)
+    await check("a signed-in non-admin is refused", async () => {
+      const res = await fetch(`${BASE}/api/admin/users`, { headers: { cookie } })
       assert.equal(res.status, 403)
       const body = await res.text()
       assert.ok(!body.includes("sec-test-admin"), "leaked the user list")
     })
 
-    await check("an unknown telegramId is refused", async () => {
-      const res = await fetch(`${BASE}/api/admin/users?telegramId=990000000999`)
-      assert.equal(res.status, 403)
-    })
-
-    await check("a non-numeric telegramId is refused without touching the DB", async () => {
-      const res = await fetch(`${BASE}/api/admin/users?telegramId=' OR 1=1--`)
-      assert.equal(res.status, 403)
-    })
-
-    await check("unknown and non-admin are indistinguishable", async () => {
-      const [a, b] = await Promise.all([
-        fetch(`${BASE}/api/admin/users?telegramId=${USER_ID}`).then((r) => r.text()),
-        fetch(`${BASE}/api/admin/users?telegramId=990000000999`).then((r) => r.text()),
-      ])
-      assert.equal(a, b, "response distinguishes an existing user from an unknown one")
+    await check("a telegramId in the query string buys nothing", async () => {
+      const res = await fetch(`${BASE}/api/admin/users?telegramId=${ADMIN_ID}`)
+      assert.equal(res.status, 401, "a query param still influenced authorization")
     })
 
     // REGRESSION: the feature still works for the person it is for.
-    await check("an ADMIN telegramId still gets the full list", async () => {
-      const res = await fetch(`${BASE}/api/admin/users?telegramId=${ADMIN_ID}`)
+    await check("an ADMIN session still gets the full list", async () => {
+      const res = await fetch(`${BASE}/api/admin/users`, { headers: { cookie: adminCookie } })
       assert.equal(res.status, 200)
       const rows = await res.json() as { telegramId: string; role: string }[]
       assert.ok(Array.isArray(rows), "expected an array")
@@ -143,7 +138,7 @@ async function main() {
 
     const rowExists = async (id: string) => {
       const rows = await sql`
-        SELECT 1 FROM users WHERE telegram_id = ${BigInt(id)}
+        SELECT 1 FROM public.users WHERE telegram_id = ${BigInt(id)}
       ` as unknown[]
       return rows.length > 0
     }
@@ -204,20 +199,38 @@ async function main() {
 
     const leaky = /SyntaxError|BigInt|NeonDbError|SELECT |INSERT |relation |column |at async|\.ts:\d+/
 
+    // An unparseable timestamp fails inside the timestamptz cast — a genuine
+    // driver-level error rather than a validation branch, and the exact shape
+    // that used to echo the SQL back to the caller. The insert fails on the
+    // first row, so nothing is written.
+    await check("a driver-level failure returns no internal detail", async () => {
+      const { status, json, text } = await post("/api/trades-store", {
+        exchange: "OKX",
+        trades: [{
+          id: "sec-bad-date", exchange: "OKX", ticker: "BTCUSDT", positionSize: 1,
+          tp: null, sl: null, pnl: 0,
+          openTime: "not-a-date", closeTime: "not-a-date",
+        }],
+      })
+      assert.ok(status >= 400, `expected an error status, got ${status}`)
+      assert.ok(!leaky.test(text), `leaked internals: ${text.slice(0, 200)}`)
+      assert.equal(typeof json.error, "string", "dropped the `error` key clients rely on")
+      assert.equal(json.error, "Internal server error")
+    })
+
+    // Every guarded route's validation branches must also stay clean.
     for (const [path, body] of [
-      ["/api/trades-cache", { telegramId: "not-a-number", exchange: "OKX" }],
-      ["/api/trades-cache/all", { telegramId: "not-a-number" }],
-      ["/api/trades/deleted", { telegramId: "not-a-number" }],
-      ["/api/trades/delete", { telegramId: "not-a-number", exchange: "OKX", id: "x" }],
-      ["/api/trades/restore", { telegramId: "not-a-number", exchange: "OKX", id: "x" }],
-      ["/api/import/trades", { telegramId: "not-a-number", exchange: "OKX" }],
-      ["/api/import/check-ids", { telegramId: "not-a-number", ids: ["x"] }],
+      ["/api/trades-cache", {}],
+      ["/api/trades/delete", { exchange: "OKX" }],
+      ["/api/trades/restore", { exchange: "OKX" }],
+      ["/api/import/trades", {}],
+      ["/api/trades/notes", { exchange: "OKX", id: "x", phase: "nope" }],
+      ["/api/trades/overrides", { exchange: "OKX" }],
     ] as [string, unknown][]) {
-      await check(`${path} returns no internal detail`, async () => {
+      await check(`${path} rejects bad input without leaking`, async () => {
         const { status, json, text } = await post(path, body)
         assert.ok(status >= 400, `expected an error status, got ${status}`)
         assert.ok(!leaky.test(text), `leaked internals: ${text.slice(0, 200)}`)
-        // REGRESSION: eight client call sites branch on `data.error`.
         assert.equal(typeof json.error, "string", "dropped the `error` key clients rely on")
       })
     }
@@ -236,7 +249,7 @@ async function main() {
     await check("an over-cap body is refused 413 before parsing", async () => {
       const trades = Array.from({ length: 12_000 }, (_, i) => tinyTrade(i))
       const { status } = await post("/api/trades-store", {
-        telegramId: USER_ID, exchange: "OKX", trades,
+        exchange: "OKX", trades,
         padding: "x".repeat(4 * 1024 * 1024),
       })
       assert.equal(status, 413)
@@ -245,7 +258,7 @@ async function main() {
     await check("an over-cap trade count is refused 413", async () => {
       const trades = Array.from({ length: 10_001 }, (_, i) => tinyTrade(i))
       const { status, json } = await post("/api/trades-store", {
-        telegramId: USER_ID, exchange: "OKX", trades,
+        exchange: "OKX", trades,
       })
       assert.equal(status, 413)
       assert.equal(typeof json.error, "string")
@@ -253,14 +266,14 @@ async function main() {
 
     await check("nothing was written by the refused batches", async () => {
       const rows = await sql`
-        SELECT 1 FROM cached_trades WHERE telegram_id = ${BigInt(USER_ID)}
+        SELECT 1 FROM public.cached_trades WHERE telegram_id = ${BigInt(USER_ID)}
       ` as unknown[]
       assert.equal(rows.length, 0, "an over-cap batch reached the database")
     })
 
     await check("an over-cap id list is refused 413", async () => {
       const ids = Array.from({ length: 10_001 }, (_, i) => `sec-${i}`)
-      const { status } = await post("/api/import/check-ids", { telegramId: USER_ID, ids })
+      const { status } = await post("/api/import/check-ids", { ids })
       assert.equal(status, 413)
     })
 
@@ -272,13 +285,13 @@ async function main() {
         openTime: "2026-08-01T00:00:00.000Z", closeTime: "2026-08-02T00:00:00.000Z",
       }))
       const { status, json } = await post("/api/trades-store", {
-        telegramId: USER_ID, exchange: "OKX", trades, skipExisting: true,
+        exchange: "OKX", trades, skipExisting: true,
       })
       assert.equal(status, 200)
       assert.equal(json.saved, 50, "import under-reported what it wrote")
 
       const stored = await sql`
-        SELECT id FROM cached_trades WHERE telegram_id = ${BigInt(USER_ID)}
+        SELECT id FROM public.cached_trades WHERE telegram_id = ${BigInt(USER_ID)}
       ` as { id: string }[]
       assert.equal(stored.length, 50, "a normal-sized import did not reach the DB")
     })
@@ -291,13 +304,13 @@ async function main() {
         openTime: "2026-08-01T00:00:00.000Z", closeTime: "2026-08-02T00:00:00.000Z",
       }))
       const { status, json } = await post("/api/trades-store", {
-        telegramId: USER_ID, exchange: "OKX", trades, skipExisting: true,
+        exchange: "OKX", trades, skipExisting: true,
       })
       assert.equal(status, 200)
       assert.equal(json.saved, 0, "a pure re-upload should save nothing")
 
       const stored = await sql`
-        SELECT id FROM cached_trades WHERE telegram_id = ${BigInt(USER_ID)}
+        SELECT id FROM public.cached_trades WHERE telegram_id = ${BigInt(USER_ID)}
       ` as { id: string }[]
       assert.equal(stored.length, 50, "re-upload duplicated rows")
     })
@@ -310,18 +323,18 @@ async function main() {
         openTime: "2026-08-01T00:00:00.000Z", closeTime: "2026-08-02T00:00:00.000Z",
       }))
       const { status, json } = await post("/api/trades-store", {
-        telegramId: USER_ID, exchange: "OKX", trades, skipExisting: true,
+        exchange: "OKX", trades, skipExisting: true,
       })
       assert.equal(status, 200)
       assert.equal(json.saved, 40, "expected only the 40 unseen ids to count")
 
       const stored = await sql`
-        SELECT id FROM cached_trades WHERE telegram_id = ${BigInt(USER_ID)}
+        SELECT id FROM public.cached_trades WHERE telegram_id = ${BigInt(USER_ID)}
       ` as { id: string }[]
       assert.equal(stored.length, 90, "expected 50 + 40 distinct rows")
 
       const check2 = await post("/api/import/check-ids", {
-        telegramId: USER_ID, ids: trades.map((t) => t.id),
+        ids: trades.map((t) => t.id),
       })
       assert.equal(check2.status, 200)
       assert.equal((check2.json.existingIds as string[]).length, 50)
@@ -350,7 +363,7 @@ async function main() {
     })
 
     await check("API responses are marked no-store", async () => {
-      const res = await fetch(`${BASE}/api/user/role?telegramId=${USER_ID}`)
+      const res = await fetch(`${BASE}/api/me`, { headers: { cookie } })
       assert.equal(res.status, 200)
       assert.match(res.headers.get("cache-control") ?? "", /no-store/)
     })
@@ -376,8 +389,8 @@ async function main() {
     // --------------------------------------------------- untouched neighbours
     console.log("\nregression: routes this change did not touch")
 
-    await check("/api/user/role still answers", async () => {
-      const res = await fetch(`${BASE}/api/user/role?telegramId=${ADMIN_ID}`)
+    await check("/api/me still answers", async () => {
+      const res = await fetch(`${BASE}/api/me`, { headers: { cookie: adminCookie } })
       assert.equal(res.status, 200)
       assert.equal((await res.json()).role, "ADMIN")
     })
@@ -398,15 +411,15 @@ async function main() {
     })
 
     await check("/api/trades/notes and /overrides still read", async () => {
-      const notes = await fetch(`${BASE}/api/trades/notes?telegramId=${USER_ID}`)
+      const notes = await fetch(`${BASE}/api/trades/notes`, { headers: { cookie } })
       assert.equal(notes.status, 200)
-      const ov = await fetch(`${BASE}/api/trades/overrides?telegramId=${USER_ID}`)
+      const ov = await fetch(`${BASE}/api/trades/overrides`, { headers: { cookie } })
       assert.equal(ov.status, 200)
     })
 
     await check("/api/spot/entries still validates and reads", async () => {
-      assert.equal((await fetch(`${BASE}/api/spot/entries`)).status, 400)
-      const res = await fetch(`${BASE}/api/spot/entries?telegramId=${USER_ID}`)
+      assert.equal((await fetch(`${BASE}/api/spot/entries`)).status, 401)
+      const res = await fetch(`${BASE}/api/spot/entries`, { headers: { cookie } })
       assert.equal(res.status, 200)
       assert.ok(Array.isArray((await res.json()).entries))
     })

@@ -20,6 +20,7 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createRequire } from "node:module"
 import { neon } from "@neondatabase/serverless"
+import { signInBrowser } from "./helpers/session.mjs"
 
 const require = createRequire(import.meta.url)
 const { chromium } = require(
@@ -67,14 +68,14 @@ const WIDE_PERIOD = {
 
 async function teardown() {
   const tid = BigInt(TEST_TELEGRAM_ID)
-  await sql`DELETE FROM cached_trades      WHERE telegram_id = ${tid}`
-  await sql`DELETE FROM exchange_fetch_log WHERE telegram_id = ${tid}`
-  await sql`DELETE FROM users             WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.cached_trades      WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.exchange_fetch_log WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.users             WHERE telegram_id = ${tid}`
 }
 
 async function assertNoRealDataAtRisk() {
   const rows = await sql`
-    SELECT COUNT(*)::int AS n FROM cached_trades
+    SELECT COUNT(*)::int AS n FROM public.cached_trades
     WHERE close_time < NOW() - INTERVAL '2 years'
       AND telegram_id <> ${BigInt(TEST_TELEGRAM_ID)}
   `
@@ -86,19 +87,19 @@ async function assertNoRealDataAtRisk() {
 async function seed() {
   const tid = BigInt(TEST_TELEGRAM_ID)
   await sql`
-    INSERT INTO users (telegram_id, telegram_name)
+    INSERT INTO public.users (telegram_id, telegram_name)
     VALUES (${tid}, ${"cleanup-ui"}) ON CONFLICT (telegram_id) DO NOTHING
   `
   for (const t of TRADES) {
     await sql`
-      INSERT INTO cached_trades
+      INSERT INTO public.cached_trades
         (id, telegram_id, exchange, ticker, position_size, tp, sl, open_time, close_time, pnl, market, side)
       VALUES (${t.id}, ${tid}, ${EXCHANGE}, ${"BTCUSDT"}, 1, null, null,
               ${t.closeTime}::timestamptz, ${t.closeTime}::timestamptz, ${t.pnl}, null, null)
     `
   }
   await sql`
-    INSERT INTO exchange_fetch_log (telegram_id, exchange, fetched_at)
+    INSERT INTO public.exchange_fetch_log (telegram_id, exchange, fetched_at)
     VALUES (${tid}, ${EXCHANGE}, NOW())
     ON CONFLICT (telegram_id, exchange) DO UPDATE SET fetched_at = NOW()
   `
@@ -106,7 +107,7 @@ async function seed() {
 
 const archivedAt = async (id) => {
   const rows = await sql`
-    SELECT deleted_at FROM cached_trades
+    SELECT deleted_at FROM public.cached_trades
     WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND id = ${id}
   `
   return rows.length === 0 ? "ROW GONE" : rows[0].deleted_at
@@ -141,6 +142,8 @@ async function main() {
   }, TEST_TELEGRAM_ID)
 
   const page = await context.newPage()
+  // The cookie, not localStorage, is what the server trusts now.
+  await signInBrowser(page, BASE, TEST_TELEGRAM_ID, "cleanup-ui")
   const pageErrors = []
   page.on("pageerror", (e) => pageErrors.push(e.stack ?? String(e)))
   const netIssues = []

@@ -1,78 +1,65 @@
 import { getSql } from "@/lib/db"
-import { randomBytes } from "crypto"
+import { randomBytes } from "node:crypto"
+import { requireUser } from "@/lib/auth/session"
+import { serverError } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
-// POST — generate a new share token for the user
-export async function POST(request: Request) {
-  const { searchParams } = new URL(request.url)
-  const telegramId = searchParams.get("telegramId")
+/**
+ * The user's public-report token. Scoped to the session throughout: previously
+ * any caller could read, mint or revoke any user's token by passing their id,
+ * which meant enabling sharing for someone who never asked for it.
+ */
 
-  if (!telegramId || isNaN(Number(telegramId))) {
-    return Response.json({ error: "Missing or invalid telegramId" }, { status: 400 })
-  }
+// POST — generate a new token, replacing any existing one
+export async function POST() {
+  const user = await requireUser()
+  if (user instanceof Response) return user
 
   const token = randomBytes(24).toString("hex")
 
   try {
     const sql = getSql()
     await sql`
-      UPDATE users
-      SET share_token = ${token}
-      WHERE telegram_id = ${BigInt(telegramId)}
+      UPDATE public.users SET share_token = ${token}
+      WHERE telegram_id = ${BigInt(user.telegramId)}
     `
     return Response.json({ token })
   } catch (err) {
-    console.error("[share-token] POST error:", err)
-    return Response.json({ error: "Internal server error" }, { status: 500 })
+    return serverError("share-token", err)
   }
 }
 
-// GET — fetch the current share token for the user
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url)
-  const telegramId = searchParams.get("telegramId")
-
-  if (!telegramId || isNaN(Number(telegramId))) {
-    return Response.json({ error: "Missing or invalid telegramId" }, { status: 400 })
-  }
+// GET — the caller's current token, or null
+export async function GET() {
+  const user = await requireUser()
+  if (user instanceof Response) return user
 
   try {
     const sql = getSql()
     const rows = await sql`
-      SELECT share_token FROM users WHERE telegram_id = ${BigInt(telegramId)} LIMIT 1
+      SELECT share_token FROM public.users
+      WHERE telegram_id = ${BigInt(user.telegramId)} LIMIT 1
     ` as { share_token: string | null }[]
-
-    if (rows.length === 0) {
-      return Response.json({ token: null })
-    }
-
-    return Response.json({ token: rows[0].share_token ?? null })
+    return Response.json({ token: rows[0]?.share_token ?? null })
   } catch (err) {
-    console.error("[share-token] GET error:", err)
-    return Response.json({ error: "Internal server error" }, { status: 500 })
+    return serverError("share-token", err)
   }
 }
 
-// DELETE — revoke the share token
-export async function DELETE(request: Request) {
-  const { searchParams } = new URL(request.url)
-  const telegramId = searchParams.get("telegramId")
-
-  if (!telegramId || isNaN(Number(telegramId))) {
-    return Response.json({ error: "Missing or invalid telegramId" }, { status: 400 })
-  }
+// DELETE — revoke it
+export async function DELETE() {
+  const user = await requireUser()
+  if (user instanceof Response) return user
 
   try {
     const sql = getSql()
     await sql`
-      UPDATE users
-      SET share_token = NULL
-      WHERE telegram_id = ${BigInt(telegramId)}
+      UPDATE public.users SET share_token = NULL
+      WHERE telegram_id = ${BigInt(user.telegramId)}
     `
     return Response.json({ ok: true })
   } catch (err) {
-    console.error("[share-token] DELETE error:", err)
-    return Response.json({ error: "Internal server error" }, { status: 500 })
+    return serverError("share-token", err)
   }
 }

@@ -20,6 +20,8 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createRequire } from "node:module"
 import { neon } from "@neondatabase/serverless"
+import { signIn, signInBrowser } from "./helpers/session.mjs"
+import { gotoApp, reloadApp } from "./helpers/nav.mjs"
 
 // Playwright is installed globally, not as a project dependency.
 const require = createRequire(import.meta.url)
@@ -61,10 +63,13 @@ async function check(name, fn) {
   console.log(`  ✓ ${name}`)
 }
 
+// Seeding goes through the API, which now requires a session.
+let cookie = ""
+
 async function post(path, body) {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", cookie },
     body: JSON.stringify(body),
   })
   return res.json()
@@ -72,10 +77,10 @@ async function post(path, body) {
 
 async function teardown() {
   const tid = BigInt(TEST_TELEGRAM_ID)
-  await sql`DELETE FROM trade_overrides    WHERE telegram_id = ${tid}`
-  await sql`DELETE FROM cached_trades      WHERE telegram_id = ${tid}`
-  await sql`DELETE FROM exchange_fetch_log WHERE telegram_id = ${tid}`
-  await sql`DELETE FROM users              WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.trade_overrides    WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.cached_trades      WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.exchange_fetch_log WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.users              WHERE telegram_id = ${tid}`
 }
 
 /** The stored override row for a trade, or undefined. */
@@ -83,7 +88,7 @@ async function storedRow(tradeId) {
   const rows = await sql`
     SELECT bias, entry, tp1, tp2, sl, risk_pct, rr, rules_ok,
            strategy, timeframe, killzone, exit_reason, mistake, emotion
-    FROM trade_overrides
+    FROM public.trade_overrides
     WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND trade_id = ${tradeId}
   `
   return rows[0]
@@ -92,7 +97,8 @@ async function storedRow(tradeId) {
 async function main() {
   mkdirSync(SHOTS, { recursive: true })
   await teardown()
-  await post("/api/trades-store", { telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, trades: TRADES })
+  cookie = await signIn(BASE, TEST_TELEGRAM_ID, "ui-test")
+  await post("/api/trades-store", { exchange: EXCHANGE, trades: TRADES })
   console.log(`\nsetup: seeded ${TRADES.length} trades for synthetic user ${TEST_TELEGRAM_ID}`)
 
   const browser = await chromium.launch()
@@ -113,6 +119,8 @@ async function main() {
   }, TEST_TELEGRAM_ID)
 
   const page = await context.newPage()
+  // The cookie, not localStorage, is what the server trusts now.
+  await signInBrowser(page, BASE, TEST_TELEGRAM_ID, "ui-test")
   const pageErrors = []
   page.on("pageerror", (e) => pageErrors.push(e.stack ?? String(e)))
   const netIssues = []
@@ -218,7 +226,7 @@ async function main() {
   }
 
   try {
-    await page.goto(BASE, { waitUntil: "networkidle" })
+    await gotoApp(page, BASE)
     await page.waitForSelector('[data-testid="bias-cell"]')
     await page.screenshot({ path: `${SHOTS}/o1-initial.png`, fullPage: true })
 
@@ -334,7 +342,7 @@ async function main() {
       // The whole point of the separate table: a sync rewrites cached_trades.tp
       // from EXCLUDED, so a value stored there would not survive one.
       const rows = await sql`
-        SELECT tp, sl FROM cached_trades
+        SELECT tp, sl FROM public.cached_trades
         WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND id = 'ov-1'
       `
       assert.equal(rows[0].tp, null)
@@ -385,7 +393,7 @@ async function main() {
     await fillJournal("BTCUSDT", { emotion: ["fear"], rr: 3 })
     await check("editing replaces values rather than adding a second row", async () => {
       const rows = await sql`
-        SELECT emotion, rr, strategy FROM trade_overrides
+        SELECT emotion, rr, strategy FROM public.trade_overrides
         WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND trade_id = 'ov-1'
       `
       assert.equal(rows.length, 1)
@@ -488,7 +496,7 @@ async function main() {
     })
     await check("side itself is left alone, so the LVS split still reads it", async () => {
       const rows = await sql`
-        SELECT side FROM cached_trades
+        SELECT side FROM public.cached_trades
         WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND id = 'ov-2'
       `
       assert.equal(rows[0].side, "long", "the bias override rewrote cached_trades.side")
@@ -503,21 +511,21 @@ async function main() {
     console.log("\nvalidation")
     await check("a negative price is refused before it reaches the DB", async () => {
       const res = await post("/api/trades/overrides", {
-        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", tp1: -5,
+        exchange: EXCHANGE, id: "ov-1", tp1: -5,
       })
       assert.match(res.error ?? "", /at least 0/)
       assert.equal(Number((await storedRow("ov-1")).tp1), 120, "the stored value changed")
     })
     await check("a risk % above 100 is refused", async () => {
       const res = await post("/api/trades/overrides", {
-        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", riskPct: 150,
+        exchange: EXCHANGE, id: "ov-1", riskPct: 150,
       })
       assert.match(res.error ?? "", /between 0 and 100/)
     })
     await check("a value outside a single-choice list is refused", async () => {
       for (const [field, bad] of [["strategy", "scalping"], ["killzone", "tokyo"]]) {
         const res = await post("/api/trades/overrides", {
-          telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", [field]: bad,
+          exchange: EXCHANGE, id: "ov-1", [field]: bad,
         })
         assert.match(res.error ?? "", new RegExp(`${field} must be one of`), `${field} accepted ${bad}`)
       }
@@ -532,7 +540,7 @@ async function main() {
         ["exitReason", ["tp1", "tp3"]],
       ]) {
         const res = await post("/api/trades/overrides", {
-          telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", [field]: bad,
+          exchange: EXCHANGE, id: "ov-1", [field]: bad,
         })
         assert.match(
           res.error ?? "", new RegExp(`${field} must be a list of`),
@@ -542,7 +550,7 @@ async function main() {
     })
     await check("a repeated tag is refused", async () => {
       const res = await post("/api/trades/overrides", {
-        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", emotion: ["calm", "calm"],
+        exchange: EXCHANGE, id: "ov-1", emotion: ["calm", "calm"],
       })
       assert.match(res.error ?? "", /emotion must be a list of/)
     })
@@ -550,7 +558,7 @@ async function main() {
       // A caller written against the single-valued version of this route keeps
       // working — that is what makes the API change non-breaking.
       const res = await post("/api/trades/overrides", {
-        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", exitReason: "be",
+        exchange: EXCHANGE, id: "ov-1", exitReason: "be",
       })
       assert.equal(res.ok, true, JSON.stringify(res))
       assert.deepEqual(res.override.exitReason, ["be"])
@@ -560,31 +568,31 @@ async function main() {
       // The one genuinely breaking part of this change: exit_reason carried a
       // CHECK constraint that would have rejected 'tp1|sl' outright.
       const res = await post("/api/trades/overrides", {
-        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", exitReason: ["tp1", "sl"],
+        exchange: EXCHANGE, id: "ov-1", exitReason: ["tp1", "sl"],
       })
       assert.equal(res.ok, true, JSON.stringify(res))
       assert.equal((await storedRow("ov-1")).exit_reason, "tp1|sl")
     })
     await check("an empty list clears a multi-select field", async () => {
       await post("/api/trades/overrides", {
-        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", exitReason: [],
+        exchange: EXCHANGE, id: "ov-1", exitReason: [],
       })
       assert.equal((await storedRow("ov-1")).exit_reason, null)
       // The row itself survives — it still holds a strategy, levels and a bias.
       assert.equal((await storedRow("ov-1")).strategy, "orderflow")
       // Put it back for the persistence and export checks below.
       await post("/api/trades/overrides", {
-        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", exitReason: ["tp1", "sl"],
+        exchange: EXCHANGE, id: "ov-1", exitReason: ["tp1", "sl"],
       })
     })
     await check("a legacy single value in the column reads back as a one-tag list", async () => {
       // Every row written before this change holds a bare slug. Write one the
       // way the old code would have, and the app must read it as one tag.
       await sql`
-        UPDATE trade_overrides SET mistake = 'chased_price'
+        UPDATE public.trade_overrides SET mistake = 'chased_price'
         WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND trade_id = 'ov-1'
       `
-      const res = await fetch(`${BASE}/api/trades/overrides?telegramId=${TEST_TELEGRAM_ID}`)
+      const res = await fetch(`${BASE}/api/trades/overrides`, { headers: { cookie } })
       const { overrides } = await res.json()
       assert.deepEqual(overrides[`${EXCHANGE}|ov-1`].mistake, ["chased_price"])
     })
@@ -592,27 +600,27 @@ async function main() {
       // 'none' no longer exists. A row still holding it must not surface it as
       // if it were an option the form could show.
       await sql`
-        UPDATE trade_overrides SET mistake = 'none|chased_price'
+        UPDATE public.trade_overrides SET mistake = 'none|chased_price'
         WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND trade_id = 'ov-1'
       `
-      const res = await fetch(`${BASE}/api/trades/overrides?telegramId=${TEST_TELEGRAM_ID}`)
+      const res = await fetch(`${BASE}/api/trades/overrides`, { headers: { cookie } })
       const { overrides } = await res.json()
       assert.deepEqual(overrides[`${EXCHANGE}|ov-1`].mistake, ["chased_price"])
       // Put the row back the way the form left it for the checks below.
       await post("/api/trades/overrides", {
-        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1",
+        exchange: EXCHANGE, id: "ov-1",
         mistake: ["no_stop", "chased_price"],
       })
     })
     await check("a bias outside buy/sell is refused", async () => {
       const res = await post("/api/trades/overrides", {
-        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", bias: "long",
+        exchange: EXCHANGE, id: "ov-1", bias: "long",
       })
       assert.match(res.error ?? "", /buy, sell or null/)
     })
     await check("a patch only touches the field it carries", async () => {
       await post("/api/trades/overrides", {
-        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", sl: 60000,
+        exchange: EXCHANGE, id: "ov-1", sl: 60000,
       })
       const row = await storedRow("ov-1")
       assert.equal(Number(row.sl), 60000)
@@ -621,7 +629,7 @@ async function main() {
       assert.equal(row.bias, "sell", "bias was clobbered by an sl-only patch")
       // Put the row back the way the form left it for the checks below.
       await post("/api/trades/overrides", {
-        telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-1", sl: 90,
+        exchange: EXCHANGE, id: "ov-1", sl: 90,
       })
     })
 
@@ -630,7 +638,7 @@ async function main() {
     console.log("\nLvsS counts the manual bias")
     const lvs = await context.newPage()
     lvs.on("pageerror", (e) => pageErrors.push(`[lvs] ${e.stack ?? String(e)}`))
-    await lvs.goto(`${BASE}/lvs`, { waitUntil: "networkidle" })
+    await gotoApp(lvs, `${BASE}/lvs`)
     // The manual note only renders once the overrides map has landed, so waiting
     // on it means the cards below are settled rather than mid-fetch.
     await lvs.waitForSelector('[data-testid="lvs-manual-note"]')
@@ -694,11 +702,11 @@ async function main() {
 
     console.log("\nfilling the last bias empties the excluded pile")
     await post("/api/trades/overrides", {
-      telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-3", bias: "buy",
+      exchange: EXCHANGE, id: "ov-3", bias: "buy",
     })
     const lvs2 = await context.newPage()
     lvs2.on("pageerror", (e) => pageErrors.push(`[lvs2] ${e.stack ?? String(e)}`))
-    await lvs2.goto(`${BASE}/lvs`, { waitUntil: "networkidle" })
+    await gotoApp(lvs2, `${BASE}/lvs`)
     await lvs2.waitForSelector('[data-testid="lvs-manual-note"]')
 
     await check("the newly biased trade joins its bucket", async () => {
@@ -719,7 +727,7 @@ async function main() {
 
     // Put ov-3 back the way the dashboard checks below expect it.
     await post("/api/trades/overrides", {
-      telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, id: "ov-3", bias: null,
+      exchange: EXCHANGE, id: "ov-3", bias: null,
     })
 
     // NOTE ON ORDER: the cold-load check must run BEFORE the export block —
@@ -730,7 +738,7 @@ async function main() {
     // the wallet SDK's own navigation and gets ERR_ABORTED.
     const fresh = await context.newPage()
     fresh.on("pageerror", (e) => pageErrors.push(`[fresh] ${e.stack ?? String(e)}`))
-    await fresh.goto(BASE, { waitUntil: "networkidle" })
+    await gotoApp(fresh, BASE)
     await fresh.waitForSelector('[data-testid="bias-cell"]')
     await fresh.screenshot({ path: `${SHOTS}/o4-fresh-load.png`, fullPage: true })
 
@@ -856,7 +864,7 @@ async function main() {
       // TradesTable without them, but the payload must not carry them either.
       const token = "bb".repeat(24)
       await sql`
-        UPDATE users SET share_token = ${token}
+        UPDATE public.users SET share_token = ${token}
         WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)}
       `
       const res = await fetch(`${BASE}/api/share/${token}`)

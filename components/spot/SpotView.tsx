@@ -44,7 +44,7 @@ export function SpotView() {
     if (!telegramId) return
     setPricesLoading(true)
     try {
-      const res = await fetch(`/api/spot/prices?telegramId=${telegramId}`)
+      const res = await fetch('/api/spot/prices')
       if (res.ok) setPrices((await res.json()) as PricesResponse)
     } catch {
       // Prices are supplementary — cost basis still renders without them.
@@ -56,7 +56,7 @@ export function SpotView() {
   const loadEntries = useCallback(async () => {
     if (!telegramId) return
     try {
-      const res = await fetch(`/api/spot/entries?telegramId=${telegramId}`)
+      const res = await fetch('/api/spot/entries')
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? "Could not load entries")
       setEntries(data.entries as SpotEntry[])
@@ -100,7 +100,7 @@ export function SpotView() {
         const res = await fetch("/api/spot/entries", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ telegramId, ...e }),
+          body: JSON.stringify(e),
         })
         const data = await res.json()
         if (!res.ok) return (data.error as string) ?? "Could not save entry"
@@ -118,7 +118,7 @@ export function SpotView() {
   const deleteEntry = useCallback(
     async (id: string) => {
       if (!telegramId) return
-      const res = await fetch(`/api/spot/entries?telegramId=${telegramId}&id=${id}`, {
+      const res = await fetch(`/api/spot/entries?id=${id}`, {
         method: "DELETE",
       })
       if (res.ok) setEntries((prev) => prev.filter((e) => e.id !== id))

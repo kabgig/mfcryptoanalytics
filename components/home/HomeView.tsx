@@ -35,7 +35,6 @@ const ASIA_EXCHANGES = new Set(['BingX', 'MEXC'])
 const CLIENT_FETCH_EXCHANGES = new Set(['Binance', 'Bybit'])
 
 async function fetchExchangeTradesClientSide(
-  telegramId: string,
   cfg: ExchangeConfig,
   force: boolean
 ): Promise<Trade[]> {
@@ -44,7 +43,7 @@ async function fetchExchangeTradesClientSide(
     const cacheRes = await fetch('/api/trades-cache', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ telegramId, exchange: cfg.name }),
+      body: JSON.stringify({ exchange: cfg.name }),
     })
     const cacheData = await cacheRes.json()
     if (cacheData.fresh) {
@@ -68,7 +67,7 @@ async function fetchExchangeTradesClientSide(
   const storeRes = await fetch('/api/trades-store', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ telegramId, exchange: cfg.name, trades }),
+    body: JSON.stringify({ exchange: cfg.name, trades }),
   })
   if (!storeRes.ok) {
     const err = await storeRes.json().catch(() => ({}))
@@ -86,19 +85,17 @@ async function fetchExchangeTradesClientSide(
 }
 
 async function fetchExchangeTrades(
-  telegramId: string,
   cfg: ExchangeConfig,
   force: boolean
 ): Promise<Trade[]> {
   if (CLIENT_FETCH_EXCHANGES.has(cfg.name)) {
-    return fetchExchangeTradesClientSide(telegramId, cfg, force)
+    return fetchExchangeTradesClientSide(cfg, force)
   }
   const endpoint = ASIA_EXCHANGES.has(cfg.name) ? '/api/trades-asia' : '/api/trades-global'
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      telegramId,
       exchange: cfg.name,
       apiKey: cfg.apiKey,
       apiSecret: cfg.apiSecret,
@@ -114,6 +111,7 @@ async function fetchExchangeTrades(
 
 export function HomeView() {
   const telegramId = useUserStore((s) => s.telegramId)
+  const hydrated = useUserStore((s) => s.hydrated)
   const apiKeys = useUserStore((s) => s.apiKeys)
 
   const [trades, setTrades] = useState<Trade[]>([])
@@ -172,7 +170,7 @@ export function HomeView() {
       fetch('/api/trades-cache/all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegramId }),
+        body: JSON.stringify({}),
       })
         .then((r) => r.json())
         .then((data) => {
@@ -203,7 +201,7 @@ export function HomeView() {
     Promise.all(
       configs.map(async (cfg) => {
         try {
-          const newTrades = await fetchExchangeTrades(telegramId, cfg, force)
+          const newTrades = await fetchExchangeTrades(cfg, force)
           if (!cancelled) addTrades(newTrades, cfg.name)
         } catch (err) {
           if (!cancelled) {
@@ -240,7 +238,7 @@ export function HomeView() {
         fetch('/api/import/trades', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ telegramId, exchange }),
+          body: JSON.stringify({ exchange }),
         }).then((r) => r.json())
       )
     )
@@ -262,7 +260,7 @@ export function HomeView() {
     fetch('/api/trades/deleted', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ telegramId }),
+      body: JSON.stringify({}),
     })
       .then((r) => r.json())
       .then((data) => { if (!cancelled) setDeletedTrades((data.trades ?? []) as Trade[]) })
@@ -276,7 +274,7 @@ export function HomeView() {
   useEffect(() => {
     if (!telegramId) return
     let cancelled = false
-    fetch(`/api/trades/notes?telegramId=${encodeURIComponent(telegramId)}`)
+    fetch(`/api/trades/notes`)
       .then((r) => r.json())
       .then((data) => { if (!cancelled) setNotes((data.notes ?? {}) as TradeNotesMap) })
       .catch(() => { /* non-critical — the table just renders empty icons */ })
@@ -289,7 +287,7 @@ export function HomeView() {
   useEffect(() => {
     if (!telegramId) return
     let cancelled = false
-    fetch(`/api/trades/overrides?telegramId=${encodeURIComponent(telegramId)}`)
+    fetch(`/api/trades/overrides`)
       .then((r) => r.json())
       .then((data) => { if (!cancelled) setOverrides((data.overrides ?? {}) as TradeOverridesMap) })
       .catch(() => { /* non-critical — the cells just fall back to the exchange */ })
@@ -324,7 +322,7 @@ export function HomeView() {
       const res = await fetch('/api/trades/notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegramId, exchange: trade.exchange, id: trade.id, phase, body }),
+        body: JSON.stringify({ exchange: trade.exchange, id: trade.id, phase, body }),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.status)
     } catch (err) {
@@ -360,7 +358,7 @@ export function HomeView() {
       const res = await fetch('/api/trades/overrides', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegramId, exchange: trade.exchange, id: trade.id, ...patch }),
+        body: JSON.stringify({ exchange: trade.exchange, id: trade.id, ...patch }),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.status)
     } catch (err) {
@@ -393,7 +391,7 @@ export function HomeView() {
       const res = await fetch('/api/trades/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegramId, exchange: trade.exchange, id: trade.id }),
+        body: JSON.stringify({ exchange: trade.exchange, id: trade.id }),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.status)
     } catch (err) {
@@ -416,7 +414,7 @@ export function HomeView() {
       const res = await fetch('/api/trades/restore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegramId, exchange: trade.exchange, id: trade.id }),
+        body: JSON.stringify({ exchange: trade.exchange, id: trade.id }),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.status)
     } catch (err) {
@@ -476,7 +474,9 @@ export function HomeView() {
   const stats = computeStats(filteredTrades)
   const hasAnyKey = buildExchangeConfigs().length > 0
 
-  if (!telegramId) return <LandingPage />
+  // Until /api/me answers, a stale cached id must not decide this either way.
+  if (!hydrated && !telegramId) return null
+  if (hydrated && !telegramId) return <LandingPage />
 
   return (
     <main className="flex-1 mx-auto w-full max-w-7xl px-4 sm:px-6 py-6 space-y-6">

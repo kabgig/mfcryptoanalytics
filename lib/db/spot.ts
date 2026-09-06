@@ -17,7 +17,7 @@ export async function getEntries(telegramId: string): Promise<SpotEntry[]> {
   const sql = getSql()
   const rows = (await sql`
     SELECT id, ticker, side, qty, price, traded_at
-    FROM spot_entries
+    FROM public.spot_entries
     WHERE telegram_id = ${BigInt(telegramId)}
       AND deleted_at IS NULL
     ORDER BY traded_at ASC, id ASC
@@ -36,12 +36,12 @@ export async function insertEntry(
 ): Promise<SpotEntry> {
   const sql = getSql()
   await sql`
-    INSERT INTO users (telegram_id, telegram_name)
+    INSERT INTO public.users (telegram_id, telegram_name)
     VALUES (${BigInt(telegramId)}, ${"unknown"})
     ON CONFLICT (telegram_id) DO NOTHING
   `
   const rows = (await sql`
-    INSERT INTO spot_entries (telegram_id, ticker, side, qty, price, traded_at)
+    INSERT INTO public.spot_entries (telegram_id, ticker, side, qty, price, traded_at)
     VALUES (${BigInt(telegramId)}, ${entry.ticker}, ${entry.side},
             ${entry.qty}, ${entry.price}, ${entry.tradedAt})
     RETURNING id, ticker, side, qty, price, traded_at
@@ -56,7 +56,7 @@ export async function insertEntry(
 export async function softDeleteEntry(telegramId: string, id: string): Promise<boolean> {
   const sql = getSql()
   const rows = (await sql`
-    UPDATE spot_entries
+    UPDATE public.spot_entries
     SET deleted_at = NOW()
     WHERE telegram_id = ${BigInt(telegramId)}
       AND id = ${BigInt(id)}
@@ -75,7 +75,7 @@ export async function getPriceHistory(
   const sql = getSql()
   const rows = (await sql`
     SELECT ticker, day, close
-    FROM spot_price_history
+    FROM public.spot_price_history
     WHERE ticker = ANY(${tickers})
       AND day >= ${since}
     ORDER BY ticker, day ASC
@@ -106,7 +106,7 @@ export async function getCachedDayRange(
   const sql = getSql()
   const rows = (await sql`
     SELECT ticker, MIN(day) AS min_day, MAX(day) AS max_day
-    FROM spot_price_history
+    FROM public.spot_price_history
     WHERE ticker = ANY(${tickers})
     GROUP BY ticker
   `) as { ticker: string; min_day: Date | string; max_day: Date | string }[]
@@ -133,7 +133,7 @@ export async function insertPricesSkipExisting(
   const days = points.map((p) => p.day)
   const closes = points.map((p) => p.close)
   const rows = (await sql`
-    INSERT INTO spot_price_history (ticker, day, close)
+    INSERT INTO public.spot_price_history (ticker, day, close)
     SELECT ${ticker}, d::date, c
     FROM unnest(${days}::text[], ${closes}::float8[]) AS t(d, c)
     ON CONFLICT (ticker, day) DO NOTHING

@@ -34,7 +34,7 @@ export async function GET(
 
     // Resolve token → user (no identity data returned)
     const userRows = await sql`
-      SELECT id FROM users WHERE share_token = ${token} LIMIT 1
+      SELECT id FROM public.users WHERE share_token = ${token} LIMIT 1
     ` as { id: string }[]
 
     if (userRows.length === 0) {
@@ -47,8 +47,8 @@ export async function GET(
     const tradeRows = await sql`
       SELECT ct.id, ct.exchange, ct.ticker, ct.position_size, ct.tp, ct.sl,
              ct.open_time, ct.close_time, ct.pnl, ct.market, ct.side
-      FROM cached_trades ct
-      JOIN users u ON u.telegram_id = ct.telegram_id
+      FROM public.cached_trades ct
+      JOIN public.users u ON u.telegram_id = ct.telegram_id
       WHERE u.id = ${userId}
         AND ct.deleted_at IS NULL
       ORDER BY ct.close_time DESC

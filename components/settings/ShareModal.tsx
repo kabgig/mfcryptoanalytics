@@ -25,7 +25,7 @@ export function ShareModal({ trigger, basePath = '/share' }: ShareModalProps) {
     if (!telegramId) return
     setLoading(true)
     try {
-      const res = await fetch(`/api/user/share-token?telegramId=${telegramId}`)
+      const res = await fetch('/api/user/share-token')
       const data = await res.json()
       setToken(data.token ?? null)
     } finally {
@@ -41,7 +41,7 @@ export function ShareModal({ trigger, basePath = '/share' }: ShareModalProps) {
     if (!telegramId) return
     setLoading(true)
     try {
-      const res = await fetch(`/api/user/share-token?telegramId=${telegramId}`, {
+      const res = await fetch('/api/user/share-token', {
         method: 'POST',
       })
       const data = await res.json()
@@ -55,7 +55,7 @@ export function ShareModal({ trigger, basePath = '/share' }: ShareModalProps) {
     if (!telegramId) return
     setLoading(true)
     try {
-      await fetch(`/api/user/share-token?telegramId=${telegramId}`, { method: 'DELETE' })
+      await fetch('/api/user/share-token', { method: 'DELETE' })
       setToken(null)
     } finally {
       setLoading(false)

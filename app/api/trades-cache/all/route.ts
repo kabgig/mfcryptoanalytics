@@ -1,15 +1,15 @@
 import { getAllStoredTrades } from "@/lib/db/trades"
 import { serverError } from "@/lib/api/errors"
+import { requireUser } from "@/lib/auth/session"
 
 export const dynamic = "force-dynamic"
 
-export async function POST(request: Request) {
+export async function POST() {
+  const user = await requireUser()
+  if (user instanceof Response) return user
+
   try {
-    const { telegramId } = await request.json()
-    if (!telegramId) {
-      return Response.json({ error: "Missing telegramId" }, { status: 400 })
-    }
-    const trades = await getAllStoredTrades(String(telegramId))
+    const trades = await getAllStoredTrades(user.telegramId)
     return Response.json({ trades })
   } catch (err) {
     return serverError("trades-cache/all", err, 500)

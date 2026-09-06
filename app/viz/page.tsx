@@ -35,7 +35,6 @@ const CLIENT_FETCH_EXCHANGES = new Set(['Binance', 'Bybit'])
 const IMPORTED_EXCHANGES = ['Jupiter Perps', 'bluefin'] as const
 
 async function fetchExchangeTradesClientSide(
-  telegramId: string,
   cfg: ExchangeConfig,
   force: boolean
 ): Promise<Trade[]> {
@@ -43,7 +42,7 @@ async function fetchExchangeTradesClientSide(
     const cacheRes = await fetch('/api/trades-cache', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ telegramId, exchange: cfg.name }),
+      body: JSON.stringify({ exchange: cfg.name }),
     })
     const cacheData = await cacheRes.json()
     if (cacheData.fresh) return cacheData.trades as Trade[]
@@ -61,7 +60,7 @@ async function fetchExchangeTradesClientSide(
   const storeRes = await fetch('/api/trades-store', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ telegramId, exchange: cfg.name, trades }),
+    body: JSON.stringify({ exchange: cfg.name, trades }),
   })
   if (!storeRes.ok) {
     const err = await storeRes.json().catch(() => ({}))
@@ -72,12 +71,11 @@ async function fetchExchangeTradesClientSide(
 }
 
 async function fetchExchangeTrades(
-  telegramId: string,
   cfg: ExchangeConfig,
   force: boolean
 ): Promise<Trade[]> {
   if (CLIENT_FETCH_EXCHANGES.has(cfg.name)) {
-    return fetchExchangeTradesClientSide(telegramId, cfg, force)
+    return fetchExchangeTradesClientSide(cfg, force)
   }
 
   const endpoint = ASIA_EXCHANGES.has(cfg.name) ? '/api/trades-asia' : '/api/trades-global'
@@ -85,7 +83,6 @@ async function fetchExchangeTrades(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      telegramId,
       exchange: cfg.name,
       apiKey: cfg.apiKey,
       apiSecret: cfg.apiSecret,
@@ -104,7 +101,7 @@ async function fetchImportedTrades(telegramId: string): Promise<Trade[]> {
       fetch('/api/import/trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegramId, exchange }),
+        body: JSON.stringify({ exchange }),
       }).then((res) => res.json())
     )
   )
@@ -176,7 +173,7 @@ export default function VizPage() {
         const res = await fetch('/api/trades-cache/all', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ telegramId }),
+          body: JSON.stringify({}),
         }).then((r) => r.json()).catch(() => ({ trades: [] }))
         if (!cancelled) {
           setTrades((res.trades ?? []) as Trade[])
@@ -188,7 +185,7 @@ export default function VizPage() {
       // Per-exchange results — fulfilled OR rejected independently
       const [perExchangeResults, importedResult] = await Promise.all([
         Promise.allSettled(
-          configs.map((cfg) => fetchExchangeTrades(telegramId, cfg, false))
+          configs.map((cfg) => fetchExchangeTrades(cfg, false))
         ),
         fetchImportedTrades(telegramId).catch(() => [] as Trade[]),
       ])

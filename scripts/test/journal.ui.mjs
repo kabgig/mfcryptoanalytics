@@ -19,6 +19,8 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createRequire } from "node:module"
 import { neon } from "@neondatabase/serverless"
+import { signIn, signInBrowser } from "./helpers/session.mjs"
+import { gotoApp, reloadApp } from "./helpers/nav.mjs"
 
 // Playwright is installed globally, not as a project dependency.
 const require = createRequire(import.meta.url)
@@ -53,10 +55,13 @@ async function check(name, fn) {
   console.log(`  ✓ ${name}`)
 }
 
+// Seeding goes through the API, which now requires a session.
+let cookie = ""
+
 async function post(path, body) {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", cookie },
     body: JSON.stringify(body),
   })
   return res.json()
@@ -64,16 +69,17 @@ async function post(path, body) {
 
 async function teardown() {
   const tid = BigInt(TEST_TELEGRAM_ID)
-  await sql`DELETE FROM trade_notes        WHERE telegram_id = ${tid}`
-  await sql`DELETE FROM cached_trades      WHERE telegram_id = ${tid}`
-  await sql`DELETE FROM exchange_fetch_log WHERE telegram_id = ${tid}`
-  await sql`DELETE FROM users              WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.trade_notes        WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.cached_trades      WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.exchange_fetch_log WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.users              WHERE telegram_id = ${tid}`
 }
 
 async function main() {
   mkdirSync(SHOTS, { recursive: true })
   await teardown()
-  await post("/api/trades-store", { telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, trades: TRADES })
+  cookie = await signIn(BASE, TEST_TELEGRAM_ID, "ui-test")
+  await post("/api/trades-store", { exchange: EXCHANGE, trades: TRADES })
   console.log(`\nsetup: seeded ${TRADES.length} trades for synthetic user ${TEST_TELEGRAM_ID}`)
 
   const browser = await chromium.launch()
@@ -94,6 +100,8 @@ async function main() {
   }, TEST_TELEGRAM_ID)
 
   const page = await context.newPage()
+  // The cookie, not localStorage, is what the server trusts now.
+  await signInBrowser(page, BASE, TEST_TELEGRAM_ID, "ui-test")
   const pageErrors = []
   page.on("pageerror", (e) => pageErrors.push(e.stack ?? String(e)))
   const netIssues = []
@@ -133,7 +141,7 @@ async function main() {
   }
 
   try {
-    await page.goto(BASE, { waitUntil: "networkidle" })
+    await gotoApp(page, BASE)
     await page.waitForSelector('[data-testid="note-before"]')
     await page.screenshot({ path: `${SHOTS}/j1-initial.png`, fullPage: true })
 
@@ -192,7 +200,7 @@ async function main() {
     await writeNote("BTCUSDT", "before", "Broke the range high on volume — sized up too fast")
     await check("the edit replaces the note rather than adding a second one", async () => {
       const rows = await sql`
-        SELECT phase, body FROM trade_notes
+        SELECT phase, body FROM public.trade_notes
         WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND trade_id = 'journal-1'
       `
       assert.equal(rows.length, 1)
@@ -210,7 +218,7 @@ async function main() {
     })
     await check("the DB holds exactly one row per phase", async () => {
       const rows = await sql`
-        SELECT phase FROM trade_notes
+        SELECT phase FROM public.trade_notes
         WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND trade_id = 'journal-1'
         ORDER BY phase
       `
@@ -218,7 +226,7 @@ async function main() {
     })
     await check("a multiline note survives the round trip verbatim", async () => {
       const rows = await sql`
-        SELECT body FROM trade_notes
+        SELECT body FROM public.trade_notes
         WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)}
           AND trade_id = 'journal-1' AND phase = 'after'
       `
@@ -232,7 +240,7 @@ async function main() {
     })
     await check("clearing deletes the row rather than storing a blank", async () => {
       const rows = await sql`
-        SELECT 1 FROM trade_notes
+        SELECT 1 FROM public.trade_notes
         WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)}
           AND trade_id = 'journal-1' AND phase = 'during'
       `
@@ -251,7 +259,7 @@ async function main() {
     // the wallet SDK's own navigation and gets ERR_ABORTED.
     const fresh = await context.newPage()
     fresh.on("pageerror", (e) => pageErrors.push(`[fresh] ${e.stack ?? String(e)}`))
-    await fresh.goto(BASE, { waitUntil: "networkidle" })
+    await gotoApp(fresh, BASE)
     await fresh.waitForSelector('[data-testid="note-before"]')
     await fresh.screenshot({ path: `${SHOTS}/j5-fresh-load.png`, fullPage: true })
 
@@ -274,6 +282,15 @@ async function main() {
     await fresh.close()
 
     console.log("\nexport")
+    // The export serialises whatever notes state `page` holds. Assert it is
+    // actually loaded first — otherwise a slow /api/trades/notes produces an
+    // empty note column and a failure that looks like an escaping bug.
+    await page
+      .locator('tbody tr')
+      .filter({ hasText: "BTCUSDT" })
+      .locator('[data-testid="note-before"][data-filled="true"]')
+      .waitFor({ state: "attached", timeout: 30_000 })
+
     const download = await Promise.all([
       page.waitForEvent("download"),
       page.locator('[data-testid="export-trades"]').click(),
@@ -321,7 +338,7 @@ async function main() {
       // would be rejected as an invalid token before it ever reads a trade.
       const token = "aa".repeat(24)
       await sql`
-        UPDATE users SET share_token = ${token}
+        UPDATE public.users SET share_token = ${token}
         WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)}
       `
       const res = await fetch(`${BASE}/api/share/${token}`)

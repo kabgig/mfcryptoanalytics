@@ -1,4 +1,5 @@
 import { archiveOldTrades, ARCHIVE_AFTER_YEARS } from "@/lib/db/trades"
+import { purgeExpiredAuthRows } from "@/lib/auth/session"
 
 export const dynamic = "force-dynamic"
 
@@ -15,6 +16,10 @@ export async function GET(request: Request) {
   }
 
   const archived = await archiveOldTrades()
-  console.log(`[cron/cleanup] archived ${archived} trades older than ${ARCHIVE_AFTER_YEARS} years`)
-  return Response.json({ archived, olderThanYears: ARCHIVE_AFTER_YEARS })
+  const auth = await purgeExpiredAuthRows()
+  console.log(
+    `[cron/cleanup] archived ${archived} trades older than ${ARCHIVE_AFTER_YEARS} years; ` +
+    `purged ${auth.loginTokens} login tokens and ${auth.sessions} sessions`
+  )
+  return Response.json({ archived, olderThanYears: ARCHIVE_AFTER_YEARS, ...auth })
 }

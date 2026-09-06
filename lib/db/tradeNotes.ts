@@ -38,7 +38,7 @@ export async function getNotes(telegramId: string): Promise<TradeNotesMap> {
   const sql = getSql()
   const rows = (await sql`
     SELECT exchange, trade_id, phase, body
-    FROM trade_notes
+    FROM public.trade_notes
     WHERE telegram_id = ${BigInt(telegramId)}
   `) as { exchange: string; trade_id: string; phase: string; body: string }[]
   return rowsToNotesMap(rows)
@@ -68,7 +68,7 @@ export async function saveNote(
 
   if (trimmed === "") {
     await sql`
-      DELETE FROM trade_notes
+      DELETE FROM public.trade_notes
       WHERE telegram_id = ${tid}
         AND exchange    = ${exchange}
         AND trade_id    = ${tradeId}
@@ -78,13 +78,13 @@ export async function saveNote(
   }
 
   await sql`
-    INSERT INTO users (telegram_id, telegram_name)
+    INSERT INTO public.users (telegram_id, telegram_name)
     VALUES (${tid}, ${"unknown"})
     ON CONFLICT (telegram_id) DO NOTHING
   `
 
   const rows = (await sql`
-    INSERT INTO trade_notes (telegram_id, exchange, trade_id, phase, body)
+    INSERT INTO public.trade_notes (telegram_id, exchange, trade_id, phase, body)
     VALUES (${tid}, ${exchange}, ${tradeId}, ${phase}, ${trimmed})
     ON CONFLICT (telegram_id, exchange, trade_id, phase) DO UPDATE SET
       body       = EXCLUDED.body,
@@ -107,7 +107,7 @@ export async function deleteNotesForTrade(
 ): Promise<void> {
   const sql = getSql()
   await sql`
-    DELETE FROM trade_notes
+    DELETE FROM public.trade_notes
     WHERE telegram_id = ${BigInt(telegramId)}
       AND exchange    = ${exchange}
       AND trade_id    = ${tradeId}

@@ -20,6 +20,8 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createRequire } from "node:module"
 import { neon } from "@neondatabase/serverless"
+import { signInBrowser } from "./helpers/session.mjs"
+import { gotoApp, reloadApp } from "./helpers/nav.mjs"
 
 // Playwright is installed globally, not as a project dependency.
 const require = createRequire(import.meta.url)
@@ -43,8 +45,8 @@ async function check(name, fn) {
 
 async function teardown() {
   const tid = BigInt(TEST_TELEGRAM_ID)
-  await sql`DELETE FROM spot_entries WHERE telegram_id = ${tid}`
-  await sql`DELETE FROM users        WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.spot_entries WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.users        WHERE telegram_id = ${tid}`
 }
 
 async function main() {
@@ -74,6 +76,8 @@ async function main() {
   }, TEST_TELEGRAM_ID)
 
   const page = await context.newPage()
+  // The cookie, not localStorage, is what the server trusts now.
+  await signInBrowser(page, BASE, TEST_TELEGRAM_ID, "spot-ui")
   const pageErrors = []
   page.on("pageerror", (e) => pageErrors.push(e.stack ?? String(e)))
   const netIssues = []
@@ -105,7 +109,7 @@ async function main() {
   }
 
   try {
-    await page.goto(`${BASE}/spot`, { waitUntil: "networkidle" })
+    await gotoApp(page, `${BASE}/spot`)
 
     console.log("\nempty state")
     await check("the Spot nav link is present and active", async () => {
@@ -235,14 +239,14 @@ async function main() {
     })
     await check("the delete is a soft delete in the DB", async () => {
       const rows = await sql`
-        SELECT COUNT(*)::int AS n FROM spot_entries
+        SELECT COUNT(*)::int AS n FROM public.spot_entries
         WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND deleted_at IS NOT NULL
       `
       assert.equal(rows[0].n, 1, "expected exactly one soft-deleted row")
     })
 
     console.log("\nreload persists")
-    await page.reload({ waitUntil: "networkidle" })
+    await reloadApp(page)
     await page.waitForSelector('[data-testid="spot-entry-row"]')
     await check("entries survive a reload", async () => {
       assert.equal(await rowCount(), before - 1)

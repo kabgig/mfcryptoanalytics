@@ -1,5 +1,6 @@
 import { softDeleteTrade } from "@/lib/db/trades"
 import { serverError } from "@/lib/api/errors"
+import { requireUser } from "@/lib/auth/session"
 
 export const dynamic = "force-dynamic"
 
@@ -9,23 +10,24 @@ export const dynamic = "force-dynamic"
  * read path (dashboard, share links, admin totals) and survives re-syncs.
  * Reversible via /api/trades/restore.
  *
- * Like every other route here, telegramId is taken from the body and not
- * verified — the scoping below only prevents deleting a *different* user's trade
- * by id alone, it is not authentication.
+ * The owner comes from the session; the SQL is still scoped by telegram_id so
+ * ownership is enforced in the query, not assumed from the guard.
  */
 export async function POST(request: Request) {
+  const user = await requireUser()
+  if (user instanceof Response) return user
+
   try {
-    const { telegramId, exchange, id } = await request.json() as {
-      telegramId: string
+    const { exchange, id } = await request.json() as {
       exchange: string
       id: string
     }
 
-    if (!telegramId || !exchange || !id) {
+    if (!exchange || !id) {
       return Response.json({ error: "Missing fields" }, { status: 400 })
     }
 
-    const ok = await softDeleteTrade(String(telegramId), exchange, id)
+    const ok = await softDeleteTrade(user.telegramId, exchange, id)
     if (!ok) return Response.json({ error: "Trade not found" }, { status: 404 })
 
     return Response.json({ ok: true })

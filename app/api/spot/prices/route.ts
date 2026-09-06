@@ -6,6 +6,7 @@ import {
 } from "@/lib/db/spot"
 import { fetchCurrentPrices, fetchDailyCloses } from "@/lib/prices/coinbase"
 import { computeBackfillGaps, firstTradeDay, tickersOf } from "@/lib/services/spotService"
+import { requireUser } from "@/lib/auth/session"
 
 export const dynamic = "force-dynamic"
 
@@ -20,16 +21,12 @@ const toDay = (d: Date) => d.toISOString().slice(0, 10)
  * whole histories would churn WAL and bloat the table, which is the actual
  * free-tier storage risk — not the row count.
  */
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url)
-  const telegramId = searchParams.get("telegramId")
-
-  if (!telegramId || isNaN(Number(telegramId))) {
-    return Response.json({ error: "Missing or invalid telegramId" }, { status: 400 })
-  }
+export async function GET() {
+  const user = await requireUser()
+  if (user instanceof Response) return user
 
   try {
-    const entries = await getEntries(telegramId)
+    const entries = await getEntries(user.telegramId)
     const tickers = tickersOf(entries)
     const start = firstTradeDay(entries)
 

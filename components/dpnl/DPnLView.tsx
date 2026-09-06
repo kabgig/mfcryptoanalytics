@@ -36,7 +36,6 @@ const ASIA_EXCHANGES = new Set(["BingX", "MEXC"])
 const CLIENT_FETCH_EXCHANGES = new Set(["Binance", "Bybit"])
 
 async function fetchExchangeTradesClientSide(
-  telegramId: string,
   cfg: ExchangeConfig,
   force: boolean
 ): Promise<Trade[]> {
@@ -44,7 +43,7 @@ async function fetchExchangeTradesClientSide(
     const cacheRes = await fetch("/api/trades-cache", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ telegramId, exchange: cfg.name }),
+      body: JSON.stringify({ exchange: cfg.name }),
     })
     const cacheData = await cacheRes.json()
     if (cacheData.fresh) return cacheData.trades as Trade[]
@@ -62,7 +61,7 @@ async function fetchExchangeTradesClientSide(
   const storeRes = await fetch("/api/trades-store", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ telegramId, exchange: cfg.name, trades }),
+    body: JSON.stringify({ exchange: cfg.name, trades }),
   })
   if (!storeRes.ok) {
     const err = await storeRes.json().catch(() => ({}))
@@ -73,19 +72,17 @@ async function fetchExchangeTradesClientSide(
 }
 
 async function fetchExchangeTrades(
-  telegramId: string,
   cfg: ExchangeConfig,
   force: boolean
 ): Promise<Trade[]> {
   if (CLIENT_FETCH_EXCHANGES.has(cfg.name)) {
-    return fetchExchangeTradesClientSide(telegramId, cfg, force)
+    return fetchExchangeTradesClientSide(cfg, force)
   }
   const endpoint = ASIA_EXCHANGES.has(cfg.name) ? "/api/trades-asia" : "/api/trades-global"
   const res = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      telegramId,
       exchange: cfg.name,
       apiKey: cfg.apiKey,
       apiSecret: cfg.apiSecret,
@@ -182,7 +179,7 @@ export function DPnLView() {
       fetch('/api/trades-cache/all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegramId }),
+        body: JSON.stringify({}),
       })
         .then((r) => r.json())
         .then((data) => {
@@ -204,7 +201,7 @@ export function DPnLView() {
     Promise.all(
       configs.map(async (cfg) => {
         try {
-          const newTrades = await fetchExchangeTrades(telegramId, cfg, force)
+          const newTrades = await fetchExchangeTrades(cfg, force)
           if (!cancelled) {
             setTrades((prev) => {
               const merged = [...prev, ...newTrades]
@@ -248,7 +245,7 @@ export function DPnLView() {
         fetch("/api/import/trades", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ telegramId, exchange }),
+          body: JSON.stringify({ exchange }),
         }).then((r) => r.json())
       )
     )

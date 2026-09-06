@@ -8,6 +8,7 @@ import {
   enforceBodyLimit,
 } from "@/lib/api/body-limit"
 import { isValidWebhookSecret } from "@/lib/api/webhook-auth"
+import { serverError, upstreamError } from "@/lib/api/errors"
 
 const req = (contentLength: string | null) =>
   new Request("http://x/api/t", {
@@ -111,5 +112,42 @@ describe("isValidWebhookSecret", () => {
   test("handles multi-byte input without throwing", () => {
     assert.doesNotThrow(() => isValidWebhookSecret("émoji🔐", SECRET))
     assert.equal(isValidWebhookSecret("émoji🔐", SECRET), false)
+  })
+})
+
+describe("serverError / upstreamError", () => {
+  test("serverError never puts the original message in the body", async () => {
+    const err = new Error("relation \"public.users\" does not exist")
+    const res = serverError("test", err)
+    assert.equal(res.status, 500)
+    const body = await res.json() as { error: string }
+    assert.equal(body.error, "Internal server error")
+    assert.ok(!body.error.includes("relation"), "leaked the driver message")
+  })
+
+  test("serverError keeps the `error` key eight client call sites branch on", async () => {
+    const body = await serverError("test", new Error("x")).json() as Record<string, unknown>
+    assert.equal(typeof body.error, "string")
+  })
+
+  test("serverError honours a caller-supplied status", () => {
+    assert.equal(serverError("test", new Error("x"), 502).status, 502)
+  })
+
+  test("upstreamError passes the exchange's own message through", async () => {
+    const res = upstreamError("balance", new Error("Incorrect apiKey"))
+    assert.equal(res.status, 502)
+    assert.equal((await res.json() as { error: string }).error, "Incorrect apiKey")
+  })
+
+  test("upstreamError bounds a hostile upstream message", async () => {
+    const res = upstreamError("balance", new Error("x".repeat(5000)))
+    const body = await res.json() as { error: string }
+    assert.equal(body.error.length, 200)
+  })
+
+  test("upstreamError copes with a non-Error throw", async () => {
+    const body = await upstreamError("balance", "plain string").json() as { error: string }
+    assert.equal(body.error, "plain string")
   })
 })

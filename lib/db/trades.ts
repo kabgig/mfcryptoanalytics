@@ -26,7 +26,7 @@ export async function getStoredTrades(telegramId: string, exchange: string): Pro
   const rows = await sql`
     SELECT id, exchange, ticker, position_size, tp, sl,
            open_time, close_time, pnl, market, side
-    FROM cached_trades
+    FROM public.cached_trades
     WHERE telegram_id = ${BigInt(telegramId)}
       AND exchange    = ${exchange}
       AND deleted_at IS NULL
@@ -53,8 +53,8 @@ export async function getIfFresh(
     SELECT ct.id, ct.exchange, ct.ticker, ct.position_size, ct.tp, ct.sl,
            ct.open_time, ct.close_time, ct.pnl, ct.market, ct.side,
            efl.fetched_at
-    FROM exchange_fetch_log efl
-    LEFT JOIN cached_trades ct
+    FROM public.exchange_fetch_log efl
+    LEFT JOIN public.cached_trades ct
       ON ct.telegram_id = efl.telegram_id
      AND ct.exchange    = efl.exchange
      AND ct.deleted_at IS NULL
@@ -80,7 +80,7 @@ export async function getAllStoredTrades(telegramId: string): Promise<Trade[]> {
   const rows = await sql`
     SELECT id, exchange, ticker, position_size, tp, sl,
            open_time, close_time, pnl, market, side
-    FROM cached_trades
+    FROM public.cached_trades
     WHERE telegram_id = ${BigInt(telegramId)}
       AND deleted_at IS NULL
     ORDER BY close_time DESC
@@ -106,7 +106,7 @@ export async function getDeletedTrades(telegramId: string): Promise<Trade[]> {
   const rows = await sql`
     SELECT id, exchange, ticker, position_size, tp, sl,
            open_time, close_time, pnl, market, side
-    FROM cached_trades
+    FROM public.cached_trades
     WHERE telegram_id = ${BigInt(telegramId)}
       AND deleted_at IS NOT NULL
     ORDER BY close_time DESC
@@ -126,11 +126,11 @@ export async function getDeletedKeys(telegramId: string, exchange?: string): Pro
   const tid = BigInt(telegramId)
   const rows = (exchange
     ? await sql`
-        SELECT id, exchange FROM cached_trades
+        SELECT id, exchange FROM public.cached_trades
         WHERE telegram_id = ${tid} AND exchange = ${exchange} AND deleted_at IS NOT NULL
       `
     : await sql`
-        SELECT id, exchange FROM cached_trades
+        SELECT id, exchange FROM public.cached_trades
         WHERE telegram_id = ${tid} AND deleted_at IS NOT NULL
       `) as { id: string; exchange: string }[]
   return new Set(rows.map((r) => tradeKey(r.exchange, r.id)))
@@ -156,7 +156,7 @@ export async function softDeleteTrade(
 ): Promise<boolean> {
   const sql = getSql()
   const rows = await sql`
-    UPDATE cached_trades
+    UPDATE public.cached_trades
     SET deleted_at = NOW()
     WHERE telegram_id = ${BigInt(telegramId)}
       AND exchange    = ${exchange}
@@ -174,7 +174,7 @@ export async function restoreTrade(
 ): Promise<boolean> {
   const sql = getSql()
   const rows = await sql`
-    UPDATE cached_trades
+    UPDATE public.cached_trades
     SET deleted_at = NULL
     WHERE telegram_id = ${BigInt(telegramId)}
       AND exchange    = ${exchange}
@@ -229,7 +229,7 @@ export async function upsertTrades(telegramId: string, exchange: string, trades:
     // Build values for bulk upsert
     for (const t of unique) {
       await sql`
-        INSERT INTO cached_trades
+        INSERT INTO public.cached_trades
           (id, telegram_id, exchange, ticker, position_size, tp, sl, open_time, close_time, pnl, market, side)
         VALUES (
           ${t.id}, ${tid}, ${t.exchange}, ${t.ticker},
@@ -252,7 +252,7 @@ export async function upsertTrades(telegramId: string, exchange: string, trades:
   }
 
   await sql`
-    INSERT INTO exchange_fetch_log (telegram_id, exchange, fetched_at)
+    INSERT INTO public.exchange_fetch_log (telegram_id, exchange, fetched_at)
     VALUES (${tid}, ${exchange}, NOW())
     ON CONFLICT (telegram_id, exchange) DO UPDATE SET fetched_at = NOW()
   `
@@ -277,7 +277,7 @@ export async function insertTradesSkipExisting(
 
   for (const t of dedupeById(trades)) {
     const result = await sql`
-      INSERT INTO cached_trades
+      INSERT INTO public.cached_trades
         (id, telegram_id, exchange, ticker, position_size, tp, sl, open_time, close_time, pnl, market, side)
       VALUES (
         ${t.id}, ${tid}, ${t.exchange}, ${t.ticker},
@@ -299,7 +299,7 @@ export async function insertTradesSkipExisting(
   }
 
   await sql`
-    INSERT INTO exchange_fetch_log (telegram_id, exchange, fetched_at)
+    INSERT INTO public.exchange_fetch_log (telegram_id, exchange, fetched_at)
     VALUES (${tid}, ${exchange}, NOW())
     ON CONFLICT (telegram_id, exchange) DO UPDATE SET fetched_at = NOW()
   `
@@ -333,7 +333,7 @@ export const ARCHIVE_AFTER_YEARS = 4
 export async function archiveOldTrades(): Promise<number> {
   const sql = getSql()
   const rows = await sql`
-    UPDATE cached_trades
+    UPDATE public.cached_trades
     SET deleted_at = NOW()
     WHERE close_time < NOW() - (${ARCHIVE_AFTER_YEARS} * INTERVAL '1 year')
       AND deleted_at IS NULL

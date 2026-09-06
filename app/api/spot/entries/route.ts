@@ -1,23 +1,19 @@
 import { getEntries, insertEntry, softDeleteEntry } from "@/lib/db/spot"
 import { heldQty } from "@/lib/services/spotService"
+import { requireUser } from "@/lib/auth/session"
 
 export const dynamic = "force-dynamic"
 
 /**
- * Manual spot entries. Follows the same telegramId-from-the-client convention
- * as the other routes in this app (see app/api/user/role/route.ts) — there is
- * no server-side session to read it from.
+ * Manual spot entries. The owner comes from the session; every query stays
+ * scoped by telegram_id so ownership is enforced in SQL.
  */
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url)
-  const telegramId = searchParams.get("telegramId")
-
-  if (!telegramId || isNaN(Number(telegramId))) {
-    return Response.json({ error: "Missing or invalid telegramId" }, { status: 400 })
-  }
+export async function GET() {
+  const user = await requireUser()
+  if (user instanceof Response) return user
 
   try {
-    return Response.json({ entries: await getEntries(telegramId) })
+    return Response.json({ entries: await getEntries(user.telegramId) })
   } catch (err) {
     console.error("[spot/entries] GET error:", err)
     return Response.json({ error: "Internal server error" }, { status: 500 })
@@ -25,19 +21,16 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const user = await requireUser()
+  if (user instanceof Response) return user
+
   try {
     const body = (await request.json()) as {
-      telegramId?: string
       ticker?: string
       side?: string
       qty?: number | string
       price?: number | string
       tradedAt?: string
-    }
-
-    const { telegramId } = body
-    if (!telegramId || isNaN(Number(telegramId))) {
-      return Response.json({ error: "Missing or invalid telegramId" }, { status: 400 })
     }
 
     const ticker = String(body.ticker ?? "").trim().toUpperCase()
@@ -68,7 +61,7 @@ export async function POST(request: Request) {
     // Selling more than is held would drive the position negative and make the
     // average entry meaningless, so it is rejected before it reaches the table.
     if (side === "SELL") {
-      const held = heldQty(await getEntries(telegramId), ticker)
+      const held = heldQty(await getEntries(user.telegramId), ticker)
       if (qty > held) {
         return Response.json(
           { error: `Cannot sell ${qty} ${ticker} — only ${held} held` },
@@ -77,7 +70,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const entry = await insertEntry(telegramId, {
+    const entry = await insertEntry(user.telegramId, {
       ticker,
       side,
       qty,
@@ -92,19 +85,18 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const user = await requireUser()
+  if (user instanceof Response) return user
+
   const { searchParams } = new URL(request.url)
-  const telegramId = searchParams.get("telegramId")
   const id = searchParams.get("id")
 
-  if (!telegramId || isNaN(Number(telegramId))) {
-    return Response.json({ error: "Missing or invalid telegramId" }, { status: 400 })
-  }
   if (!id || isNaN(Number(id))) {
     return Response.json({ error: "Missing or invalid id" }, { status: 400 })
   }
 
   try {
-    const deleted = await softDeleteEntry(telegramId, id)
+    const deleted = await softDeleteEntry(user.telegramId, id)
     if (!deleted) return Response.json({ error: "Not found" }, { status: 404 })
     return Response.json({ ok: true })
   } catch (err) {

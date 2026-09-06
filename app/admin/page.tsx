@@ -24,6 +24,7 @@ function fmtDate(iso: string) {
 export default function AdminPage() {
   const role = useUserStore((s) => s.role)
   const telegramId = useUserStore((s) => s.telegramId)
+  const hydrated = useUserStore((s) => s.hydrated)
   const startImpersonation = useUserStore((s) => s.startImpersonation)
   const router = useRouter()
 
@@ -31,16 +32,19 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Wait for /api/me. The persisted role is a cache and can be stale — bouncing
+  // on it would eject a genuine admin whose last session was a demoted one.
+  // This is UX only; /api/admin/users re-checks with requireAdmin() regardless.
   useEffect(() => {
-    if (telegramId !== null && role !== null && role !== "ADMIN") {
+    if (hydrated && telegramId !== null && role !== null && role !== "ADMIN") {
       router.replace("/")
     }
-  }, [role, telegramId, router])
+  }, [hydrated, role, telegramId, router])
 
   const fetchUsers = () => {
     setLoading(true)
     setError(null)
-    fetch(`/api/admin/users?telegramId=${encodeURIComponent(telegramId ?? "")}`)
+    fetch('/api/admin/users')
       .then((r) => r.json())
       .then((data) => {
         if (data.error) throw new Error(data.error)
@@ -51,11 +55,11 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
-    if (role === "ADMIN" && telegramId) fetchUsers()
+    if (hydrated && role === "ADMIN" && telegramId) fetchUsers()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role, telegramId])
+  }, [hydrated, role, telegramId])
 
-  if (!telegramId || role === null) {
+  if (!hydrated || !telegramId || role === null) {
     return (
       <div className="flex flex-col min-h-screen">
         <Navbar />
@@ -164,7 +168,17 @@ export default function AdminPage() {
                           {u.telegramId !== telegramId && (
                             <button
                               onClick={() => {
-                                startImpersonation({ telegramId: u.telegramId, telegramName: u.telegramName, role: u.role as 'ADMIN' | 'USER' })
+                                void (async () => {
+                                  // The server decides; the store only mirrors it.
+                                  const res = await fetch('/api/admin/impersonate', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ telegramId: u.telegramId }),
+                                  })
+                                  if (!res.ok) return
+                                  startImpersonation({ telegramId: u.telegramId, telegramName: u.telegramName, role: u.role as 'ADMIN' | 'USER' })
+                                  router.push('/')
+                                })()
                                 router.push('/')
                               }}
                               className="rounded px-2 py-1 text-xs font-medium border border-border hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"

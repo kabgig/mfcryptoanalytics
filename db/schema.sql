@@ -62,6 +62,19 @@ CREATE TABLE public.exchange_fetch_log (
 
 
 --
+-- Name: login_tokens; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.login_tokens (
+    token_hash text NOT NULL,
+    user_id bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    used_at timestamp with time zone
+);
+
+
+--
 -- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -171,6 +184,42 @@ CREATE TABLE public.trade_overrides (
 
 
 --
+-- Name: user_sessions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.user_sessions (
+    id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    session_token_hash text NOT NULL,
+    user_agent text,
+    ip inet,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_seen_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    revoked_at timestamp with time zone
+);
+
+
+--
+-- Name: user_sessions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.user_sessions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: user_sessions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.user_sessions_id_seq OWNED BY public.user_sessions.id;
+
+
+--
 -- Name: users; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -211,6 +260,13 @@ ALTER TABLE ONLY public.spot_entries ALTER COLUMN id SET DEFAULT nextval('public
 
 
 --
+-- Name: user_sessions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_sessions ALTER COLUMN id SET DEFAULT nextval('public.user_sessions_id_seq'::regclass);
+
+
+--
 -- Name: users id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -231,6 +287,14 @@ ALTER TABLE ONLY public.cached_trades
 
 ALTER TABLE ONLY public.exchange_fetch_log
     ADD CONSTRAINT exchange_fetch_log_pkey PRIMARY KEY (telegram_id, exchange);
+
+
+--
+-- Name: login_tokens login_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.login_tokens
+    ADD CONSTRAINT login_tokens_pkey PRIMARY KEY (token_hash);
 
 
 --
@@ -274,6 +338,22 @@ ALTER TABLE ONLY public.trade_overrides
 
 
 --
+-- Name: user_sessions user_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_sessions
+    ADD CONSTRAINT user_sessions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: user_sessions user_sessions_session_token_hash_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_sessions
+    ADD CONSTRAINT user_sessions_session_token_hash_key UNIQUE (session_token_hash);
+
+
+--
 -- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -312,6 +392,41 @@ CREATE INDEX cached_trades_telegram_close_time ON public.cached_trades USING btr
 
 
 --
+-- Name: idx_login_tokens_expires_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_login_tokens_expires_at ON public.login_tokens USING btree (expires_at);
+
+
+--
+-- Name: idx_login_tokens_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_login_tokens_user_id ON public.login_tokens USING btree (user_id);
+
+
+--
+-- Name: idx_user_sessions_expires_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_sessions_expires_at ON public.user_sessions USING btree (expires_at);
+
+
+--
+-- Name: idx_user_sessions_ip; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_sessions_ip ON public.user_sessions USING btree (ip);
+
+
+--
+-- Name: idx_user_sessions_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_sessions_user_id ON public.user_sessions USING btree (user_id);
+
+
+--
 -- Name: spot_entries_user_ticker_time; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -342,6 +457,14 @@ ALTER TABLE ONLY public.exchange_fetch_log
 
 
 --
+-- Name: login_tokens login_tokens_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.login_tokens
+    ADD CONSTRAINT login_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: spot_entries spot_entries_telegram_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -363,6 +486,14 @@ ALTER TABLE ONLY public.trade_notes
 
 ALTER TABLE ONLY public.trade_overrides
     ADD CONSTRAINT trade_overrides_telegram_id_fkey FOREIGN KEY (telegram_id) REFERENCES public.users(telegram_id) ON DELETE CASCADE;
+
+
+--
+-- Name: user_sessions user_sessions_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_sessions
+    ADD CONSTRAINT user_sessions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
 --
@@ -392,4 +523,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260815000001'),
     ('20260826000001'),
     ('20260828000001'),
-    ('20260902000001');
+    ('20260902000001'),
+    ('20260905000001');

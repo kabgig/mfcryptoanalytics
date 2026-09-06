@@ -1,31 +1,23 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { useUserStore } from '@/lib/store/userStore'
+import { useRouter } from 'next/navigation'
 
+/**
+ * Dead end, kept deliberately.
+ *
+ * This page used to be the login: it read `?id=` and `?name=` straight from the
+ * URL and wrote them into the client store, which meant anyone who knew a
+ * Telegram id could become that user. Sign-in now goes through
+ * /api/auth/exchange with a one-shot token, so old links in people's Telegram
+ * history must land somewhere harmless rather than continue to work.
+ */
 export default function AuthPage() {
   const router = useRouter()
-  const params = useSearchParams()
-  const setTelegramUser = useUserStore((s) => s.setTelegramUser)
-  const setRole = useUserStore((s) => s.setRole)
 
   useEffect(() => {
-    const id = params.get('id')
-    const name = params.get('name')
-    if (id && name) {
-      setTelegramUser(id, decodeURIComponent(name))
-      fetch(`/api/user/role?telegramId=${id}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.role === 'ADMIN' || data.role === 'USER') {
-            setRole(data.role)
-          }
-        })
-        .catch(() => {/* role stays null, non-critical */})
-    }
-    router.replace('/')
-  }, [params, router, setTelegramUser, setRole])
+    router.replace('/?auth=expired')
+  }, [router])
 
   return null
 }

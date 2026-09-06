@@ -111,7 +111,7 @@ export async function getOverrides(telegramId: string): Promise<TradeOverridesMa
   const rows = (await sql`
     SELECT exchange, trade_id, bias, entry, tp1, tp2, sl, risk_pct, rr, rules_ok,
            strategy, timeframe, killzone, exit_reason, mistake, emotion
-    FROM trade_overrides
+    FROM public.trade_overrides
     WHERE telegram_id = ${BigInt(telegramId)}
   `) as OverrideRow[]
   return rowsToOverridesMap(rows)
@@ -127,7 +127,7 @@ async function getOverride(
   const rows = (await sql`
     SELECT exchange, trade_id, bias, entry, tp1, tp2, sl, risk_pct, rr, rules_ok,
            strategy, timeframe, killzone, exit_reason, mistake, emotion
-    FROM trade_overrides
+    FROM public.trade_overrides
     WHERE telegram_id = ${BigInt(telegramId)}
       AND exchange    = ${exchange}
       AND trade_id    = ${tradeId}
@@ -159,7 +159,7 @@ export async function saveOverride(
 
   if (next === null) {
     await sql`
-      DELETE FROM trade_overrides
+      DELETE FROM public.trade_overrides
       WHERE telegram_id = ${tid}
         AND exchange    = ${exchange}
         AND trade_id    = ${tradeId}
@@ -168,7 +168,7 @@ export async function saveOverride(
   }
 
   await sql`
-    INSERT INTO users (telegram_id, telegram_name)
+    INSERT INTO public.users (telegram_id, telegram_name)
     VALUES (${tid}, ${"unknown"})
     ON CONFLICT (telegram_id) DO NOTHING
   `
@@ -179,7 +179,7 @@ export async function saveOverride(
   // NULL when nothing is selected, which is what keeps the table's empty_chk
   // reading them as unset.
   await sql`
-    INSERT INTO trade_overrides (
+    INSERT INTO public.trade_overrides (
       telegram_id, exchange, trade_id,
       bias, entry, tp1, tp2, sl, risk_pct, rr, rules_ok,
       strategy, timeframe, killzone, exit_reason, mistake, emotion
@@ -227,7 +227,7 @@ export async function deleteOverridesForTrade(
 ): Promise<void> {
   const sql = getSql()
   await sql`
-    DELETE FROM trade_overrides
+    DELETE FROM public.trade_overrides
     WHERE telegram_id = ${BigInt(telegramId)}
       AND exchange    = ${exchange}
       AND trade_id    = ${tradeId}

@@ -5,27 +5,28 @@ import {
   MAX_IDS_PER_REQUEST,
   TRADE_BATCH_BODY_LIMIT,
 } from "@/lib/api/body-limit"
+import { requireUser } from "@/lib/auth/session"
 
 export const dynamic = "force-dynamic"
 
 /**
- * POST { telegramId: string, ids: string[] }
+ * POST { ids: string[] }
  * Returns { existingIds: string[] } — the subset of ids already in the DB for this user.
  *
  * Soft-deleted trades count as existing (no `deleted_at IS NULL` filter below):
  * re-uploading the same CSV should leave a deleted trade deleted, not resurrect it.
  */
 export async function POST(request: Request) {
+  const user = await requireUser()
+  if (user instanceof Response) return user
+
   const tooLarge = enforceBodyLimit(request, TRADE_BATCH_BODY_LIMIT)
   if (tooLarge) return tooLarge
 
   try {
-    const { telegramId, ids } = await request.json() as {
-      telegramId: string
-      ids: string[]
-    }
+    const { ids } = await request.json() as { ids: string[] }
 
-    if (!telegramId || !Array.isArray(ids) || ids.length === 0) {
+    if (!Array.isArray(ids) || ids.length === 0) {
       return Response.json({ existingIds: [] })
     }
 
@@ -39,8 +40,8 @@ export async function POST(request: Request) {
     const sql = getSql()
     const rows = await sql`
       SELECT id
-      FROM cached_trades
-      WHERE telegram_id = ${BigInt(telegramId)}
+      FROM public.cached_trades
+      WHERE telegram_id = ${BigInt(user.telegramId)}
         AND id = ANY(${ids}::text[])
     ` as { id: string }[]
 

@@ -1,22 +1,20 @@
 import { getDeletedTrades } from "@/lib/db/trades"
 import { serverError } from "@/lib/api/errors"
+import { requireUser } from "@/lib/auth/session"
 
 export const dynamic = "force-dynamic"
 
 /**
- * POST { telegramId: string }
- * Returns { trades } — the user's soft-deleted trades across all exchanges.
+ * POST — returns { trades }, the session user's soft-deleted trades across all
+ * exchanges.
  * Every other read path hides them, so this backs the "show deleted" toggle.
  */
-export async function POST(request: Request) {
+export async function POST() {
+  const user = await requireUser()
+  if (user instanceof Response) return user
+
   try {
-    const { telegramId } = await request.json() as { telegramId: string }
-
-    if (!telegramId) {
-      return Response.json({ error: "Missing telegramId" }, { status: 400 })
-    }
-
-    const trades = await getDeletedTrades(String(telegramId))
+    const trades = await getDeletedTrades(user.telegramId)
     return Response.json({ trades })
   } catch (err) {
     return serverError("trades/deleted", err, 500)

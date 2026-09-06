@@ -13,6 +13,7 @@
  */
 import assert from "node:assert/strict"
 import { getSql } from "@/lib/db"
+import { signIn } from "./helpers/session.mjs"
 
 const BASE = process.env.TEST_BASE_URL ?? "http://localhost:3000"
 const USER_ID = "990000000401"
@@ -55,7 +56,7 @@ const SYNTHETIC = [BigInt(USER_ID), BigInt(OTHER_ID)]
 async function assertNoRealDataAtRisk() {
   const rows = await sql`
     SELECT telegram_id, COUNT(*)::int AS n
-    FROM cached_trades
+    FROM public.cached_trades
     WHERE close_time < NOW() - INTERVAL '2 years'
       AND telegram_id <> ALL(${SYNTHETIC}::bigint[])
     GROUP BY telegram_id
@@ -74,7 +75,7 @@ async function realDataFingerprint() {
   const [row] = await sql`
     SELECT COUNT(*)::int AS total,
            COUNT(*) FILTER (WHERE deleted_at IS NULL)::int AS live
-    FROM cached_trades
+    FROM public.cached_trades
     WHERE telegram_id <> ALL(${SYNTHETIC}::bigint[])
   ` as { total: number; live: number }[]
   return row
@@ -83,9 +84,9 @@ async function realDataFingerprint() {
 async function teardown() {
   for (const id of [USER_ID, OTHER_ID]) {
     const tid = BigInt(id)
-    await sql`DELETE FROM cached_trades      WHERE telegram_id = ${tid}`
-    await sql`DELETE FROM exchange_fetch_log WHERE telegram_id = ${tid}`
-    await sql`DELETE FROM users             WHERE telegram_id = ${tid}`
+    await sql`DELETE FROM public.cached_trades      WHERE telegram_id = ${tid}`
+    await sql`DELETE FROM public.exchange_fetch_log WHERE telegram_id = ${tid}`
+    await sql`DELETE FROM public.users             WHERE telegram_id = ${tid}`
   }
 }
 
@@ -93,13 +94,13 @@ async function teardown() {
 async function seed(telegramId: string, rows: { id: string; closeTime: string; pnl: number }[]) {
   const tid = BigInt(telegramId)
   await sql`
-    INSERT INTO users (telegram_id, telegram_name)
+    INSERT INTO public.users (telegram_id, telegram_name)
     VALUES (${tid}, ${"cleanup-test"})
     ON CONFLICT (telegram_id) DO NOTHING
   `
   for (const r of rows) {
     await sql`
-      INSERT INTO cached_trades
+      INSERT INTO public.cached_trades
         (id, telegram_id, exchange, ticker, position_size, tp, sl, open_time, close_time, pnl, market, side)
       VALUES (${r.id}, ${tid}, ${EXCHANGE}, ${"BTCUSDT"}, 1, null, null,
               ${r.closeTime}::timestamptz, ${r.closeTime}::timestamptz, ${r.pnl}, null, null)
@@ -109,7 +110,7 @@ async function seed(telegramId: string, rows: { id: string; closeTime: string; p
 
 const state = async (id: string) => {
   const rows = await sql`
-    SELECT id, deleted_at FROM cached_trades
+    SELECT id, deleted_at FROM public.cached_trades
     WHERE telegram_id = ${BigInt(USER_ID)} AND id = ${id}
   ` as { id: string; deleted_at: Date | null }[]
   return rows[0] ?? null
@@ -120,10 +121,13 @@ const runCron = async (auth = `Bearer ${SECRET}`) => {
   return { status: res.status, json: await res.json() as Record<string, unknown> }
 }
 
+let cookie = ""
+let adminCookie = ""
+
 async function post(path: string, body: unknown) {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", cookie },
     body: JSON.stringify(body),
   })
   return { status: res.status, json: await res.json() as Record<string, unknown> }
@@ -150,10 +154,13 @@ async function main() {
     ])
     await seed(OTHER_ID, [{ id: "cl-other-recent", closeTime: yearsAgo(1), pnl: 7 }])
 
+    cookie = await signIn(BASE, USER_ID, "cleanup-test")
+    adminCookie = await signIn(BASE, OTHER_ID, "cleanup-admin")
+
     // The user deleted this one themselves, three days ago.
     const userDeletedAt = new Date(Date.now() - 3 * 86_400_000).toISOString()
     await sql`
-      UPDATE cached_trades SET deleted_at = ${userDeletedAt}::timestamptz
+      UPDATE public.cached_trades SET deleted_at = ${userDeletedAt}::timestamptz
       WHERE telegram_id = ${BigInt(USER_ID)} AND id = ${"cl-usergone"}
     `
 
@@ -196,7 +203,7 @@ async function main() {
 
     await check("another user's recent trade is untouched by the global sweep", async () => {
       const rows = await sql`
-        SELECT deleted_at FROM cached_trades
+        SELECT deleted_at FROM public.cached_trades
         WHERE telegram_id = ${BigInt(OTHER_ID)} AND id = ${"cl-other-recent"}
       ` as { deleted_at: Date | null }[]
       assert.equal(rows.length, 1)
@@ -247,11 +254,10 @@ async function main() {
 
     await check("it is excluded from admin totals", async () => {
       await sql`
-        INSERT INTO users (telegram_id, telegram_name, role)
-        VALUES (${BigInt(OTHER_ID)}, ${"cleanup-admin"}, ${"ADMIN"}::user_role)
-        ON CONFLICT (telegram_id) DO UPDATE SET role = ${"ADMIN"}::user_role
+        UPDATE public.users SET role = ${"ADMIN"}::user_role
+        WHERE telegram_id = ${BigInt(OTHER_ID)}
       `
-      const res = await fetch(`${BASE}/api/admin/users?telegramId=${OTHER_ID}`)
+      const res = await fetch(`${BASE}/api/admin/users`, { headers: { cookie: adminCookie } })
       assert.equal(res.status, 200)
       const rows = await res.json() as { telegramId: string; tradeCount: number; totalPnl: number }[]
       const row = rows.find((r) => r.telegramId === USER_ID)
@@ -263,7 +269,7 @@ async function main() {
 
     await check("it is excluded from a public share link", async () => {
       const token = "c1ea0000000000000000000000000000000000000000beef"
-      await sql`UPDATE users SET share_token = ${token} WHERE telegram_id = ${BigInt(USER_ID)}`
+      await sql`UPDATE public.users SET share_token = ${token} WHERE telegram_id = ${BigInt(USER_ID)}`
       const res = await fetch(`${BASE}/api/share/${token}`)
       assert.equal(res.status, 200)
       const ids = ((await res.json()).trades as { id: string }[]).map((t) => t.id)
@@ -284,7 +290,7 @@ async function main() {
         pnl: 1, openTime: closeTime, closeTime,
       }))
       const { status, json } = await post("/api/trades-store", {
-        telegramId: USER_ID, exchange: EXCHANGE, trades: all,
+        exchange: EXCHANGE, trades: all,
       })
       assert.equal(status, 200)
       // deletedIds carries composite `exchange|id` keys (see tradeKey), which is
@@ -299,14 +305,14 @@ async function main() {
 
     await check("check-ids still counts it as present, so a re-upload keeps it archived", async () => {
       const { json } = await post("/api/import/check-ids", {
-        telegramId: USER_ID, ids: ["cl-ancient"],
+        ids: ["cl-ancient"],
       })
       assert.deepEqual(json.existingIds, ["cl-ancient"])
     })
 
     await check("the user can restore an archived trade", async () => {
       const { status } = await post("/api/trades/restore", {
-        telegramId: USER_ID, exchange: EXCHANGE, id: "cl-ancient",
+        exchange: EXCHANGE, id: "cl-ancient",
       })
       assert.equal(status, 200)
       const row = await state("cl-ancient")
@@ -327,7 +333,7 @@ async function main() {
     console.log("\nauthorisation")
 
     await check("no bearer is refused and archives nothing", async () => {
-      await post("/api/trades/restore", { telegramId: USER_ID, exchange: EXCHANGE, id: "cl-ancient" })
+      await post("/api/trades/restore", { exchange: EXCHANGE, id: "cl-ancient" })
       const res = await fetch(`${BASE}/api/cron/cleanup`)
       assert.equal(res.status, 401)
       assert.equal((await state("cl-ancient"))!.deleted_at, null, "an unauthorised call still swept")

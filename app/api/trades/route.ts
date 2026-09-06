@@ -6,12 +6,12 @@ import { MEXCAdapter } from "@/lib/exchanges/adapters/mexc"
 import { getIfFresh, upsertTrades, getStoredTrades, getDeletedKeys, filterDeleted } from "@/lib/db/trades"
 import type { Trade } from "@/types"
 import { serverError } from "@/lib/api/errors"
+import { requireUser } from "@/lib/auth/session"
 
 export const dynamic = "force-dynamic"
 export const preferredRegion = "sin1" // Singapore — avoids geo-blocks for BingX/MEXC
 
 interface TradesRequestBody {
-  telegramId: string
   exchange: string
   apiKey: string
   apiSecret: string
@@ -32,6 +32,9 @@ async function fetchFromExchange(body: TradesRequestBody): Promise<Trade[]> {
 }
 
 export async function POST(request: Request) {
+  const user = await requireUser()
+  if (user instanceof Response) return user
+
   let body: TradesRequestBody
 
   try {
@@ -40,9 +43,10 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 })
   }
 
-  const { telegramId, exchange, apiKey, apiSecret, force = false } = body
+  const { exchange, apiKey, apiSecret, force = false } = body
+  const telegramId = user.telegramId
 
-  if (!telegramId || !exchange || !apiKey || !apiSecret) {
+  if (!exchange || !apiKey || !apiSecret) {
     return Response.json({ error: "Missing required fields" }, { status: 400 })
   }
 
@@ -62,14 +66,6 @@ export async function POST(request: Request) {
       const t2 = Date.now()
       const fetched = await fetchFromExchange(body)
       console.log(`[trades] ${exchange} fetched ${fetched.length} trades FROM EXCHANGE (${Date.now() - t2}ms)`)
-
-      // Ensure user row exists before writing to FK-constrained tables
-      const sql = (await import("@/lib/db")).getSql()
-      await sql`
-        INSERT INTO users (telegram_id, telegram_name)
-        VALUES (${BigInt(telegramId)}, ${'unknown'})
-        ON CONFLICT (telegram_id) DO NOTHING
-      `
 
       const t3 = Date.now()
       await upsertTrades(telegramId, exchange, fetched)

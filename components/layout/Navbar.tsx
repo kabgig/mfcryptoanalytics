@@ -103,6 +103,17 @@ export function Navbar() {
   const telegramName = useUserStore((s) => s.telegramName)
   const role = useUserStore((s) => s.role)
   const clear = useUserStore((s) => s.clear)
+
+  // Clearing localStorage alone would leave a session that still validates.
+  const logout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" })
+    } catch {
+      // Even if the call fails, drop local state; the cookie may already be gone.
+    }
+    clear()
+    window.location.href = "/"
+  }
   const originalAdmin = useUserStore((s) => s.originalAdmin)
   const stopImpersonation = useUserStore((s) => s.stopImpersonation)
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -126,7 +137,13 @@ export function Navbar() {
             <span className="font-mono text-xs text-amber-600/60 dark:text-amber-500/60">({telegramId})</span>
           </span>
           <button
-            onClick={() => { stopImpersonation(); router.push('/admin') }}
+            onClick={() => {
+              void (async () => {
+                await fetch('/api/admin/impersonate', { method: 'DELETE' }).catch(() => {})
+                stopImpersonation()
+                router.push('/admin')
+              })()
+            }}
             className="shrink-0 rounded px-2.5 py-1 text-xs font-medium border border-amber-500/40 text-amber-700 dark:text-amber-400 hover:bg-amber-500/15 transition-colors"
           >
             Back to Admin
@@ -169,7 +186,7 @@ export function Navbar() {
                 </button>
               </span>
               <button
-                onClick={clear}
+                onClick={logout}
                 className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground"
                 title="Logout"
               >
@@ -283,7 +300,7 @@ export function Navbar() {
                   </div>
                 )}
                 <button
-                  onClick={() => { clear(); setMobileOpen(false) }}
+                  onClick={() => { setMobileOpen(false); void logout() }}
                   className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-muted-foreground hover:bg-accent rounded-md transition-colors"
                 >
                   <LogOut className="h-4 w-4 shrink-0" />

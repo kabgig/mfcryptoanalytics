@@ -18,6 +18,8 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createRequire } from "node:module"
 import { neon } from "@neondatabase/serverless"
+import { signIn, signInBrowser } from "./helpers/session.mjs"
+import { gotoApp, reloadApp } from "./helpers/nav.mjs"
 
 // Playwright is installed globally, not as a project dependency.
 const require = createRequire(import.meta.url)
@@ -49,10 +51,13 @@ async function check(name, fn) {
   console.log(`  ✓ ${name}`)
 }
 
+// Seeding goes through the API, which now requires a session.
+let cookie = ""
+
 async function post(path, body) {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", cookie },
     body: JSON.stringify(body),
   })
   return res.json()
@@ -60,15 +65,16 @@ async function post(path, body) {
 
 async function teardown() {
   const tid = BigInt(TEST_TELEGRAM_ID)
-  await sql`DELETE FROM cached_trades      WHERE telegram_id = ${tid}`
-  await sql`DELETE FROM exchange_fetch_log WHERE telegram_id = ${tid}`
-  await sql`DELETE FROM users             WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.cached_trades      WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.exchange_fetch_log WHERE telegram_id = ${tid}`
+  await sql`DELETE FROM public.users             WHERE telegram_id = ${tid}`
 }
 
 async function main() {
   mkdirSync(SHOTS, { recursive: true })
   await teardown()
-  await post("/api/trades-store", { telegramId: TEST_TELEGRAM_ID, exchange: EXCHANGE, trades: TRADES })
+  cookie = await signIn(BASE, TEST_TELEGRAM_ID, "ui-test")
+  await post("/api/trades-store", { exchange: EXCHANGE, trades: TRADES })
   console.log(`\nsetup: seeded ${TRADES.length} trades for synthetic user ${TEST_TELEGRAM_ID}`)
 
   const browser = await chromium.launch()
@@ -88,6 +94,8 @@ async function main() {
   }, TEST_TELEGRAM_ID)
 
   const page = await context.newPage()
+  // The cookie, not localStorage, is what the server trusts now.
+  await signInBrowser(page, BASE, TEST_TELEGRAM_ID, "ui-test")
   // Uncaught JS errors only. Aborted requests are tracked separately below:
   // navigations and the wallet SDK's external analytics beacon abort routinely
   // and say nothing about this feature.
@@ -131,7 +139,7 @@ async function main() {
   }
 
   try {
-    await page.goto(BASE, { waitUntil: "networkidle" })
+    await gotoApp(page, BASE)
     await page.waitForSelector('[data-testid="delete-trade"]')
     await page.screenshot({ path: `${SHOTS}/1-initial.png`, fullPage: true })
 
@@ -214,7 +222,7 @@ async function main() {
     // reload races with the SDK's own navigation and gets ERR_ABORTED, which
     // would make this check flaky for reasons unrelated to soft delete.
     const fresh = await context.newPage()
-    await fresh.goto(BASE, { waitUntil: "networkidle" })
+    await gotoApp(fresh, BASE)
     await fresh.waitForSelector('[data-testid="delete-trade"]')
     await fresh.screenshot({ path: `${SHOTS}/5-fresh-load.png`, fullPage: true })
 

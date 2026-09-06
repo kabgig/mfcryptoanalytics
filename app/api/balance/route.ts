@@ -1,6 +1,7 @@
 import { fetchBalance as fetchBingXBalance } from "@/lib/exchanges/adapters/bingx/balance"
 import { fetchBalance as fetchMEXCBalance } from "@/lib/exchanges/adapters/mexc/balance"
 import { upstreamError } from "@/lib/api/errors"
+import { requireUser } from "@/lib/auth/session"
 
 export const dynamic = "force-dynamic"
 export const preferredRegion = "sin1"
@@ -12,6 +13,11 @@ interface BalanceRequestBody {
 }
 
 export async function POST(request: Request) {
+  // Guarded even though the credentials come from the body: without it this is a
+  // free oracle for validating stolen exchange API keys through our server.
+  const user = await requireUser()
+  if (user instanceof Response) return user
+
   let body: BalanceRequestBody
 
   try {

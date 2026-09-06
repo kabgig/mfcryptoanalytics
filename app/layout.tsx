@@ -4,6 +4,7 @@ import "./globals.css";
 import { headers } from "next/headers";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { ReownProvider } from "@/components/providers/ReownProvider";
+import { SessionProvider } from "@/components/providers/SessionProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -36,7 +37,9 @@ export default async function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <ReownProvider cookies={cookies}>
-          <ThemeProvider>{children}</ThemeProvider>
+          <ThemeProvider>
+            <SessionProvider>{children}</SessionProvider>
+          </ThemeProvider>
         </ReownProvider>
       </body>
     </html>
