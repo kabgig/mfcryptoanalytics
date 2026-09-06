@@ -7,6 +7,11 @@ import { serverError } from '@/lib/api/errors'
 import { isValidWebhookSecret } from '@/lib/api/webhook-auth'
 import { createLoginToken } from '@/lib/auth/session'
 
+/** Escapes MarkdownV2's reserved characters. The URL itself sits in a code span. */
+function escapeMdV2(s: string): string {
+  return s.replace(/([_*[\]()~`>#+\-=|{}.!\\])/g, '\\$1')
+}
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!isValidWebhookSecret(req.headers.get('x-telegram-bot-api-secret-token'))) {
     console.warn('[telegram/webhook] rejected: bad or missing secret token')
@@ -49,10 +54,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
     const link = `${appUrl}/api/auth/exchange?token=${token}`
 
-    await sendMessage(
-      message.chat.id,
-      `Sign in: ${link}\n\nThis link works once and expires in 10 minutes.\nOn mobile, copy and paste it manually into your browser.`
-    )
+    // The URL goes inside a MarkdownV2 code span, which does two jobs at once:
+    //
+    //  1. Telegram does not linkify it, so it never fetches the URL to build a
+    //     preview card. That fetch was redeeming the one-shot token ~450ms after
+    //     the message was sent, handing the session to the crawler and leaving
+    //     the user with "?auth=expired".
+    //  2. Tapping it on mobile copies rather than navigates, so the flow does not
+    //     open in Telegram's in-app browser — where the session cookie would be
+    //     set in a webview the user then closes.
+    //
+    // The user pastes it into their real browser, which is where the cookie
+    // needs to live.
+    const body =
+      escapeMdV2('Copy this link and open it in your browser to sign in (valid for 10 minutes):') +
+      '\n\n`' + link + '`'
+
+    await sendMessage(message.chat.id, body, 'MarkdownV2')
   } catch (err) {
     return serverError('telegram/webhook', err) as NextResponse
   }

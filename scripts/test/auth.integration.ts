@@ -351,6 +351,40 @@ async function main() {
       assert.equal(second.headers.get("location"), "/?auth=expired", "a token was redeemable twice")
     })
 
+    // REGRESSION: Telegram's preview crawler redeemed a live token ~450ms after
+    // the message was sent, took the session, and left the user with
+    // "?auth=expired". The crawler must not spend the token.
+    await check("a link-preview crawler does not consume the token", async () => {
+      const token = await mintLoginToken(ALICE)
+
+      const crawler = await fetch(`${BASE}/api/auth/exchange?token=${token}`, {
+        headers: { "user-agent": "TelegramBot (like TwitterBot)" },
+        redirect: "manual",
+      })
+      assert.equal(crawler.status, 200, "crawler was redirected into the login flow")
+      assert.ok(
+        !(crawler.headers.getSetCookie?.() ?? []).some((c) => c.startsWith("mfca_session=")),
+        "the crawler was handed a session"
+      )
+
+      const stillUnused = await sql`
+        SELECT used_at FROM public.login_tokens WHERE token_hash = ${sha256(token)}
+      ` as { used_at: Date | null }[]
+      assert.equal(stillUnused[0].used_at, null, "the crawler burned the token")
+
+      // And the real user, arriving afterwards, still gets in.
+      const user = await fetch(`${BASE}/api/auth/exchange?token=${token}`, {
+        headers: { "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604.1" },
+        redirect: "manual",
+      })
+      assert.equal(user.status, 303)
+      assert.equal(user.headers.get("location"), "/", "the user did not land signed in")
+      assert.ok(
+        (user.headers.getSetCookie?.() ?? []).some((c) => c.startsWith("mfca_session=")),
+        "the user got no session"
+      )
+    })
+
     await check("an expired login token is refused", async () => {
       const token = await mintLoginToken(ALICE, "-1 minute")
       const res = await fetch(`${BASE}/api/auth/exchange?token=${token}`, { redirect: "manual" })

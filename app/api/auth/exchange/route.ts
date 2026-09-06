@@ -7,6 +7,7 @@ import {
   sessionCookieOptions,
 } from "@/lib/auth/session"
 import { serverError } from "@/lib/api/errors"
+import { isLinkPreviewCrawler } from "@/lib/api/crawler"
 
 export const dynamic = "force-dynamic"
 
@@ -24,6 +25,18 @@ export async function GET(request: Request) {
   // base64url of 32 bytes is always 43 chars; anything else cannot be ours.
   if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) {
     return redirect("/?auth=invalid")
+  }
+
+  // A preview crawler must not spend the token. Answer it with a bare 200 and
+  // leave the token unused so the person who clicks the link still gets in.
+  if (isLinkPreviewCrawler(request.headers)) {
+    console.warn(
+      `[auth/exchange] ignored link-preview crawler: ${request.headers.get("user-agent")}`
+    )
+    return new Response("Sign-in link", {
+      status: 200,
+      headers: { "content-type": "text/plain", "cache-control": "no-store" },
+    })
   }
 
   try {

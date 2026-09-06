@@ -9,6 +9,7 @@ import {
 } from "@/lib/api/body-limit"
 import { isValidWebhookSecret } from "@/lib/api/webhook-auth"
 import { serverError, upstreamError } from "@/lib/api/errors"
+import { isLinkPreviewCrawler } from "@/lib/api/crawler"
 
 const req = (contentLength: string | null) =>
   new Request("http://x/api/t", {
@@ -149,5 +150,42 @@ describe("serverError / upstreamError", () => {
   test("upstreamError copes with a non-Error throw", async () => {
     const body = await upstreamError("balance", "plain string").json() as { error: string }
     assert.equal(body.error, "plain string")
+  })
+})
+
+describe("link-preview crawler detection", () => {
+  const ua = (v: string) => new Headers({ "user-agent": v })
+
+  test("Telegram's preview crawler is recognised", () => {
+    // The exact UA that redeemed a live login token in production.
+    assert.equal(isLinkPreviewCrawler(ua("TelegramBot (like TwitterBot)")), true)
+  })
+
+  test("the other messengers that unfurl links are recognised", () => {
+    for (const v of [
+      "WhatsApp/2.23.20.0 A",
+      "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
+      "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)",
+      "facebookexternalhit/1.1",
+      "Twitterbot/1.0",
+      "Mozilla/5.0 (compatible; Googlebot/2.1)",
+    ]) {
+      assert.equal(isLinkPreviewCrawler(ua(v)), true, `missed: ${v}`)
+    }
+  })
+
+  test("real browsers are never treated as crawlers", () => {
+    for (const v of [
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Gecko/20100101 Firefox/121.0",
+      "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36",
+    ]) {
+      assert.equal(isLinkPreviewCrawler(ua(v)), false, `false positive: ${v}`)
+    }
+  })
+
+  test("a missing user-agent is not assumed to be a crawler", () => {
+    assert.equal(isLinkPreviewCrawler(new Headers()), false)
   })
 })
