@@ -50,8 +50,11 @@ each one was, at some point, a real hole in this codebase.
   `.rowCount`. To know whether a write happened, add `RETURNING id` and check
   `rows.length`. Two separate bugs came from assuming postgres.js semantics.
 - `timestamptz` comes back as a `Date`, not a string.
-- Migrations run via `dbmate` as the owner; the app should connect as
-  `app_frontend` (see `db/roles.sql`).
+- **Two roles, deliberately.** `DATABASE_URL` is `app_frontend`: CRUD on
+  `public` only, `statement_timeout=5s`, no DDL, no ownership — so an injection
+  or a leaked deploy key cannot drop a table. `MIGRATION_DATABASE_URL` is the
+  owner and is used only by the `db:*` scripts (`dbmate --env MIGRATION_DATABASE_URL`).
+  Never point the app at the owner again; see `db/roles.sql`.
 - Nothing hard-deletes user data. Soft delete via `deleted_at`.
 
 ## Testing

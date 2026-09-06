@@ -5,7 +5,13 @@
 --
 --   psql "$OWNER_URL" -v pw="'<password>'" -f db/roles.sql
 --
--- Then point the app's DATABASE_URL at app_frontend instead of the owner.
+-- Then point the app's DATABASE_URL at app_frontend instead of the owner, and
+-- keep the owner URL as MIGRATION_DATABASE_URL — dbmate needs DDL rights, which
+-- app_frontend deliberately does not have. The db:* npm scripts pass
+-- `--env MIGRATION_DATABASE_URL` for exactly this reason.
+--
+-- STATUS: applied to the Neon project on 2026-09-06. Local .env.local already
+-- points at app_frontend. Vercel's DATABASE_URL must be updated separately.
 --
 -- Why: the app currently connects as the Neon owner, which can DROP TABLE. A SQL
 -- injection or a compromised deploy key would therefore be able to destroy the
