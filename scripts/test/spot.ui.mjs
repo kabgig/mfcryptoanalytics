@@ -261,7 +261,7 @@ async function main() {
     })
 
     await check("no uncaught page errors", () => {
-      assert.deepEqual(pageErrors, [])
+      assert.deepEqual(pageErrors, [], `page errors:\n${pageErrors.join("\n---\n")}`)
     })
     await check("no failing /api/spot requests", () => {
       assert.deepEqual(netIssues, [])

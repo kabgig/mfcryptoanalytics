@@ -2,6 +2,7 @@ import { cache } from "react"
 import { cookies } from "next/headers"
 import { createHash, randomBytes } from "node:crypto"
 import { getSql } from "@/lib/db"
+import { maybeAlertUserAbuse } from "@/lib/security-alert"
 
 /**
  * Session and login-token handling.
@@ -257,7 +258,30 @@ export async function requireUser(): Promise<SessionUser | Response> {
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 })
   }
+  trackUserRequest(user)
   return user
+}
+
+/**
+ * Best-effort telemetry on the authenticated hot path. Wrapped so a bug in the
+ * detector — or in the header read — can never bubble into a handler and turn a
+ * working request into a 500.
+ *
+ * Statically imported: this runs on every authenticated request, and a dynamic
+ * import here would add a module resolution to each one. security-alert keeps
+ * its own lazy import of the database driver, so nothing heavy is pulled in
+ * until an alert actually fires.
+ */
+function trackUserRequest(user: SessionUser): void {
+  try {
+    // No route label: obtaining one required the proxy to rewrite request
+    // headers, which destabilised the app (see proxy.ts). The user id and the
+    // rate are the actionable part anyway.
+    const alert = maybeAlertUserAbuse(user.telegramId)
+    if (alert) void alert.catch(() => {})
+  } catch {
+    // Telemetry must never affect the request.
+  }
 }
 
 export async function requireAdmin(): Promise<SessionUser | Response> {

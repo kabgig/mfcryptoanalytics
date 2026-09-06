@@ -318,6 +318,83 @@ async function main() {
       assert.equal(after.status, 401, "a revoked session still validates")
     })
 
+    await check("sign out all devices kills every session, not just this one", async () => {
+      // Three devices for the same person.
+      const a = await signIn(BASE, ALICE, "alice")
+      const b = await signIn(BASE, ALICE, "alice")
+      const c = await signIn(BASE, ALICE, "alice")
+      for (const jar of [a, b, c]) {
+        assert.equal((await fetch(`${BASE}/api/me`, { headers: { cookie: jar } })).status, 200)
+      }
+
+      const res = await fetch(`${BASE}/api/auth/logout-all`, {
+        method: "POST", headers: { cookie: a },
+      })
+      assert.equal(res.status, 200)
+      const body = await res.json() as { revoked: number }
+      assert.ok(body.revoked >= 3, `expected >=3 revoked, got ${body.revoked}`)
+
+      // Every device, including ones that never made the request.
+      for (const [name, jar] of [["calling device", a], ["second device", b], ["third device", c]] as const) {
+        assert.equal(
+          (await fetch(`${BASE}/api/me`, { headers: { cookie: jar } })).status, 401,
+          `${name} still had a live session`
+        )
+      }
+
+      // And the cookie is cleared on the way out.
+      assert.ok(
+        (res.headers.getSetCookie?.() ?? []).some((v) => v.startsWith("mfca_session=;")),
+        "the session cookie was not cleared"
+      )
+    })
+
+    await check("sign out all does not touch another user's sessions", async () => {
+      const alice = await signIn(BASE, ALICE, "alice")
+      const bob2 = await signIn(BASE, BOB, "bob")
+
+      await fetch(`${BASE}/api/auth/logout-all`, { method: "POST", headers: { cookie: alice } })
+
+      assert.equal(
+        (await fetch(`${BASE}/api/me`, { headers: { cookie: bob2 } })).status, 200,
+        "Bob was signed out by Alice"
+      )
+    })
+
+    await check("sign out all needs a session of its own", async () => {
+      assert.equal((await fetch(`${BASE}/api/auth/logout-all`, { method: "POST" })).status, 401)
+    })
+
+    // The trap: requireUser resolves to the TARGET while impersonating, so a
+    // naive implementation would sign out an innocent user and leave the admin
+    // logged in.
+    await check("sign out all is refused while impersonating", async () => {
+      const adminJar = await signIn(BASE, ADMIN, "admin")
+      await sql`UPDATE public.users SET role = ${"ADMIN"}::user_role WHERE telegram_id = ${BigInt(ADMIN)}`
+      const victim = await signIn(BASE, BOB, "bob")
+
+      const imp = await fetch(`${BASE}/api/admin/impersonate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie: adminJar },
+        body: JSON.stringify({ telegramId: BOB }),
+      })
+      assert.equal(imp.status, 200)
+      const impCookie = (imp.headers.getSetCookie?.() ?? [])
+        .map((c) => c.split(";")[0]).find((c) => c.startsWith("mfca_impersonate="))
+      assert.ok(impCookie)
+
+      const res = await fetch(`${BASE}/api/auth/logout-all`, {
+        method: "POST", headers: { cookie: `${adminJar}; ${impCookie}` },
+      })
+      assert.equal(res.status, 403, "an impersonating admin could sign out the target")
+
+      // The victim is untouched.
+      assert.equal(
+        (await fetch(`${BASE}/api/me`, { headers: { cookie: victim } })).status, 200,
+        "the impersonated user was signed out"
+      )
+    })
+
     await check("an expired session is refused", async () => {
       const cookie = await signIn(BASE, ALICE, "alice")
       const value = cookie.split("=")[1]

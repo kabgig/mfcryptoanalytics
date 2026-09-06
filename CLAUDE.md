@@ -57,6 +57,18 @@ each one was, at some point, a real hole in this codebase.
   Never point the app at the owner again; see `db/roles.sql`.
 - Nothing hard-deletes user data. Soft delete via `deleted_at`.
 
+## Security
+
+- Guards live in `lib/auth/session.ts`; the closed-by-default edge gate is
+  `proxy.ts`. Adding a path to `PUBLIC_API` makes it world-readable.
+- `lib/security-alert.ts` watches for floods (per-IP, distributed, per-user) and
+  Telegram-messages every `role='ADMIN'` user. **Alerts only leave the process in
+  production** (or with `SECURITY_ALERTS_LOCAL=1`), so test suites firing bursts
+  of 401s cannot page anyone. Detectors never throw into the request path.
+- Open items and deliberate trade-offs are tracked in `doc/KNOWN-ISSUES.md` —
+  read it before "fixing" the report-only CSP or the localStorage API keys, both
+  of which are considered decisions rather than oversights.
+
 ## Testing
 
 `doc/ui-testing.md` has the full setup. In short: `npm test` (unit, no server),

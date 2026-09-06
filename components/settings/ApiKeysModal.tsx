@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Settings, X, Eye, EyeOff } from 'lucide-react'
+import { Settings, X, Eye, EyeOff, LogOut } from 'lucide-react'
 import { useUserStore } from '@/lib/store/userStore'
 import { ClientApiKeys } from '@/lib/exchanges/client'
 
@@ -68,9 +68,35 @@ export function ApiKeysModal({ trigger }: { trigger?: React.ReactNode }) {
   const { apiKeys, setApiKeys } = useUserStore()
   const [draft, setDraft] = useState<ClientApiKeys>(apiKeys)
   const [revealed, setRevealed] = useState<Partial<Record<keyof ClientApiKeys, boolean>>>({})
+  // Two-step: this signs the user out of every device including this one, so a
+  // stray click must not do it.
+  const [confirmingSignOutAll, setConfirmingSignOutAll] = useState(false)
+  const [signingOutAll, setSigningOutAll] = useState(false)
+  const [signOutError, setSignOutError] = useState<string | null>(null)
+
+  async function handleSignOutAll() {
+    setSigningOutAll(true)
+    setSignOutError(null)
+    try {
+      const res = await fetch('/api/auth/logout-all', { method: 'POST' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setSignOutError(data.error ?? 'Could not sign out everywhere')
+        setSigningOutAll(false)
+        return
+      }
+      // The cookie is gone; drop cached identity and land on the logged-out shell.
+      window.location.href = '/'
+    } catch {
+      setSignOutError('Could not sign out everywhere')
+      setSigningOutAll(false)
+    }
+  }
 
   function handleOpen() {
     setDraft(apiKeys)
+    setConfirmingSignOutAll(false)
+    setSignOutError(null)
     setOpen(true)
   }
 
@@ -94,6 +120,7 @@ export function ApiKeysModal({ trigger }: { trigger?: React.ReactNode }) {
     return (
       <button
         onClick={handleOpen}
+        data-testid="open-settings"
         className="rounded-md p-2 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
         title="Exchange API keys"
       >
@@ -158,6 +185,55 @@ export function ApiKeysModal({ trigger }: { trigger?: React.ReactNode }) {
               </div>
             </div>
           ))}
+
+          {/* Security */}
+          <div className="border-t border-border pt-4">
+            <p className="text-sm font-medium mb-1">Security</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              Signs you out on every device. Use this if you think a session was
+              taken, or after signing in somewhere you do not control.
+            </p>
+
+            {signOutError && (
+              <p className="mb-2 text-xs text-destructive" data-testid="signout-all-error">
+                {signOutError}
+              </p>
+            )}
+
+            {confirmingSignOutAll ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="signout-all-confirm"
+                  onClick={handleSignOutAll}
+                  disabled={signingOutAll}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-60"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  {signingOutAll ? 'Signing out…' : 'Yes, sign out everywhere'}
+                </button>
+                <button
+                  type="button"
+                  data-testid="signout-all-cancel"
+                  onClick={() => setConfirmingSignOutAll(false)}
+                  disabled={signingOutAll}
+                  className="rounded-md px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground hover:bg-muted disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                data-testid="signout-all"
+                onClick={() => setConfirmingSignOutAll(true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                Sign out all devices
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Footer */}
