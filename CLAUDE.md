@@ -57,6 +57,21 @@ each one was, at some point, a real hole in this codebase.
   Never point the app at the owner again; see `db/roles.sql`.
 - Nothing hard-deletes user data. Soft delete via `deleted_at`.
 
+## Client state
+
+- The dashboard's `notes`, `overrides` and `deletedTrades` are each written by
+  **two** things: a loader that replaces the whole collection when it answers,
+  and an optimistic per-item handler. A loader that lands after a save used to
+  overwrite data that had already reached Postgres — the row reverted on screen
+  and exported blank. Any new loader of this shape must merge through
+  `mergeServerSnapshot` / `mergeServerList` (`lib/services/snapshot.ts`) and
+  record touched keys in a ref, never `setState(serverData)` directly.
+- A plain `{ ...server, ...local }` is not a fix: it restores a value the user
+  just wrote but resurrects one they just deleted. The set of touched keys is
+  what distinguishes "not edited" from "cleared".
+- `trades` and `importedTrades` are exempt: their rows — and so the controls
+  that mutate them — do not exist until their own loader has resolved.
+
 ## Security
 
 - Guards live in `lib/auth/session.ts`; the closed-by-default edge gate is

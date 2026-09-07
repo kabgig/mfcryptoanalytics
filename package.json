@@ -21,7 +21,8 @@
     "test:cleanup": "node --env-file=.env.local --experimental-strip-types --import ./scripts/test/alias-hooks.mjs scripts/test/cleanup.integration.ts",
     "test:ui:cleanup": "node --env-file=.env.local scripts/test/cleanup.ui.mjs",
     "test:auth": "node --env-file=.env.local --experimental-strip-types --import ./scripts/test/alias-hooks.mjs scripts/test/auth.integration.ts",
-    "test:ui:session": "node --env-file=.env.local scripts/test/session.ui.mjs"
+    "test:ui:session": "node --env-file=.env.local scripts/test/session.ui.mjs",
+    "test:ui:stale": "node --env-file=.env.local scripts/test/staleSnapshot.ui.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",

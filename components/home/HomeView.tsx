@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useUserStore } from '@/lib/store/userStore'
 import { StatsBar } from '@/components/dashboard/StatsBar'
 import { PnlChart } from '@/components/dashboard/PnlChart'
@@ -15,6 +15,7 @@ import type {
 } from '@/types'
 import { tradeKey } from '@/lib/db/trades'
 import { mergeOverride, type OverridePatch, type ResolvedTrade } from '@/lib/services/overridesService'
+import { mergeServerList, mergeServerSnapshot } from '@/lib/services/snapshot'
 import { fetchFuturesTrades as fetchBinanceFutures } from '@/lib/exchanges/adapters/binance/futures'
 import { fetchFuturesTrades as fetchBybitFutures } from '@/lib/exchanges/adapters/bybit/futures'
 import { PeriodSelector } from '@/components/ui/PeriodSelector'
@@ -125,6 +126,13 @@ export function HomeView() {
   const [showDeleted, setShowDeleted] = useState(false)
   const [notes, setNotes] = useState<TradeNotesMap>({})
   const [overrides, setOverrides] = useState<TradeOverridesMap>({})
+  // What the user has done to each trade since this mount — a value, or null
+  // for "cleared". The three loaders below replace their whole collection when
+  // they answer, so without this a response still in flight overwrites a save
+  // that already reached the database. See mergeServerSnapshot.
+  const localNotes = useRef<Map<string, TradeNotes | null>>(new Map())
+  const localOverrides = useRef<Map<string, TradeOverride | null>>(new Map())
+  const localDeleted = useRef<Map<string, Trade | null>>(new Map())
   const period = usePeriodStore((s) => s.selection)
   const setPeriod = usePeriodStore((s) => s.setSelection)
 
@@ -263,7 +271,12 @@ export function HomeView() {
       body: JSON.stringify({}),
     })
       .then((r) => r.json())
-      .then((data) => { if (!cancelled) setDeletedTrades((data.trades ?? []) as Trade[]) })
+      .then((data) => {
+        if (cancelled) return
+        setDeletedTrades(mergeServerList(
+          (data.trades ?? []) as Trade[], localDeleted.current,
+          (t: Trade) => tradeKey(t.exchange, t.id)))
+      })
       .catch(() => { /* non-critical */ })
     return () => { cancelled = true }
   }, [telegramId])
@@ -276,7 +289,10 @@ export function HomeView() {
     let cancelled = false
     fetch(`/api/trades/notes`)
       .then((r) => r.json())
-      .then((data) => { if (!cancelled) setNotes((data.notes ?? {}) as TradeNotesMap) })
+      .then((data) => {
+        if (cancelled) return
+        setNotes(mergeServerSnapshot((data.notes ?? {}) as TradeNotesMap, localNotes.current))
+      })
       .catch(() => { /* non-critical — the table just renders empty icons */ })
     return () => { cancelled = true }
   }, [telegramId])
@@ -289,7 +305,11 @@ export function HomeView() {
     let cancelled = false
     fetch(`/api/trades/overrides`)
       .then((r) => r.json())
-      .then((data) => { if (!cancelled) setOverrides((data.overrides ?? {}) as TradeOverridesMap) })
+      .then((data) => {
+        if (cancelled) return
+        setOverrides(
+          mergeServerSnapshot((data.overrides ?? {}) as TradeOverridesMap, localOverrides.current))
+      })
       .catch(() => { /* non-critical — the cells just fall back to the exchange */ })
     return () => { cancelled = true }
   }, [telegramId])
@@ -315,6 +335,11 @@ export function HomeView() {
       const next = { ...previous }
       if (trimmed) next[phase] = trimmed
       else delete next[phase]
+      // Recorded from inside the updater because `previous` is only knowable
+      // here. StrictMode runs this twice with the same `prev`, and React may
+      // replay it for a discarded render, so it must stay idempotent — it is:
+      // the same input always records the same intent.
+      localNotes.current.set(key, next)
       return { ...prev, [key]: next }
     })
 
@@ -327,6 +352,7 @@ export function HomeView() {
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.status)
     } catch (err) {
       console.warn('[HomeView] note save failed, reverting:', err)
+      localNotes.current.set(key, previous)
       setNotes((prev) => ({ ...prev, [key]: previous }))
       throw err
     }
@@ -349,6 +375,9 @@ export function HomeView() {
       previous = prev[key] ?? {}
       const next = mergeOverride(previous, patch)
       const copy = { ...prev }
+      // null means the patch emptied the entry, so the row goes — record that
+      // as a deliberate clear rather than leaving it to be inferred later.
+      localOverrides.current.set(key, next)
       if (next === null) delete copy[key]
       else copy[key] = next
       return copy
@@ -363,6 +392,7 @@ export function HomeView() {
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.status)
     } catch (err) {
       console.warn('[HomeView] override save failed, reverting:', err)
+      localOverrides.current.set(key, Object.keys(previous).length === 0 ? null : previous)
       setOverrides((prev) => {
         const copy = { ...prev }
         if (Object.keys(previous).length === 0) delete copy[key]
@@ -385,6 +415,7 @@ export function HomeView() {
     if (!telegramId) return
     // Optimistic: drop it from the visible lists (and every stat derived from
     // them) immediately, then reconcile with the server.
+    localDeleted.current.set(tradeKey(trade.exchange, trade.id), trade)
     dropTrade(trade)
     setDeletedTrades((prev) => [trade, ...prev])
     try {
@@ -396,6 +427,7 @@ export function HomeView() {
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.status)
     } catch (err) {
       console.warn('[HomeView] delete failed, reverting:', err)
+      localDeleted.current.set(tradeKey(trade.exchange, trade.id), null)
       setDeletedTrades((prev) => prev.filter((t) => !(t.id === trade.id && t.exchange === trade.exchange)))
       setTrades((prev) => [...prev, trade].sort(
         (a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime()
@@ -406,6 +438,7 @@ export function HomeView() {
 
   const handleRestore = useCallback(async (trade: Trade) => {
     if (!telegramId) return
+    localDeleted.current.set(tradeKey(trade.exchange, trade.id), null)
     setDeletedTrades((prev) => prev.filter((t) => !(t.id === trade.id && t.exchange === trade.exchange)))
     setTrades((prev) => [...prev, trade].sort(
       (a, b) => new Date(b.closeTime).getTime() - new Date(a.closeTime).getTime()
@@ -419,6 +452,7 @@ export function HomeView() {
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.status)
     } catch (err) {
       console.warn('[HomeView] restore failed, reverting:', err)
+      localDeleted.current.set(tradeKey(trade.exchange, trade.id), trade)
       dropTrade(trade)
       setDeletedTrades((prev) => [trade, ...prev])
       setExchangeErrors((prev) => ({ ...prev, [trade.exchange]: `Could not restore trade: ${err}` }))
