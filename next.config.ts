@@ -1,25 +1,40 @@
 import type { NextConfig } from "next";
 
 /**
- * Content-Security-Policy, report-only for now.
+ * Content-Security-Policy, enforced.
  *
- * Report-only so a wrong directive cannot break the wallet flow: Reown/WalletConnect
- * opens WebSockets to relay hosts, three.js compiles shaders, and next/font pulls
- * from the Google font hosts. Watch the browser console for violations, widen the
- * few that are legitimate, then switch the header name to `Content-Security-Policy`.
+ * It ran report-only until the violations were actually measured, by driving the
+ * app in Chromium with the header rewritten to the enforcing name. Across the
+ * landing page, dashboard, /lvs, /spot, /wmon and /viz that produced exactly one
+ * kind of violation, 49 times: Reown's web fonts on https://fonts.reown.com,
+ * which font-src now allows. Nothing in script-src, connect-src or style-src was
+ * blocked, which is why enforcing is safe.
  *
- * `'unsafe-eval'` and `'unsafe-inline'` are in script-src because Next's dev overlay
- * and the wallet SDKs need them today. Tightening those is the point of running
- * report-only first.
+ * `'unsafe-eval'` and `'unsafe-inline'` stay in script-src. Removing them means
+ * nonces, and Next only puts a nonce on its inline bootstrap scripts if the
+ * middleware rewrites the REQUEST headers — the exact pattern proxy.ts warns
+ * against, having already made the dashboard flaky once. So this policy is worth
+ * having for what it does block (object-src, base-uri, form-action,
+ * frame-ancestors, and any origin not listed), not as XSS-proofing.
+ *
+ * What the measurement could NOT reach, and where a surprise would come from:
+ * the WalletConnect modal and its QR/relay flow, the Telegram in-app browser,
+ * /import/jupiter, /viz/shapes, /admin and the share pages.
  */
 const csp = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' data: https://fonts.gstatic.com",
+  // fonts.reown.com is the wallet SDK's own typeface — 49 of the 49 violations
+  // measured before this was enforced.
+  "font-src 'self' data: https://fonts.gstatic.com https://fonts.reown.com",
   "img-src 'self' data: blob: https:",
   "connect-src 'self' https: wss:",
   "frame-src 'self' https://verify.walletconnect.org https://verify.walletconnect.com",
+  // Defensive, not measured: without it worker-src falls back to default-src
+  // 'self', and SDKs commonly build workers from blob: URLs. The connect modal
+  // could not be driven headlessly, so this stays wide enough not to break it.
+  "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -38,7 +53,7 @@ const securityHeaders = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()" },
   { key: "X-DNS-Prefetch-Control", value: "on" },
-  { key: "Content-Security-Policy-Report-Only", value: csp },
+  { key: "Content-Security-Policy", value: csp },
 ];
 
 const nextConfig: NextConfig = {

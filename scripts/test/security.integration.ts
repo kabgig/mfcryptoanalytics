@@ -356,10 +356,14 @@ async function main() {
     await expectHeader("x-frame-options", /DENY/)
     await expectHeader("referrer-policy", /strict-origin-when-cross-origin/)
     await expectHeader("permissions-policy", /camera=\(\)/)
-    await expectHeader("content-security-policy-report-only", /frame-ancestors 'none'/)
+    await expectHeader("content-security-policy", /frame-ancestors 'none'/)
 
-    await check("CSP is report-only, so nothing is enforced yet", () => {
-      assert.equal(page.headers.get("content-security-policy"), null)
+    await check("the CSP is enforced, not report-only", () => {
+      // Report-only tells the browser to complain and allow anyway, so the
+      // header name is the whole difference between a policy and a rehearsal.
+      // This assertion used to say the opposite; it was flipped when the
+      // violations were measured and found to be one fixable font host.
+      assert.equal(page.headers.get("content-security-policy-report-only"), null)
     })
 
     await check("API responses are marked no-store", async () => {
@@ -422,6 +426,38 @@ async function main() {
       const res = await fetch(`${BASE}/api/spot/entries`, { headers: { cookie } })
       assert.equal(res.status, 200)
       assert.ok(Array.isArray((await res.json()).entries))
+    })
+
+    // --------------------------------------- what enforcement had to widen
+    console.log("\nCSP enforcement")
+
+    await check("the policy allows the wallet SDK's font host", async () => {
+      // The one thing measurement showed enforcement would otherwise break:
+      // 49 blocked font loads from Reown's host, across every page.
+      const csp = (await fetch(`${BASE}/`)).headers.get("content-security-policy") ?? ""
+      const fontSrc = csp.split(";").map((d) => d.trim()).find((d) => d.startsWith("font-src"))
+      assert.ok(fontSrc?.includes("https://fonts.reown.com"), `font-src was: ${fontSrc}`)
+    })
+
+    await check("workers are not left to default-src", async () => {
+      const csp = (await fetch(`${BASE}/`)).headers.get("content-security-policy") ?? ""
+      assert.ok(/worker-src [^;]*blob:/.test(csp), "worker-src must allow blob:")
+    })
+
+    await check("the directives that do the blocking are all present", async () => {
+      // script-src still carries 'unsafe-inline'/'unsafe-eval' (nonces need the
+      // middleware request rewrite proxy.ts warns against), so these are what
+      // the policy actually buys.
+      const csp = (await fetch(`${BASE}/`)).headers.get("content-security-policy") ?? ""
+      for (const directive of [
+        "default-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+      ]) {
+        assert.ok(csp.includes(directive), `${directive} missing from: ${csp}`)
+      }
     })
 
     console.log(`\n${passed} checks passed, ${failures.length} failed`)
