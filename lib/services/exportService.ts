@@ -27,6 +27,8 @@ export const EXPORT_COLUMNS = [
   "strategy",
   "timeframe",
   "killzone",
+  "trend",
+  "signals",
   "entry",
   "tp1",
   "tp2",
@@ -63,10 +65,16 @@ function cell(value: string | number | null | undefined): string {
  * entry/TP1/SL — the same resolution the app renders, so an export matches the
  * screen it came from. `side` itself stays the exchange's own answer.
  *
- * exitReason, mistake and emotion each hold a list, written into their one cell
+ * signals, exitReason, mistake and emotion each hold a list, written into their
+ * one cell
  * '|'-separated — a comma would have forced the writer to quote the cell, and
  * this export is meant to land in a spreadsheet or an LLM without anything
  * having to unpick quoting first.
+ *
+ * The journal columns sit in the order the form asks for them rather than being
+ * appended as they are added, so the plan columns stay together and a row reads
+ * as the trade was thought through. Every consumer in this repo — the tests
+ * included — reads by header name, never by position.
  *
  * This is the surface built for pasting into an LLM to hunt for patterns, which
  * is exactly what the journal fields are for, so all of them ship.
@@ -95,6 +103,8 @@ export function buildTradesCsv(
       cell(t.journal.strategy),
       cell(t.journal.timeframe),
       cell(t.journal.killzone),
+      cell(t.journal.trend),
+      cell(serializeChoices(t.journal.signals ?? [])),
       cell(t.journal.entry),
       cell(t.tp1),
       cell(t.tp2),

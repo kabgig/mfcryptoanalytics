@@ -174,12 +174,15 @@ CREATE TABLE public.trade_overrides (
     exit_reason text,
     mistake text,
     emotion text,
+    signals text,
+    trend text,
     CONSTRAINT trade_overrides_bias_chk CHECK (((bias IS NULL) OR (bias = ANY (ARRAY['buy'::text, 'sell'::text])))),
-    CONSTRAINT trade_overrides_empty_chk CHECK (((tp1 IS NOT NULL) OR (tp2 IS NOT NULL) OR (sl IS NOT NULL) OR (entry IS NOT NULL) OR (bias IS NOT NULL) OR (risk_pct IS NOT NULL) OR (rr IS NOT NULL) OR (rules_ok IS NOT NULL) OR (strategy IS NOT NULL) OR (timeframe IS NOT NULL) OR (killzone IS NOT NULL) OR (exit_reason IS NOT NULL) OR (mistake IS NOT NULL) OR (emotion IS NOT NULL))),
+    CONSTRAINT trade_overrides_empty_chk CHECK (((tp1 IS NOT NULL) OR (tp2 IS NOT NULL) OR (sl IS NOT NULL) OR (entry IS NOT NULL) OR (bias IS NOT NULL) OR (risk_pct IS NOT NULL) OR (rr IS NOT NULL) OR (rules_ok IS NOT NULL) OR (strategy IS NOT NULL) OR (timeframe IS NOT NULL) OR (killzone IS NOT NULL) OR (exit_reason IS NOT NULL) OR (mistake IS NOT NULL) OR (emotion IS NOT NULL) OR (signals IS NOT NULL) OR (trend IS NOT NULL))),
     CONSTRAINT trade_overrides_killzone_chk CHECK (((killzone IS NULL) OR (killzone = ANY (ARRAY['asia'::text, 'london'::text, 'nyam'::text, 'nypm'::text, 'outside'::text])))),
     CONSTRAINT trade_overrides_numeric_chk CHECK ((((entry IS NULL) OR (entry >= (0)::numeric)) AND ((tp1 IS NULL) OR (tp1 >= (0)::numeric)) AND ((tp2 IS NULL) OR (tp2 >= (0)::numeric)) AND ((sl IS NULL) OR (sl >= (0)::numeric)) AND ((rr IS NULL) OR (rr >= (0)::numeric)) AND ((risk_pct IS NULL) OR ((risk_pct >= (0)::numeric) AND (risk_pct <= (100)::numeric))))),
     CONSTRAINT trade_overrides_strategy_chk CHECK (((strategy IS NULL) OR (strategy = ANY (ARRAY['orderflow'::text, 'pa'::text, 'macro'::text])))),
-    CONSTRAINT trade_overrides_timeframe_chk CHECK (((timeframe IS NULL) OR (timeframe = ANY (ARRAY['5m'::text, '15m'::text, '1h'::text]))))
+    CONSTRAINT trade_overrides_timeframe_chk CHECK (((timeframe IS NULL) OR (timeframe = ANY (ARRAY['5m'::text, '15m'::text, '1h'::text])))),
+    CONSTRAINT trade_overrides_trend_chk CHECK (((trend IS NULL) OR (trend = ANY (ARRAY['with_trend'::text, 'against_trend'::text]))))
 );
 
 
@@ -524,4 +527,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260826000001'),
     ('20260828000001'),
     ('20260902000001'),
-    ('20260905000001');
+    ('20260905000001'),
+    ('20260907000001');

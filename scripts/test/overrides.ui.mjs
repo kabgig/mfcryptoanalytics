@@ -87,7 +87,7 @@ async function teardown() {
 async function storedRow(tradeId) {
   const rows = await sql`
     SELECT bias, entry, tp1, tp2, sl, risk_pct, rr, rules_ok,
-           strategy, timeframe, killzone, exit_reason, mistake, emotion
+           strategy, timeframe, killzone, trend, signals, exit_reason, mistake, emotion
     FROM public.trade_overrides
     WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND trade_id = ${tradeId}
   `
@@ -265,7 +265,8 @@ async function main() {
       for (const f of ["entry", "tp1", "tp2", "sl", "riskPct", "rr"]) {
         assert.equal(await journalValue(f), "", `${f} should start empty`)
       }
-      for (const f of ["strategy", "timeframe", "killzone", "rulesOK", "exitReason", "mistake", "emotion"]) {
+      for (const f of ["strategy", "timeframe", "killzone", "trend", "rulesOK",
+                       "signals", "exitReason", "mistake", "emotion"]) {
         assert.equal(await journalValue(f), "", `${f} should start unselected`)
       }
       // Nothing pre-ticked in any of the three checkbox groups.
@@ -304,8 +305,11 @@ async function main() {
     console.log("\nfilling a full journal entry")
     await fillJournal("BTCUSDT", {
       strategy: "orderflow", timeframe: "15m", killzone: "london",
+      trend: "with_trend",
       entry: 100, tp1: 120, tp2: 140, sl: 90, riskPct: 1.5,
       rulesOK: "yes",
+      // A setup is a confluence: a sweep into a POI with delta confirming.
+      signals: ["poi", "delta", "sweep"],
       // Several tags each: scaled out at TP1 then stopped out of the runner,
       // two things wrong with the trade, two feelings during it.
       exitReason: ["tp1", "sl"],
@@ -322,14 +326,16 @@ async function main() {
       assert.equal(row.strategy, "orderflow")
       assert.equal(row.timeframe, "15m")
       assert.equal(row.killzone, "london")
+      assert.equal(row.trend, "with_trend")
       assert.equal(Number(row.entry), 100)
       assert.equal(Number(row.tp1), 120)
       assert.equal(Number(row.tp2), 140)
       assert.equal(Number(row.sl), 90)
       assert.equal(Number(row.risk_pct), 1.5)
       assert.equal(row.rules_ok, true)
-      // The three multi-valued fields land '|'-joined in their one column, in
+      // The four multi-valued fields land '|'-joined in their one column, in
       // vocabulary order rather than the order the boxes were ticked.
+      assert.equal(row.signals, "poi|delta|sweep")
       assert.equal(row.exit_reason, "tp1|sl")
       assert.equal(row.mistake, "no_stop|chased_price")
       assert.equal(row.emotion, "fear|greed")
@@ -357,6 +363,8 @@ async function main() {
     await openJournal("BTCUSDT")
     await check("reopening loads every stored value back into the form", async () => {
       assert.equal(await journalValue("strategy"), "orderflow")
+      assert.equal(await journalValue("trend"), "with_trend")
+      assert.equal(await journalValue("signals"), "poi|delta|sweep")
       assert.equal(await journalValue("entry"), "100")
       assert.equal(await journalValue("tp2"), "140")
       assert.equal(await journalValue("riskPct"), "1.5")
@@ -367,6 +375,7 @@ async function main() {
     })
     await check("every tag the user ticked comes back ticked", async () => {
       for (const [field, options] of [
+        ["signals", ["poi", "delta", "sweep"]],
         ["exitReason", ["tp1", "sl"]],
         ["mistake", ["no_stop", "chased_price"]],
         ["emotion", ["fear", "greed"]],
@@ -381,6 +390,10 @@ async function main() {
       // And one that was not ticked is not.
       assert.equal(
         await page.locator('[data-testid="journal-mistake-traded_the_news"] input').isChecked(),
+        false
+      )
+      assert.equal(
+        await page.locator('[data-testid="journal-signals-ask5"] input').isChecked(),
         false
       )
     })
@@ -400,6 +413,76 @@ async function main() {
       assert.equal(rows[0].emotion, "fear", "unticking greed should leave fear alone")
       assert.equal(Number(rows[0].rr), 3, "the hand-typed R:R should be stored")
       assert.equal(rows[0].strategy, "orderflow", "an untouched field was clobbered")
+    })
+
+    console.log("\nthe new plan fields")
+    await check("the modal offers both, with readable labels", async () => {
+      await openJournal("ETHUSDT")
+      // Element-scoped, because the modal is fixed-position and a fullPage
+      // screenshot of the scrolled dashboard misses it entirely.
+      await page.locator('[data-testid="journal-form"]')
+        .screenshot({ path: `${SHOTS}/o6-journal-signals.png` })
+
+      const signals = await page.locator('[data-testid="journal-signals"] label').allInnerTexts()
+      assert.deepEqual(signals, [
+        "POI", "ASK5", "Delta", "Diff channel", "Diff crossing", "Sweep",
+      ], signals.join(" | "))
+
+      const trend = await page.locator('[data-testid="journal-trend"] option').allInnerTexts()
+      assert.deepEqual(trend, ["—", "With the trend", "Against the trend"], trend.join(" | "))
+      // No slug leaks to the user through either control.
+      for (const t of [...signals, ...trend]) assert.equal(t.includes("_"), false, t)
+    })
+    await check("no signal label overflows its column", async () => {
+      // Same trap the mistake list fell into: this modal renders from a table
+      // cell that sets whitespace-nowrap and the rule inherits through the
+      // fixed-position overlay.
+      const worst = await page
+        .locator('[data-testid="journal-signals-diff_crossing"]')
+        .evaluate((el) => {
+          const span = el.querySelector("span")
+          return {
+            wrap: getComputedStyle(span).whiteSpace,
+            overflow: span.getBoundingClientRect().right - el.getBoundingClientRect().right,
+          }
+        })
+      assert.equal(worst.wrap, "normal", "the label inherited whitespace-nowrap")
+      assert.ok(worst.overflow <= 1, `the label overflows its column by ${worst.overflow}px`)
+      await page.locator('button[aria-label="Close journal"]').click()
+      await page.waitForSelector('[data-testid="journal-form"]', { state: "detached" })
+    })
+
+    console.log("\nsignals and trend on their own")
+    // The empty_chk rebuilt by 20260907000001 exists for exactly this: logging
+    // the setup and leaving the review for later. Against the fourteen-column
+    // constraint every enumerated column here is NULL, so the INSERT was
+    // rejected outright and the save came back as a 500.
+    await fillJournal("ETHUSDT", { signals: ["poi", "sweep"] })
+    await check("a signals-only entry is a real journal entry", async () => {
+      const row = await storedRow("ov-2")
+      assert.ok(row, "no row was written for a signals-only entry")
+      assert.equal(row.signals, "poi|sweep")
+      assert.equal(row.trend, null)
+      assert.equal(row.strategy, null, "nothing else should have been invented")
+      assert.equal(await journalIcon("ETHUSDT").getAttribute("data-filled"), "true")
+    })
+    await fillJournal("ETHUSDT", { trend: "against_trend" })
+    await check("adding a trend to it leaves the signals alone", async () => {
+      const row = await storedRow("ov-2")
+      assert.equal(row.trend, "against_trend")
+      assert.equal(row.signals, "poi|sweep", "an untouched field was clobbered")
+    })
+    await check("the derived bias survived a journal write on a sided trade", async () => {
+      // ov-2 arrives from Bybit as side=long. Writing a journal row must not
+      // start storing a bias the user never chose.
+      assert.equal((await storedRow("ov-2")).bias, null)
+      assert.match(await cellText("ETHUSDT", "bias"), /buy/i)
+      assert.equal(await isOverridden("ETHUSDT", "bias"), false)
+    })
+    await fillJournal("ETHUSDT", { signals: [], trend: "" })
+    await check("clearing both again deletes the row", async () => {
+      assert.equal(await storedRow("ov-2"), undefined)
+      assert.equal(await journalIcon("ETHUSDT").getAttribute("data-filled"), "false")
     })
 
     console.log("\nthe two break-even mistakes")

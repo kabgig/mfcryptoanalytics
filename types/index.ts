@@ -33,14 +33,14 @@ export type TradeNotesMap = Record<string, TradeNotes>
 export type TradeBias = "buy" | "sell"
 
 /** The journal fields that take exactly one value from a controlled list. */
-export type TradeJournalSingleChoice = "strategy" | "timeframe" | "killzone"
+export type TradeJournalSingleChoice = "strategy" | "timeframe" | "killzone" | "trend"
 
 /**
- * The journal fields that take a list of values from a controlled list. A trade
- * can scale out at TP1 and be stopped out of the runner, and one that went wrong
- * usually went wrong in more than one way.
+ * The journal fields that take a list of values from a controlled list. A setup
+ * is a confluence of signals, a trade can scale out at TP1 and be stopped out of
+ * the runner, and one that went wrong usually went wrong in more than one way.
  */
-export type TradeJournalMultiChoice = "exitReason" | "mistake" | "emotion"
+export type TradeJournalMultiChoice = "signals" | "exitReason" | "mistake" | "emotion"
 
 /** Every journal field backed by a controlled list, single- or multi-valued. */
 export type TradeJournalChoice = TradeJournalSingleChoice | TradeJournalMultiChoice
@@ -57,8 +57,9 @@ export type TradeJournalChoice = TradeJournalSingleChoice | TradeJournalMultiCho
  * set this?" stays a single `=== undefined` check across every field.
  *
  * The accepted values for the choice fields live in
- * lib/services/journalFields.ts, deliberately not in this type: `exitReason`,
- * `mistake` and `emotion` are open vocabularies that grow without a migration.
+ * lib/services/journalFields.ts, deliberately not in this type: `signals`,
+ * `exitReason`, `mistake` and `emotion` are open vocabularies that grow without
+ * a migration.
  */
 export interface TradeOverride {
   // — corrections to the exchange's own numbers —
@@ -69,6 +70,10 @@ export interface TradeOverride {
   strategy?: string
   timeframe?: string
   killzone?: string
+  /** With or against the prevailing trend. */
+  trend?: string
+  /** The confluence that justified the entry — a POI, a sweep, delta, … */
+  signals?: string[]
   entry?: number
   tp2?: number
   riskPct?: number

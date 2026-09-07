@@ -9,21 +9,51 @@ import type {
  *
  * One module so the inputs, the API validator and the CSV export can never
  * disagree about what a tag means. Adding a value here is all it takes for the
- * three of them to accept it — only `strategy`, `timeframe` and `killzone` are
- * additionally pinned by a CHECK constraint in the database, so extending
- * *those* three needs a migration as well.
+ * three of them to accept it — only `strategy`, `timeframe`, `killzone` and
+ * `trend` are additionally pinned by a CHECK constraint in the database, so
+ * extending *those* four needs a migration as well.
  *
- * Two kinds of field live here. `strategy`, `timeframe` and `killzone` take one
- * answer: a trade has a single setup, on a single timeframe, in a single
- * session. `exitReason`, `mistake` and `emotion` take several — a position can
- * scale out at TP1 and get stopped out of the runner, and a trade that went
- * wrong rarely went wrong in exactly one way. Holding those three to one answer
- * was making the user pick a headline and lose the rest of the review.
+ * Two kinds of field live here. `strategy`, `timeframe`, `killzone` and `trend`
+ * take one answer: a trade has a single setup, on a single timeframe, in a
+ * single session, in one direction relative to the trend. `signals`,
+ * `exitReason`, `mistake` and `emotion` take several — a setup is a confluence
+ * of signals, a position can scale out at TP1 and get stopped out of the runner,
+ * and a trade that went wrong rarely went wrong in exactly one way. Holding
+ * those to one answer was making the user pick a headline and lose the rest.
  */
 
 export const STRATEGIES = ["orderflow", "pa", "macro"] as const
 export const TIMEFRAMES = ["5m", "15m", "1h"] as const
 export const KILLZONES = ["asia", "london", "nyam", "nypm", "outside"] as const
+
+/**
+ * Whether the entry was taken in the direction of the prevailing trend or
+ * against it. Single-valued — a trade is one or the other, never both — and the
+ * only journal vocabulary with exactly two answers, which is why it is a
+ * dropdown rather than a pair of radios: it sits in a row of three other
+ * dropdowns and matching them costs nothing.
+ */
+export const TRENDS = ["with_trend", "against_trend"] as const
+
+/**
+ * What was on the chart that justified the entry. Multi-select because a setup
+ * is a confluence: a sweep into a POI with delta confirming is three signals,
+ * and recording only the headline one is what makes a later "which signals
+ * actually pay?" unanswerable.
+ *
+ * No CHECK constraint in the database, for the same reason mistake and emotion
+ * carry none — this list will grow as the user's read of the market does, and
+ * adding a signal should be a one-line change here, not a migration.
+ */
+export const SIGNALS = [
+  "poi",
+  "ask5",
+  "delta",
+  "diff_channel",
+  "diff_crossing",
+  "sweep",
+] as const
+
 export const EXIT_REASONS = ["tp1", "tp2", "sl", "be", "manual"] as const
 
 /**
@@ -66,6 +96,8 @@ export const EMOTIONS = [
 export type Strategy = (typeof STRATEGIES)[number]
 export type Timeframe = (typeof TIMEFRAMES)[number]
 export type Killzone = (typeof KILLZONES)[number]
+export type Trend = (typeof TRENDS)[number]
+export type Signal = (typeof SIGNALS)[number]
 export type ExitReason = (typeof EXIT_REASONS)[number]
 export type Mistake = (typeof MISTAKES)[number]
 export type Emotion = (typeof EMOTIONS)[number]
@@ -75,6 +107,8 @@ export const CHOICES = {
   strategy: STRATEGIES,
   timeframe: TIMEFRAMES,
   killzone: KILLZONES,
+  trend: TRENDS,
+  signals: SIGNALS,
   exitReason: EXIT_REASONS,
   mistake: MISTAKES,
   emotion: EMOTIONS,
@@ -87,10 +121,12 @@ export const SINGLE_CHOICE_FIELDS = [
   "strategy",
   "timeframe",
   "killzone",
+  "trend",
 ] as const satisfies readonly TradeJournalSingleChoice[]
 
 /** The choice fields that hold a list — none, one, or several tags. */
 export const MULTI_CHOICE_FIELDS = [
+  "signals",
   "exitReason",
   "mistake",
   "emotion",
@@ -178,6 +214,12 @@ const LABELS: Record<string, string> = {
   nyam: "NY AM",
   nypm: "NY PM",
   be: "Break-even",
+  with_trend: "With the trend",
+  against_trend: "Against the trend",
+  poi: "POI",
+  ask5: "ASK5",
+  diff_channel: "Diff channel",
+  diff_crossing: "Diff crossing",
   manual: "Closed by hand",
   tp1: "TP1",
   tp2: "TP2",

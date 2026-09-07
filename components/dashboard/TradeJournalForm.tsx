@@ -14,9 +14,11 @@ import {
   normalizeChoices,
   parseChoices,
   serializeChoices,
+  SIGNALS,
   SINGLE_CHOICE_FIELDS,
   STRATEGIES,
   TIMEFRAMES,
+  TRENDS,
 } from "@/lib/services/journalFields"
 import type { OverridePatch, ResolvedTrade } from "@/lib/services/overridesService"
 import type { SaveOverride } from "@/components/dashboard/TradeOverrideCell"
@@ -31,7 +33,7 @@ import type {
  * The full journal entry for one trade: the plan written before the entry and
  * the review written after the exit.
  *
- * A modal rather than a popover — fourteen fields do not belong hanging off a
+ * A modal rather than a popover — sixteen fields do not belong hanging off a
  * table cell — following the overlay pattern in components/settings/ApiKeysModal.
  * Everything is saved in one request, because half the value of the form is
  * seeing plan and outcome next to each other.
@@ -305,7 +307,7 @@ export function TradeJournalForm({
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Plan <span className="font-normal normal-case opacity-70">— before the entry</span>
             </p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Field label="Strategy">
                 <Choice field="strategy" value={draft.strategy} onChange={set("strategy")}
                   options={STRATEGIES} placeholder="—" />
@@ -318,7 +320,18 @@ export function TradeJournalForm({
                 <Choice field="killzone" value={draft.killzone} onChange={set("killzone")}
                   options={KILLZONES} placeholder="—" />
               </Field>
+              <Field label="Trend">
+                <Choice field="trend" value={draft.trend} onChange={set("trend")}
+                  options={TRENDS} placeholder="—" />
+              </Field>
             </div>
+            {/* Full width rather than a cell in the grid above: signals is a
+                checkbox group, and six of them across a quarter of the modal
+                would wrap every label. */}
+            <Field label="Signals" hint="tick every one that applied">
+              <MultiChoice field="signals" value={draft.signals}
+                onChange={set("signals")} options={SIGNALS} columns={3} />
+            </Field>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Field label="Entry">
                 <NumberInput field="entry" value={draft.entry} onChange={set("entry")} placeholder="price" />

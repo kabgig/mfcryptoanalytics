@@ -36,6 +36,8 @@ const CHOICE_COLUMNS = {
   strategy: "strategy",
   timeframe: "timeframe",
   killzone: "killzone",
+  trend: "trend",
+  signals: "signals",
   exitReason: "exit_reason",
   mistake: "mistake",
   emotion: "emotion",
@@ -56,7 +58,7 @@ export type OverrideRow = {
  * Folds flat override rows into the map the UI indexes by `exchange|id`.
  *
  * Every value is re-validated on the way out, not just parsed: NUMERIC comes
- * back from the driver as a string, and none of the three multi-valued columns
+ * back from the driver as a string, and none of the four multi-valued columns
  * carries a CHECK constraint, so a value written outside the app must not reach
  * the UI as if it were a real option.
  *
@@ -110,7 +112,7 @@ export async function getOverrides(telegramId: string): Promise<TradeOverridesMa
   const sql = getSql()
   const rows = (await sql`
     SELECT exchange, trade_id, bias, entry, tp1, tp2, sl, risk_pct, rr, rules_ok,
-           strategy, timeframe, killzone, exit_reason, mistake, emotion
+           strategy, timeframe, killzone, trend, signals, exit_reason, mistake, emotion
     FROM public.trade_overrides
     WHERE telegram_id = ${BigInt(telegramId)}
   `) as OverrideRow[]
@@ -126,7 +128,7 @@ async function getOverride(
   const sql = getSql()
   const rows = (await sql`
     SELECT exchange, trade_id, bias, entry, tp1, tp2, sl, risk_pct, rr, rules_ok,
-           strategy, timeframe, killzone, exit_reason, mistake, emotion
+           strategy, timeframe, killzone, trend, signals, exit_reason, mistake, emotion
     FROM public.trade_overrides
     WHERE telegram_id = ${BigInt(telegramId)}
       AND exchange    = ${exchange}
@@ -175,14 +177,14 @@ export async function saveOverride(
 
   // The whole row is written every time — `next` is the merged result, so a
   // field the patch did not mention is re-written with the value it already had.
-  // The three multi-valued fields collapse to a '|'-joined string here, and to
+  // The four multi-valued fields collapse to a '|'-joined string here, and to
   // NULL when nothing is selected, which is what keeps the table's empty_chk
   // reading them as unset.
   await sql`
     INSERT INTO public.trade_overrides (
       telegram_id, exchange, trade_id,
       bias, entry, tp1, tp2, sl, risk_pct, rr, rules_ok,
-      strategy, timeframe, killzone, exit_reason, mistake, emotion
+      strategy, timeframe, killzone, trend, signals, exit_reason, mistake, emotion
     )
     VALUES (
       ${tid}, ${exchange}, ${tradeId},
@@ -190,6 +192,8 @@ export async function saveOverride(
       ${next.tp2 ?? null}, ${next.sl ?? null}, ${next.riskPct ?? null},
       ${next.rr ?? null}, ${next.rulesOK ?? null},
       ${next.strategy ?? null}, ${next.timeframe ?? null}, ${next.killzone ?? null},
+      ${next.trend ?? null},
+      ${serializeChoices(next.signals ?? [])},
       ${serializeChoices(next.exitReason ?? [])},
       ${serializeChoices(next.mistake ?? [])},
       ${serializeChoices(next.emotion ?? [])}
@@ -206,6 +210,8 @@ export async function saveOverride(
       strategy    = EXCLUDED.strategy,
       timeframe   = EXCLUDED.timeframe,
       killzone    = EXCLUDED.killzone,
+      trend       = EXCLUDED.trend,
+      signals     = EXCLUDED.signals,
       exit_reason = EXCLUDED.exit_reason,
       mistake     = EXCLUDED.mistake,
       emotion     = EXCLUDED.emotion,

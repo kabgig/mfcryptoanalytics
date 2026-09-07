@@ -33,7 +33,7 @@ function row(over: Partial<OverrideRow> & { exchange: string; trade_id: string }
   return {
     bias: null, entry: null, tp1: null, tp2: null, sl: null, risk_pct: null, rr: null,
     rules_ok: null, strategy: null, timeframe: null, killzone: null, exit_reason: null,
-    mistake: null, emotion: null,
+    mistake: null, emotion: null, signals: null, trend: null,
     ...over,
   }
 }

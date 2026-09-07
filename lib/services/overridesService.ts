@@ -50,6 +50,8 @@ export const OVERRIDE_FIELDS = [
   "strategy",
   "timeframe",
   "killzone",
+  "trend",
+  "signals",
   "entry",
   "tp1",
   "tp2",
@@ -153,7 +155,7 @@ export function resolveTrades(
  * Merges a patch onto a stored journal entry. A key set to null clears that
  * field (falling back to the exchange value, or to the computed R:R); a key left
  * out is untouched — so the Bias cell can save one field without having to send
- * the other thirteen.
+ * the other fifteen.
  *
  * For a multi-valued field an empty array clears it exactly as null does: an
  * unticked list and a never-touched one are the same answer, and letting `[]`
