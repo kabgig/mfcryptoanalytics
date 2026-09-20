@@ -485,7 +485,7 @@ test("signals is multi-valued and trend is not", () => {
 
 test("the signal vocabulary is the six the chart actually shows", () => {
   assert.deepEqual([...SIGNALS], [
-    "poi", "ask5", "delta", "diff_channel", "diff_crossing", "sweep",
+    "at_level", "ask5", "delta", "diff_channel", "diff_crossing", "sweep",
   ])
   for (const signal of SIGNALS) assert.ok(isChoice("signals", signal), signal)
   // A value from another field is still wrong here.
@@ -493,26 +493,42 @@ test("the signal vocabulary is the six the chart actually shows", () => {
   assert.equal(isChoice("signals", "with_trend"), false)
 })
 
+test("the retired `poi` slug is gone, renamed to `at_level`", () => {
+  // The rename the migration 20260920000001 exists for. `poi` is no longer a
+  // signal, so a row still carrying it would be dropped on read — which is
+  // exactly why the tag had to be rewritten in the database rather than only
+  // relabelled here.
+  assert.equal(isChoice("signals", "poi"), false)
+  assert.deepEqual(normalizeChoices("signals", ["poi", "sweep"]), ["sweep"])
+  assert.deepEqual(parseChoices("signals", "poi|sweep"), ["sweep"])
+
+  // And what the checkbox now reads, in the app and in the export's own
+  // vocabulary: a human label, a slug-shaped stored value.
+  assert.ok(isChoice("signals", "at_level"))
+  assert.equal(choiceLabel("at_level"), "At level")
+  assert.equal(choiceLabel("poi"), "Poi", "no stale label survives for the old slug")
+})
+
 test("trend takes exactly two answers", () => {
   assert.deepEqual([...TRENDS], ["with_trend", "against_trend"])
   assert.ok(isChoice("trend", "with_trend"))
   assert.ok(isChoice("trend", "against_trend"))
   assert.equal(isChoice("trend", "sideways"), false)
-  assert.equal(isChoice("trend", "poi"), false)
+  assert.equal(isChoice("trend", "at_level"), false)
 })
 
 test("a confluence of signals round-trips through its one column", () => {
   // Stored canonically — vocabulary order, not the order they were ticked.
-  const stored = serializeChoices(normalizeChoices("signals", ["sweep", "poi", "delta"]))
-  assert.equal(stored, "poi|delta|sweep")
-  assert.deepEqual(parseChoices("signals", stored), ["poi", "delta", "sweep"])
+  const stored = serializeChoices(normalizeChoices("signals", ["sweep", "at_level", "delta"]))
+  assert.equal(stored, "at_level|delta|sweep")
+  assert.deepEqual(parseChoices("signals", stored), ["at_level", "delta", "sweep"])
 })
 
 test("a signals-only journal entry is a real entry", () => {
   // This is what the rebuilt empty_chk exists for: logging the setup and leaving
   // the review for later must not come back as "nothing recorded".
-  const merged = mergeOverride({}, { signals: ["poi", "sweep"] })
-  assert.deepEqual(merged, { signals: ["poi", "sweep"] })
+  const merged = mergeOverride({}, { signals: ["at_level", "sweep"] })
+  assert.deepEqual(merged, { signals: ["at_level", "sweep"] })
 
   const trendOnly = mergeOverride({}, { trend: "against_trend" })
   assert.deepEqual(trendOnly, { trend: "against_trend" })
@@ -521,14 +537,14 @@ test("a signals-only journal entry is a real entry", () => {
 test("clearing the last signal still empties the whole entry", () => {
   // The delete-the-row signal has to keep working now that two more fields can
   // be the last one standing.
-  assert.equal(mergeOverride({ signals: ["poi"] }, { signals: [] }), null)
-  assert.equal(mergeOverride({ signals: ["poi"] }, { signals: null }), null)
+  assert.equal(mergeOverride({ signals: ["at_level"] }, { signals: [] }), null)
+  assert.equal(mergeOverride({ signals: ["at_level"] }, { signals: null }), null)
   assert.equal(mergeOverride({ trend: "with_trend" }, { trend: null }), null)
 })
 
 test("an unknown signal is dropped rather than stored", () => {
-  const merged = mergeOverride({}, { signals: ["poi", "not_a_signal", "sweep"] })
-  assert.deepEqual(merged, { signals: ["poi", "sweep"] })
+  const merged = mergeOverride({}, { signals: ["at_level", "not_a_signal", "sweep"] })
+  assert.deepEqual(merged, { signals: ["at_level", "sweep"] })
   // Nothing usable at all clears the field, exactly as a bad single choice does.
   assert.equal(mergeOverride({}, { signals: ["not_a_signal"] }), null)
   assert.equal(mergeOverride({}, { trend: "sideways" }), null)
@@ -537,11 +553,11 @@ test("an unknown signal is dropped rather than stored", () => {
 test("the csv carries the confluence and the trend", () => {
   const [header, csvRow] = parseCsv(
     buildTradesCsv([trade({ id: "1", exchange: "OKX" })], {}, {
-      "OKX|1": { signals: ["poi", "sweep"], trend: "against_trend" },
+      "OKX|1": { signals: ["at_level", "sweep"], trend: "against_trend" },
     })
   )
   const col = (name: string) => csvRow[header.indexOf(name)]
-  assert.equal(col("signals"), "poi|sweep")
+  assert.equal(col("signals"), "at_level|sweep")
   assert.equal(col("trend"), "against_trend")
   // The plan columns stay adjacent, so a row reads in the order it was thought
   // through rather than in the order the fields were added to the app.

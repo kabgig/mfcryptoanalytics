@@ -308,8 +308,8 @@ async function main() {
       trend: "with_trend",
       entry: 100, tp1: 120, tp2: 140, sl: 90, riskPct: 1.5,
       rulesOK: "yes",
-      // A setup is a confluence: a sweep into a POI with delta confirming.
-      signals: ["poi", "delta", "sweep"],
+      // A setup is a confluence: a sweep into a level with delta confirming.
+      signals: ["at_level", "delta", "sweep"],
       // Several tags each: scaled out at TP1 then stopped out of the runner,
       // two things wrong with the trade, two feelings during it.
       exitReason: ["tp1", "sl"],
@@ -335,7 +335,7 @@ async function main() {
       assert.equal(row.rules_ok, true)
       // The four multi-valued fields land '|'-joined in their one column, in
       // vocabulary order rather than the order the boxes were ticked.
-      assert.equal(row.signals, "poi|delta|sweep")
+      assert.equal(row.signals, "at_level|delta|sweep")
       assert.equal(row.exit_reason, "tp1|sl")
       assert.equal(row.mistake, "no_stop|chased_price")
       assert.equal(row.emotion, "fear|greed")
@@ -364,7 +364,7 @@ async function main() {
     await check("reopening loads every stored value back into the form", async () => {
       assert.equal(await journalValue("strategy"), "orderflow")
       assert.equal(await journalValue("trend"), "with_trend")
-      assert.equal(await journalValue("signals"), "poi|delta|sweep")
+      assert.equal(await journalValue("signals"), "at_level|delta|sweep")
       assert.equal(await journalValue("entry"), "100")
       assert.equal(await journalValue("tp2"), "140")
       assert.equal(await journalValue("riskPct"), "1.5")
@@ -375,7 +375,7 @@ async function main() {
     })
     await check("every tag the user ticked comes back ticked", async () => {
       for (const [field, options] of [
-        ["signals", ["poi", "delta", "sweep"]],
+        ["signals", ["at_level", "delta", "sweep"]],
         ["exitReason", ["tp1", "sl"]],
         ["mistake", ["no_stop", "chased_price"]],
         ["emotion", ["fear", "greed"]],
@@ -425,7 +425,7 @@ async function main() {
 
       const signals = await page.locator('[data-testid="journal-signals"] label').allInnerTexts()
       assert.deepEqual(signals, [
-        "POI", "ASK5", "Delta", "Diff channel", "Diff crossing", "Sweep",
+        "At level", "ASK5", "Delta", "Diff channel", "Diff crossing", "Sweep",
       ], signals.join(" | "))
 
       const trend = await page.locator('[data-testid="journal-trend"] option').allInnerTexts()
@@ -457,11 +457,11 @@ async function main() {
     // the setup and leaving the review for later. Against the fourteen-column
     // constraint every enumerated column here is NULL, so the INSERT was
     // rejected outright and the save came back as a 500.
-    await fillJournal("ETHUSDT", { signals: ["poi", "sweep"] })
+    await fillJournal("ETHUSDT", { signals: ["at_level", "sweep"] })
     await check("a signals-only entry is a real journal entry", async () => {
       const row = await storedRow("ov-2")
       assert.ok(row, "no row was written for a signals-only entry")
-      assert.equal(row.signals, "poi|sweep")
+      assert.equal(row.signals, "at_level|sweep")
       assert.equal(row.trend, null)
       assert.equal(row.strategy, null, "nothing else should have been invented")
       assert.equal(await journalIcon("ETHUSDT").getAttribute("data-filled"), "true")
@@ -470,7 +470,7 @@ async function main() {
     await check("adding a trend to it leaves the signals alone", async () => {
       const row = await storedRow("ov-2")
       assert.equal(row.trend, "against_trend")
-      assert.equal(row.signals, "poi|sweep", "an untouched field was clobbered")
+      assert.equal(row.signals, "at_level|sweep", "an untouched field was clobbered")
     })
     await check("the derived bias survived a journal write on a sided trade", async () => {
       // ov-2 arrives from Bybit as side=long. Writing a journal row must not

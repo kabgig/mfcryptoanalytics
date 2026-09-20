@@ -37,7 +37,7 @@ export const TRENDS = ["with_trend", "against_trend"] as const
 
 /**
  * What was on the chart that justified the entry. Multi-select because a setup
- * is a confluence: a sweep into a POI with delta confirming is three signals,
+ * is a confluence: a sweep into a level with delta confirming is three signals,
  * and recording only the headline one is what makes a later "which signals
  * actually pay?" unanswerable.
  *
@@ -46,7 +46,7 @@ export const TRENDS = ["with_trend", "against_trend"] as const
  * adding a signal should be a one-line change here, not a migration.
  */
 export const SIGNALS = [
-  "poi",
+  "at_level",
   "ask5",
   "delta",
   "diff_channel",
@@ -216,7 +216,7 @@ const LABELS: Record<string, string> = {
   be: "Break-even",
   with_trend: "With the trend",
   against_trend: "Against the trend",
-  poi: "POI",
+  at_level: "At level",
   ask5: "ASK5",
   diff_channel: "Diff channel",
   diff_crossing: "Diff crossing",

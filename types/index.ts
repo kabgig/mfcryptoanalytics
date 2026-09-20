@@ -72,7 +72,7 @@ export interface TradeOverride {
   killzone?: string
   /** With or against the prevailing trend. */
   trend?: string
-  /** The confluence that justified the entry — a POI, a sweep, delta, … */
+  /** The confluence that justified the entry — a level, a sweep, delta, … */
   signals?: string[]
   entry?: number
   tp2?: number
