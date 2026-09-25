@@ -4,6 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { Plus, Loader2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { heldQty } from "@/lib/services/spotService"
+import {
+  derivedField,
+  formatDerived,
+  parseAmount,
+  solveAmounts,
+  touchField,
+  type AmountField,
+  type AmountInputs,
+} from "@/lib/services/spotAmounts"
 import type { SpotEntry } from "@/types/spot"
 import { qty as fmtQty } from "./format"
 
@@ -19,8 +28,13 @@ interface Props {
   }) => Promise<string | null>
 }
 
-/** Which field the user typed; the other is derived from it and the price. */
-type AmountMode = "qty" | "usd"
+const EMPTY_AMOUNTS: AmountInputs = { qty: "", usd: "", price: "" }
+
+const AMOUNT_META: Record<AmountField, { label: string; placeholder: string; testid: string }> = {
+  qty: { label: "Coins", placeholder: "0.005", testid: "spot-coins" },
+  usd: { label: "$ Spent", placeholder: "500", testid: "spot-usd" },
+  price: { label: "Price / coin", placeholder: "95000", testid: "spot-price" },
+}
 
 const inputClass =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm " +
@@ -29,9 +43,9 @@ const inputClass =
 export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
   const [ticker, setTicker] = useState("")
   const [side, setSide] = useState<"BUY" | "SELL">("BUY")
-  const [mode, setMode] = useState<AmountMode>("usd")
-  const [amount, setAmount] = useState("")
-  const [priceStr, setPriceStr] = useState("")
+  const [inputs, setInputs] = useState<AmountInputs>(EMPTY_AMOUNTS)
+  // The two fields typed most recently; the third is computed from them.
+  const [order, setOrder] = useState<AmountField[]>([])
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -52,15 +66,20 @@ export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
     return tickers.filter((t) => t.startsWith(q)).slice(0, 8)
   }, [ticker, tickers])
 
-  const priceNum = Number(priceStr)
-  const amountNum = Number(amount)
-  const priceValid = Number.isFinite(priceNum) && priceNum > 0
-  const amountValid = Number.isFinite(amountNum) && amountNum > 0
+  // Any two of coins / dollars / price determine the third. The derived one is
+  // shown formatted, but the exact value is what gets submitted.
+  const derived = derivedField(order)
+  const solved = solveAmounts(inputs, order)
 
-  // The user gives either a coin amount or a dollar amount; the other follows
-  // from the price. DCA is usually decided in dollars, so USD is the default.
-  const derivedQty = mode === "qty" ? amountNum : priceValid ? amountNum / priceNum : NaN
-  const derivedUsd = mode === "usd" ? amountNum : priceValid ? amountNum * priceNum : NaN
+  function displayValue(f: AmountField): string {
+    if (f !== derived) return inputs[f]
+    return solved ? formatDerived(solved[f], f) : ""
+  }
+
+  function onAmountChange(f: AmountField, value: string) {
+    setInputs((prev) => ({ ...prev, [f]: value }))
+    setOrder((prev) => touchField(prev, f))
+  }
 
   const upperTicker = ticker.trim().toUpperCase()
   const held = useMemo(
@@ -76,10 +95,14 @@ export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
 
     if (!upperTicker) return setError("Pick a ticker")
     if (!known) return setError(`${upperTicker} has no USD price feed on Coinbase`)
-    if (!priceValid) return setError("Enter a price greater than 0")
-    if (!amountValid) return setError("Enter an amount greater than 0")
-    if (!Number.isFinite(derivedQty) || derivedQty <= 0) return setError("Amount is invalid")
-    if (side === "SELL" && derivedQty > held) {
+    if (!derived) return setError("Fill any two of coins, $ spent and price")
+    for (const f of order) {
+      if (Number.isNaN(parseAmount(inputs[f]))) {
+        return setError(`Enter ${AMOUNT_META[f].label.toLowerCase()} greater than 0`)
+      }
+    }
+    if (!solved) return setError("Amounts are invalid")
+    if (side === "SELL" && solved.qty > held) {
       return setError(`Only ${fmtQty(held)} ${upperTicker} held`)
     }
 
@@ -87,8 +110,8 @@ export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
     const err = await onAdd({
       ticker: upperTicker,
       side,
-      qty: derivedQty,
-      price: priceNum,
+      qty: solved.qty,
+      price: solved.price,
       // Midday UTC keeps the entry on the intended calendar day regardless of
       // the viewer's timezone, since the charts bucket by YYYY-MM-DD.
       tradedAt: new Date(`${date}T12:00:00.000Z`).toISOString(),
@@ -96,8 +119,8 @@ export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
     setSaving(false)
 
     if (err) return setError(err)
-    setAmount("")
-    setPriceStr("")
+    setInputs(EMPTY_AMOUNTS)
+    setOrder([])
   }
 
   return (
@@ -107,7 +130,7 @@ export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} className="flex flex-col gap-3">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
             {/* Ticker with autocomplete */}
             <div className="relative" ref={boxRef}>
               <label className="mb-1 block text-xs text-muted-foreground">Ticker</label>
@@ -166,50 +189,32 @@ export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
               </div>
             </div>
 
-            {/* Amount — qty or USD */}
-            <div>
-              <div className="mb-1 flex items-center justify-between">
-                <label className="text-xs text-muted-foreground">Amount</label>
-                <div className="flex gap-1">
-                  {(["usd", "qty"] as const).map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      data-testid={`spot-mode-${m}`}
-                      onClick={() => setMode(m)}
-                      className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase transition-colors ${
-                        mode === m
-                          ? "bg-accent text-foreground"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      {m === "usd" ? "$" : "coins"}
-                    </button>
-                  ))}
+            {/* Coins, $ spent, price — any two derive the third */}
+            {(["qty", "usd", "price"] as const).map((f) => {
+              const meta = AMOUNT_META[f]
+              const isDerived = f === derived
+              return (
+                <div key={f}>
+                  <div className="mb-1 flex items-center justify-between">
+                    <label className="text-xs text-muted-foreground">{meta.label}</label>
+                    {isDerived && (
+                      <span className="rounded bg-accent px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
+                        auto
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    data-testid={meta.testid}
+                    data-derived={isDerived ? "true" : undefined}
+                    className={`${inputClass} ${isDerived ? "text-muted-foreground" : ""}`}
+                    value={displayValue(f)}
+                    inputMode="decimal"
+                    placeholder={meta.placeholder}
+                    onChange={(e) => onAmountChange(f, e.target.value)}
+                  />
                 </div>
-              </div>
-              <input
-                data-testid="spot-amount"
-                className={inputClass}
-                value={amount}
-                inputMode="decimal"
-                placeholder={mode === "usd" ? "500" : "0.005"}
-                onChange={(e) => setAmount(e.target.value)}
-              />
-            </div>
-
-            {/* Price */}
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">Price / coin</label>
-              <input
-                data-testid="spot-price"
-                className={inputClass}
-                value={priceStr}
-                inputMode="decimal"
-                placeholder="95000"
-                onChange={(e) => setPriceStr(e.target.value)}
-              />
-            </div>
+              )
+            })}
 
             {/* Date */}
             <div>
@@ -227,15 +232,8 @@ export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
 
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-xs text-muted-foreground">
-              {amountValid && priceValid && (
-                <span>
-                  {mode === "usd"
-                    ? `≈ ${fmtQty(derivedQty)} ${upperTicker || "coins"}`
-                    : `≈ $${derivedUsd.toFixed(2)}`}
-                </span>
-              )}
               {side === "SELL" && upperTicker && (
-                <span className="ml-3">
+                <span>
                   Held: {fmtQty(held)} {upperTicker}
                 </span>
               )}

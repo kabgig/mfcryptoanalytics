@@ -3,7 +3,9 @@
  *
  * Drives the real /spot page in Chromium: adds buys through the form, checks the
  * summary maths, sells the position to zero to prove the average entry resets,
- * re-buys to prove a fresh cycle starts, and deletes an entry.
+ * re-buys to prove a fresh cycle starts, and deletes an entry. Also drives the
+ * "any two of coins / $ spent / price" amount fields and checks the derived
+ * value both on screen and in the stored row.
  * Screenshots land in scripts/test/screenshots/.
  *
  * SAFETY: every read and write is scoped to TEST_TELEGRAM_ID, a synthetic user
@@ -89,17 +91,34 @@ async function main() {
   const text = (tid) => page.locator(`[data-testid="${tid}"]`).innerText()
   const rowCount = () => page.locator('[data-testid="spot-entry-row"]').count()
 
-  /** Fills the form and submits, waiting for the POST to actually land. */
-  async function addEntry({ ticker, side = "BUY", mode = "qty", amount, price, date }) {
+  const AMOUNT_TESTID = { coins: "spot-coins", usd: "spot-usd", price: "spot-price" }
+  const amountInput = (f) => page.locator(`[data-testid="${AMOUNT_TESTID[f]}"]`)
+  /** Which amount field the form currently computes, or null. */
+  const derivedNow = () =>
+    page.evaluate(() => {
+      const el = document.querySelector('[data-derived="true"]')
+      return el ? el.getAttribute("data-testid") : null
+    })
+
+  /** Sets ticker/side, then types `amounts` ([field, value] pairs) in order. */
+  async function fillForm({ ticker, side = "BUY", amounts, date }) {
     await page.locator('[data-testid="spot-ticker"]').fill(ticker)
     // The autocomplete panel overlays the fields below it; dismiss it first.
     await page.keyboard.press("Escape")
     await page.locator("body").click({ position: { x: 5, y: 5 } })
     await page.locator(`[data-testid="spot-side-${side}"]`).click()
-    await page.locator(`[data-testid="spot-mode-${mode}"]`).click()
-    await page.locator('[data-testid="spot-amount"]').fill(String(amount))
-    await page.locator('[data-testid="spot-price"]').fill(String(price))
+    for (const [f, v] of amounts) await amountInput(f).fill(String(v))
     if (date) await page.locator('[data-testid="spot-date"]').fill(date)
+  }
+
+  /** Fills the form and submits, waiting for the POST to actually land. */
+  async function addEntry({ ticker, side = "BUY", coins, price, date, amounts }) {
+    await fillForm({
+      ticker,
+      side,
+      date,
+      amounts: amounts ?? [["coins", coins], ["price", price]],
+    })
 
     const responded = page.waitForResponse(
       (r) => r.url().includes("/api/spot/entries") && r.request().method() === "POST"
@@ -132,12 +151,12 @@ async function main() {
     await page.screenshot({ path: `${SHOTS}/spot-1-empty.png`, fullPage: true })
 
     console.log("\nDCA: two buys at different prices")
-    let res = await addEntry({ ticker: "BTC", amount: 1, price: 100, date: "2026-06-01" })
+    let res = await addEntry({ ticker: "BTC", coins: 1, price: 100, date: "2026-06-01" })
     assert.equal(res.status(), 200)
     await page.waitForFunction(
       () => document.querySelectorAll('[data-testid="spot-entry-row"]').length === 1
     )
-    res = await addEntry({ ticker: "BTC", amount: 3, price: 200, date: "2026-07-01" })
+    res = await addEntry({ ticker: "BTC", coins: 3, price: 200, date: "2026-07-01" })
     assert.equal(res.status(), 200)
     await page.waitForFunction(
       () => document.querySelectorAll('[data-testid="spot-entry-row"]').length === 2
@@ -157,7 +176,7 @@ async function main() {
 
     console.log("\npartial sell leaves the average untouched")
     res = await addEntry({
-      ticker: "BTC", side: "SELL", amount: 1, price: 500, date: "2026-08-01",
+      ticker: "BTC", side: "SELL", coins: 1, price: 500, date: "2026-08-01",
     })
     assert.equal(res.status(), 200)
     await page.waitForFunction(
@@ -172,13 +191,7 @@ async function main() {
     })
 
     console.log("\noverselling is rejected before it reaches the DB")
-    await page.locator('[data-testid="spot-ticker"]').fill("BTC")
-    await page.keyboard.press("Escape")
-    await page.locator("body").click({ position: { x: 5, y: 5 } })
-    await page.locator('[data-testid="spot-side-SELL"]').click()
-    await page.locator('[data-testid="spot-mode-qty"]').click()
-    await page.locator('[data-testid="spot-amount"]').fill("99")
-    await page.locator('[data-testid="spot-price"]').fill("500")
+    await fillForm({ ticker: "BTC", side: "SELL", amounts: [["coins", 99], ["price", 500]] })
     await page.locator('[data-testid="spot-submit"]').click()
     await check("the form blocks a sell larger than the position", async () => {
       await page.waitForSelector('[data-testid="spot-error"]')
@@ -188,7 +201,7 @@ async function main() {
 
     console.log("\nfull sell resets the DCA cycle")
     res = await addEntry({
-      ticker: "BTC", side: "SELL", amount: 3, price: 400, date: "2026-08-05",
+      ticker: "BTC", side: "SELL", coins: 3, price: 400, date: "2026-08-05",
     })
     assert.equal(res.status(), 200)
     await page.waitForFunction(
@@ -202,7 +215,7 @@ async function main() {
     })
 
     console.log("\nre-buy starts a fresh average")
-    res = await addEntry({ ticker: "BTC", amount: 1, price: 1000, date: "2026-08-10" })
+    res = await addEntry({ ticker: "BTC", coins: 1, price: 1000, date: "2026-08-10" })
     assert.equal(res.status(), 200)
     await page.waitForSelector('[data-testid="spot-coin-card-BTC"]')
     await check("average entry is $1000, not blended with the old cycle", async () => {
@@ -210,6 +223,73 @@ async function main() {
       assert.match(await text("spot-qty-BTC"), /^1 BTC$/)
     })
     await page.screenshot({ path: `${SHOTS}/spot-3-after-rebuy.png`, fullPage: true })
+
+    console.log("\nany two of coins / $ spent / price derive the third")
+    await fillForm({ ticker: "ETH", amounts: [["coins", 250], ["usd", 500]] })
+    await check("coins + $ spent fill the price field", async () => {
+      assert.equal(await derivedNow(), "spot-price")
+      assert.equal(await amountInput("price").inputValue(), "2")
+    })
+    await check("overriding the derived price makes coins the derived field", async () => {
+      await amountInput("price").fill("4")
+      assert.equal(await derivedNow(), "spot-coins")
+      assert.equal(await amountInput("coins").inputValue(), "125")
+    })
+    await check("clearing a typed field blanks the derived one", async () => {
+      await amountInput("usd").fill("")
+      assert.equal(await derivedNow(), "spot-coins")
+      assert.equal(await amountInput("coins").inputValue(), "")
+    })
+
+    const ethRow = async () =>
+      (
+        await sql`
+          SELECT qty::float8 AS qty, price::float8 AS price FROM public.spot_entries
+          WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND ticker = 'ETH'
+            AND deleted_at IS NULL
+          ORDER BY id DESC LIMIT 1
+        `
+      )[0]
+
+    // Re-typing coins then $ makes price derived again; its stale typed "4"
+    // must be ignored in favour of the computed $2.
+    res = await addEntry({
+      ticker: "ETH", amounts: [["coins", 250], ["usd", 500]], date: "2026-08-12",
+    })
+    assert.equal(res.status(), 200)
+    await check("coins + $ spent store qty 250 at the derived price $2", async () => {
+      const row = await ethRow()
+      assert.equal(row.qty, 250)
+      assert.equal(row.price, 2)
+    })
+    await check("a successful add clears all three amount fields", async () => {
+      for (const f of ["coins", "usd", "price"]) assert.equal(await amountInput(f).inputValue(), "")
+      assert.equal(await derivedNow(), null)
+    })
+
+    res = await addEntry({
+      ticker: "ETH", amounts: [["usd", 300], ["price", 3]], date: "2026-08-13",
+    })
+    assert.equal(res.status(), 200)
+    await check("$ spent + price store the derived qty 100", async () => {
+      const row = await ethRow()
+      assert.equal(row.qty, 100)
+      assert.equal(row.price, 3)
+    })
+
+    await fillForm({ ticker: "ETH", amounts: [["usd", 300]] })
+    await page.locator('[data-testid="spot-submit"]').click()
+    await check("a single amount field is rejected with a clear message", async () => {
+      await page.waitForSelector('[data-testid="spot-error"]')
+      assert.match(await text("spot-error"), /Fill any two of coins, \$ spent and price/)
+      const n = await sql`
+        SELECT COUNT(*)::int AS n FROM public.spot_entries
+        WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND ticker = 'ETH'
+      `
+      assert.equal(n[0].n, 2, "no row was written")
+    })
+    await amountInput("usd").fill("")
+    await page.screenshot({ path: `${SHOTS}/spot-3b-any-two.png`, fullPage: true })
 
     console.log("\ncharts render")
     await check("all three charts draw SVG content", async () => {
