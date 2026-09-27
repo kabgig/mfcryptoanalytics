@@ -94,7 +94,7 @@ export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
     setError(null)
 
     if (!upperTicker) return setError("Pick a ticker")
-    if (!known) return setError(`${upperTicker} has no USD price feed on Coinbase`)
+    if (!known) return setError(`${upperTicker} has no USD price feed on Coinbase or Kraken`)
     if (!derived) return setError("Fill any two of coins, $ spent and price")
     for (const f of order) {
       if (Number.isNaN(parseAmount(inputs[f]))) {

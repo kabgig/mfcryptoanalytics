@@ -5,7 +5,8 @@
  * summary maths, sells the position to zero to prove the average entry resets,
  * re-buys to prove a fresh cycle starts, and deletes an entry. Also drives the
  * "any two of coins / $ spent / price" amount fields and checks the derived
- * value both on screen and in the stored row.
+ * value both on screen and in the stored row, and adds XDC — a coin Coinbase
+ * does not list — to prove the Kraken fallback prices it end to end.
  * Screenshots land in scripts/test/screenshots/.
  *
  * SAFETY: every read and write is scoped to TEST_TELEGRAM_ID, a synthetic user
@@ -45,8 +46,12 @@ async function check(name, fn) {
   console.log(`  ✓ ${name}`)
 }
 
+// XDC price rows are only removed if this run created them (see main()).
+let xdcCachedBefore = true
+
 async function teardown() {
   const tid = BigInt(TEST_TELEGRAM_ID)
+  if (!xdcCachedBefore) await sql`DELETE FROM public.spot_price_history WHERE ticker = 'XDC'`
   await sql`DELETE FROM public.spot_entries WHERE telegram_id = ${tid}`
   await sql`DELETE FROM public.users        WHERE telegram_id = ${tid}`
 }
@@ -54,6 +59,8 @@ async function teardown() {
 async function main() {
   mkdirSync(SHOTS, { recursive: true })
   await teardown()
+  xdcCachedBefore =
+    (await sql`SELECT COUNT(*)::int AS n FROM public.spot_price_history WHERE ticker = 'XDC'`)[0].n > 0
   console.log(`\nsetup: synthetic user ${TEST_TELEGRAM_ID}, no entries`)
 
   const browser = await chromium.launch()
@@ -290,6 +297,51 @@ async function main() {
     })
     await amountInput("usd").fill("")
     await page.screenshot({ path: `${SHOTS}/spot-3b-any-two.png`, fullPage: true })
+
+    console.log("\nXDC is priced through the Kraken fallback")
+    await check("XDC is offered by the ticker autocomplete", async () => {
+      await page.locator('[data-testid="spot-ticker"]').fill("XD")
+      await page.waitForTimeout(300)
+      const opts = await page.locator('[data-testid="spot-ticker"] ~ div button').allInnerTexts()
+      assert.ok(opts.includes("XDC"), `expected XDC among suggestions, got ${opts.join(",")}`)
+      await page.locator('[data-testid="spot-ticker"]').fill("")
+      await page.keyboard.press("Escape")
+    })
+    res = await addEntry({
+      ticker: "XDC", amounts: [["coins", 1000], ["usd", 30]], date: "2026-09-20",
+    })
+    await check("an XDC buy is accepted and stored", async () => {
+      assert.equal(res.status(), 200)
+      const rows = await sql`
+        SELECT qty::float8 AS qty, price::float8 AS price FROM public.spot_entries
+        WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND ticker = 'XDC'
+      `
+      assert.equal(rows.length, 1)
+      assert.equal(rows[0].qty, 1000)
+      assert.equal(rows[0].price, 0.03)
+    })
+    await check("the XDC card shows a live market price, not 'no feed'", async () => {
+      const card = page.locator('[data-testid="spot-coin-card-XDC"]')
+      await card.waitFor()
+      await page.waitForFunction(
+        () => /Market\s+\$0\.\d+/.test(
+          document.querySelector('[data-testid="spot-coin-card-XDC"]')?.innerText ?? ""
+        ),
+        null,
+        { timeout: 30000 }
+      )
+      assert.doesNotMatch(await page.innerText("body"), /No price feed for[^\n]*XDC/)
+    })
+    await check("XDC daily closes were backfilled into the price cache", async () => {
+      const rows = await sql`
+        SELECT MIN(day)::text AS first, COUNT(*)::int AS n
+        FROM public.spot_price_history WHERE ticker = 'XDC'
+      `
+      assert.ok(rows[0].n >= 1, "no XDC closes cached")
+      // Only checkable when this run started the XDC cache from empty.
+      if (!xdcCachedBefore) assert.equal(rows[0].first, "2026-09-20")
+    })
+    await page.screenshot({ path: `${SHOTS}/spot-3c-xdc.png`, fullPage: true })
 
     console.log("\ncharts render")
     await check("all three charts draw SVG content", async () => {

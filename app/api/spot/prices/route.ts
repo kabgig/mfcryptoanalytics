@@ -4,7 +4,7 @@ import {
   getPriceHistory,
   insertPricesSkipExisting,
 } from "@/lib/db/spot"
-import { fetchCurrentPrices, fetchDailyCloses } from "@/lib/prices/coinbase"
+import { fetchCurrentPrices, fetchDailyCloses } from "@/lib/prices/spot"
 import { computeBackfillGaps, firstTradeDay, tickersOf } from "@/lib/services/spotService"
 import { requireUser } from "@/lib/auth/session"
 

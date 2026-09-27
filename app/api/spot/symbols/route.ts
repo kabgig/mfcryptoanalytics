@@ -1,4 +1,4 @@
-import { fetchUsdTickers } from "@/lib/prices/coinbase"
+import { fetchUsdTickers } from "@/lib/prices/spot"
 
 /**
  * Tradable USD tickers for the entry form's autocomplete.

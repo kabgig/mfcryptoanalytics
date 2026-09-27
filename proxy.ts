@@ -27,7 +27,7 @@ const PUBLIC_API = [
   "/api/telegram/webhook", // guarded by its own constant-time secret header
   "/api/cron",            // guarded by CRON_SECRET
   "/api/share/",          // public read-only report, guarded by a 192-bit token
-  "/api/spot/symbols",    // static Coinbase ticker list, identical for everyone
+  "/api/spot/symbols",    // static Coinbase+Kraken ticker list, identical for everyone
 ]
 
 function isPublic(pathname: string): boolean {

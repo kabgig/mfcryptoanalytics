@@ -57,6 +57,19 @@ export async function fetchUsdTickers(): Promise<string[]> {
 }
 
 /**
+ * Whether Coinbase lists a `${ticker}-USD` product. Only a definite 404 means
+ * "not listed"; any other failure throws, so a transient outage is never
+ * mistaken for a missing market (see lib/prices/spot.ts).
+ */
+export async function hasUsdMarket(ticker: string): Promise<boolean> {
+  const url = `${BASE}/products/${ticker}-USD`
+  const res = await fetch(url, { headers: { "User-Agent": "mfcryptoanalytics" } })
+  if (res.ok) return true
+  if (res.status === 404) return false
+  throw new Error(`Coinbase ${res.status} on ${url}`)
+}
+
+/**
  * Latest price for each ticker. Missing/failed tickers are omitted rather than
  * throwing — one delisted coin must not blank the whole portfolio view.
  */
