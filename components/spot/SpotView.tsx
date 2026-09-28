@@ -236,6 +236,7 @@ export function SpotView() {
             editingId={editing?.id ?? null}
             onEdit={setEditing}
             onDelete={deleteEntry}
+            currentPrices={current}
           />
         </>
       )}

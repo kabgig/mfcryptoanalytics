@@ -25,7 +25,7 @@ export const DUST = 1e-8
  * rows tie on traded_at, and a string compare put id "10" before "9": a SELL
  * replayed ahead of its same-day BUY and was clamped to nothing.
  */
-function sortEntries(entries: SpotEntry[]): SpotEntry[] {
+export function sortEntries(entries: SpotEntry[]): SpotEntry[] {
   return [...entries].sort((a, b) => {
     const t = a.tradedAt.localeCompare(b.tradedAt)
     if (t !== 0) return t

@@ -1,8 +1,10 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Trash2, Loader2, Pencil, TriangleAlert } from "lucide-react"
+import { Trash2, Loader2, Pencil, TriangleAlert, Download } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { downloadCsv } from "@/lib/services/exportService"
+import { buildSpotCsv, spotExportFilename } from "@/lib/services/spotExportService"
 import { oversoldSells } from "@/lib/services/spotService"
 import type { SpotEntry } from "@/types/spot"
 import { price, qty, usd } from "./format"
@@ -13,9 +15,11 @@ interface Props {
   editingId: string | null
   onEdit: (entry: SpotEntry) => void
   onDelete: (id: string) => Promise<void>
+  /** Latest price per ticker, for the export's "compared with today" columns. */
+  currentPrices?: Record<string, number>
 }
 
-export function SpotEntriesTable({ entries, editingId, onEdit, onDelete }: Props) {
+export function SpotEntriesTable({ entries, editingId, onEdit, onDelete, currentPrices }: Props) {
   const [deleting, setDeleting] = useState<string | null>(null)
 
   // SELLs stranded by a later edit or delete of the BUY that funded them.
@@ -26,10 +30,21 @@ export function SpotEntriesTable({ entries, editingId, onEdit, onDelete }: Props
 
   return (
     <Card>
-      <CardHeader className="pb-3">
+      <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-3">
         <CardTitle className="text-sm font-medium">
           Entries{entries.length > 0 && ` (${entries.length})`}
         </CardTitle>
+        <button
+          type="button"
+          onClick={() => downloadCsv(buildSpotCsv(entries, currentPrices), spotExportFilename())}
+          disabled={entries.length === 0}
+          title="Download every entry with position and PnL columns as CSV"
+          data-testid="export-spot"
+          className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:opacity-40"
+        >
+          <Download className="h-3.5 w-3.5" />
+          Export CSV
+        </button>
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
