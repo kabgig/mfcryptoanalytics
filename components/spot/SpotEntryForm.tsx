@@ -1,9 +1,9 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Plus, Loader2 } from "lucide-react"
+import { Plus, Loader2, Check, X } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { heldQty } from "@/lib/services/spotService"
+import { DUST, heldBefore } from "@/lib/services/spotService"
 import {
   derivedField,
   formatDerived,
@@ -26,6 +26,14 @@ interface Props {
     price: number
     tradedAt: string
   }) => Promise<string | null>
+  /**
+   * An existing entry to edit, or null to add a new one. The parent remounts the
+   * form (via `key`) when this changes, so it only seeds the initial state.
+   * Only the amounts are editable; ticker, side and date are shown locked.
+   */
+  editing: SpotEntry | null
+  onUpdate: (id: string, amounts: { qty: number; price: number }) => Promise<string | null>
+  onCancelEdit: () => void
 }
 
 const EMPTY_AMOUNTS: AmountInputs = { qty: "", usd: "", price: "" }
@@ -36,21 +44,50 @@ const AMOUNT_META: Record<AmountField, { label: string; placeholder: string; tes
   price: { label: "Price / coin", placeholder: "95000", testid: "spot-price" },
 }
 
+/**
+ * A stored number as the user would type it. String() switches to exponent
+ * notation below 1e-6, and rounding would change the value on an unedited save.
+ */
+function plain(v: number): string {
+  const s = String(v)
+  return s.includes("e") ? v.toFixed(20).replace(/\.?0+$/, "") : s
+}
+
 const inputClass =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm " +
   "focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
 
-export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
-  const [ticker, setTicker] = useState("")
-  const [side, setSide] = useState<"BUY" | "SELL">("BUY")
-  const [inputs, setInputs] = useState<AmountInputs>(EMPTY_AMOUNTS)
+export function SpotEntryForm({
+  tickers,
+  entries,
+  onAdd,
+  editing,
+  onUpdate,
+  onCancelEdit,
+}: Props) {
+  const [ticker, setTicker] = useState(editing?.ticker ?? "")
+  const [side, setSide] = useState<"BUY" | "SELL">(editing?.side ?? "BUY")
+  // An edit starts from the stored coins and price, so $ spent is the derived one.
+  const [inputs, setInputs] = useState<AmountInputs>(() =>
+    editing ? { qty: plain(editing.qty), usd: "", price: plain(editing.price) } : EMPTY_AMOUNTS
+  )
   // The two fields typed most recently; the third is computed from them.
-  const [order, setOrder] = useState<AmountField[]>([])
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [order, setOrder] = useState<AmountField[]>(editing ? ["qty", "price"] : [])
+  const [date, setDate] = useState(
+    () => (editing?.tradedAt ?? new Date().toISOString()).slice(0, 10)
+  )
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
+
+  // The edit button sits in the table far below; bring the form into view.
+  useEffect(() => {
+    if (editing) cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    // Mount-only: a different entry remounts the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
@@ -82,10 +119,14 @@ export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
   }
 
   const upperTicker = ticker.trim().toUpperCase()
-  const held = useMemo(
-    () => (upperTicker ? heldQty(entries, upperTicker) : 0),
-    [entries, upperTicker]
-  )
+  // What a sell here may take: holdings on the chosen date, or — when editing —
+  // everything replayed before this entry. Not today's holdings, which let a
+  // backdated sell precede the buy that funded it.
+  const held = useMemo(() => {
+    if (!upperTicker) return 0
+    if (editing) return heldBefore(entries, upperTicker, editing.tradedAt, editing.id)
+    return heldBefore(entries, upperTicker, `${date}T12:00:00.000Z`)
+  }, [entries, upperTicker, editing, date])
 
   const known = tickers.length === 0 || tickers.includes(upperTicker)
 
@@ -94,7 +135,7 @@ export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
     setError(null)
 
     if (!upperTicker) return setError("Pick a ticker")
-    if (!known) return setError(`${upperTicker} has no USD price feed on Coinbase or Kraken`)
+    if (!editing && !known) return setError(`${upperTicker} has no USD price feed on Coinbase or Kraken`)
     if (!derived) return setError("Fill any two of coins, $ spent and price")
     for (const f of order) {
       if (Number.isNaN(parseAmount(inputs[f]))) {
@@ -102,8 +143,20 @@ export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
       }
     }
     if (!solved) return setError("Amounts are invalid")
-    if (side === "SELL" && solved.qty > held) {
-      return setError(`Only ${fmtQty(held)} ${upperTicker} held`)
+    // An edit that does not enlarge a sell is allowed even if the sell is
+    // already stranded — it may be exactly the fix, e.g. a price correction.
+    const enlarges = !editing || solved.qty > editing.qty
+    if (side === "SELL" && enlarges && solved.qty - held > DUST) {
+      return setError(`Only ${fmtQty(held)} ${upperTicker} held on ${date}`)
+    }
+
+    if (editing) {
+      setSaving(true)
+      const err = await onUpdate(editing.id, { qty: solved.qty, price: solved.price })
+      setSaving(false)
+      // On success the parent clears `editing`, which remounts a blank form.
+      if (err) setError(err)
+      return
     }
 
     setSaving(true)
@@ -124,9 +177,11 @@ export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
   }
 
   return (
-    <Card>
+    <Card ref={cardRef} data-testid="spot-form" data-mode={editing ? "edit" : "add"}>
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-medium">Add entry</CardTitle>
+        <CardTitle className="text-sm font-medium">
+          {editing ? `Edit ${editing.side} ${editing.ticker} entry` : "Add entry"}
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} className="flex flex-col gap-3">
@@ -140,6 +195,7 @@ export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
                 value={ticker}
                 placeholder="BTC"
                 autoComplete="off"
+                disabled={!!editing}
                 onChange={(e) => {
                   setTicker(e.target.value.toUpperCase())
                   setOpen(true)
@@ -175,6 +231,7 @@ export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
                     type="button"
                     data-testid={`spot-side-${s}`}
                     onClick={() => setSide(s)}
+                    disabled={!!editing}
                     className={`flex-1 rounded px-2 py-1.5 text-sm font-medium transition-colors ${
                       side === s
                         ? s === "BUY"
@@ -224,6 +281,7 @@ export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
                 data-testid="spot-date"
                 className={inputClass}
                 value={date}
+                disabled={!!editing}
                 max={new Date().toISOString().slice(0, 10)}
                 onChange={(e) => setDate(e.target.value)}
               />
@@ -239,19 +297,35 @@ export function SpotEntryForm({ tickers, entries, onAdd }: Props) {
               )}
             </div>
 
-            <button
-              type="submit"
-              data-testid="spot-submit"
-              disabled={saving}
-              className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-accent disabled:opacity-50"
-            >
-              {saving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Plus className="h-4 w-4" />
+            <div className="flex items-center gap-2">
+              {editing && (
+                <button
+                  type="button"
+                  data-testid="spot-cancel-edit"
+                  onClick={onCancelEdit}
+                  disabled={saving}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-accent disabled:opacity-50"
+                >
+                  <X className="h-4 w-4" />
+                  Cancel
+                </button>
               )}
-              Add
-            </button>
+              <button
+                type="submit"
+                data-testid="spot-submit"
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-accent disabled:opacity-50"
+              >
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : editing ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Plus className="h-4 w-4" />
+                )}
+                {editing ? "Save" : "Add"}
+              </button>
+            </div>
           </div>
 
           {error && (

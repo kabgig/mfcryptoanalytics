@@ -37,6 +37,8 @@ export function SpotView() {
   const [loading, setLoading] = useState(true)
   const [pricesLoading, setPricesLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The entry loaded into the form for editing, or null while adding.
+  const [editing, setEditing] = useState<SpotEntry | null>(null)
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
 
@@ -121,7 +123,33 @@ export function SpotView() {
       const res = await fetch(`/api/spot/entries?id=${id}`, {
         method: "DELETE",
       })
-      if (res.ok) setEntries((prev) => prev.filter((e) => e.id !== id))
+      if (!res.ok) return
+      setEntries((prev) => prev.filter((e) => e.id !== id))
+      setEditing((cur) => (cur?.id === id ? null : cur))
+    },
+    [telegramId]
+  )
+
+  // Only the amounts change, so the ticker and its price history are unaffected
+  // and no price reload is needed.
+  const updateEntry = useCallback(
+    async (id: string, amounts: { qty: number; price: number }): Promise<string | null> => {
+      if (!telegramId) return "Not signed in"
+      try {
+        const res = await fetch(`/api/spot/entries?id=${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(amounts),
+        })
+        const data = await res.json()
+        if (!res.ok) return (data.error as string) ?? "Could not save entry"
+        const saved = data.entry as SpotEntry
+        setEntries((prev) => prev.map((e) => (e.id === id ? saved : e)))
+        setEditing(null)
+        return null
+      } catch {
+        return "Could not save entry"
+      }
     },
     [telegramId]
   )
@@ -172,7 +200,16 @@ export function SpotView() {
         </div>
       )}
 
-      <SpotEntryForm tickers={symbols} entries={entries} onAdd={addEntry} />
+      {/* Keyed so switching between adding and editing starts from clean state. */}
+      <SpotEntryForm
+        key={editing?.id ?? "new"}
+        tickers={symbols}
+        entries={entries}
+        editing={editing}
+        onAdd={addEntry}
+        onUpdate={updateEntry}
+        onCancelEdit={() => setEditing(null)}
+      />
 
       {loading ? (
         <div className="flex items-center justify-center py-24 text-sm text-muted-foreground">
@@ -194,7 +231,12 @@ export function SpotView() {
             today={today}
           />
 
-          <SpotEntriesTable entries={entries} onDelete={deleteEntry} />
+          <SpotEntriesTable
+            entries={entries}
+            editingId={editing?.id ?? null}
+            onEdit={setEditing}
+            onDelete={deleteEntry}
+          />
         </>
       )}
     </main>

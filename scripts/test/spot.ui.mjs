@@ -343,6 +343,154 @@ async function main() {
     })
     await page.screenshot({ path: `${SHOTS}/spot-3c-xdc.png`, fullPage: true })
 
+    console.log("\na backdated sell is checked against holdings on its date")
+    const btcSells = async () =>
+      (
+        await sql`
+          SELECT COUNT(*)::int AS n FROM public.spot_entries
+          WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND ticker = 'BTC' AND side = 'SELL'
+        `
+      )[0].n
+    const sellsBefore = await btcSells()
+    // 1 BTC is held today, but nothing was held on 2026-05-01 (first buy 06-01).
+    await fillForm({
+      ticker: "BTC", side: "SELL", amounts: [["coins", 1], ["price", 100]], date: "2026-05-01",
+    })
+    await page.locator('[data-testid="spot-submit"]').click()
+    await check("a sell dated before the first buy is blocked", async () => {
+      await page.waitForSelector('[data-testid="spot-error"]')
+      assert.match(await text("spot-error"), /Only 0 BTC held on 2026-05-01/)
+      assert.equal(await btcSells(), sellsBefore, "no row was written")
+    })
+    for (const f of ["coins", "price"]) await amountInput(f).fill("")
+
+    console.log("\nedit an entry")
+    const rowOn = (d) => page.locator('[data-testid="spot-entry-row"]', { hasText: d })
+    const formMode = () => page.locator('[data-testid="spot-form"]').getAttribute("data-mode")
+    const flags = () => page.locator('[data-testid="spot-oversold"]')
+    const rowsBeforeEdit = await rowCount()
+    const julyBuyId = String(
+      (
+        await sql`
+          SELECT id FROM public.spot_entries
+          WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND ticker = 'BTC'
+            AND traded_at::date = '2026-07-01'
+        `
+      )[0].id
+    )
+    const dbRow = async (id) =>
+      (
+        await sql`
+          SELECT qty::float8 AS qty, price::float8 AS price FROM public.spot_entries
+          WHERE id = ${BigInt(id)}
+        `
+      )[0]
+
+    await check("every row has an edit button", async () => {
+      assert.equal(await page.locator('[data-testid="spot-edit-entry"]').count(), await rowCount())
+    })
+    await check("no sell is flagged while the ledger is consistent", async () => {
+      assert.equal(await flags().count(), 0)
+    })
+
+    await rowOn("2026-07-01").locator('[data-testid="spot-edit-entry"]').click()
+    await check("edit loads the entry into the form with ticker, side and date locked", async () => {
+      assert.equal(await formMode(), "edit")
+      assert.equal(await rowOn("2026-07-01").getAttribute("data-editing"), "true")
+      const tickerInput = page.locator('[data-testid="spot-ticker"]')
+      assert.equal(await tickerInput.inputValue(), "BTC")
+      assert.ok(await tickerInput.isDisabled())
+      assert.ok(await page.locator('[data-testid="spot-side-BUY"]').isDisabled())
+      const dateInput = page.locator('[data-testid="spot-date"]')
+      assert.equal(await dateInput.inputValue(), "2026-07-01")
+      assert.ok(await dateInput.isDisabled())
+      assert.equal(await amountInput("coins").inputValue(), "3")
+      assert.equal(await amountInput("price").inputValue(), "200")
+      assert.equal(await derivedNow(), "spot-usd")
+      assert.equal(await amountInput("usd").inputValue(), "600")
+      assert.match(await text("spot-submit"), /Save/)
+    })
+    await page.screenshot({ path: `${SHOTS}/spot-5-editing.png`, fullPage: true })
+
+    await page.locator('[data-testid="spot-cancel-edit"]').click()
+    await check("cancel returns to an empty add form and writes nothing", async () => {
+      assert.equal(await formMode(), "add")
+      assert.equal(await amountInput("coins").inputValue(), "")
+      assert.equal(await page.locator('[data-testid="spot-ticker"]').isDisabled(), false)
+      assert.equal((await dbRow(julyBuyId)).qty, 3)
+    })
+
+    // Lowering the Jul buy 3 → 2 strands the Aug 5 sell of 3 (only 2 held then).
+    await rowOn("2026-07-01").locator('[data-testid="spot-edit-entry"]').click()
+    await amountInput("coins").fill("2")
+    const put = page.waitForResponse(
+      (r) => r.url().includes("/api/spot/entries") && r.request().method() === "PUT"
+    )
+    await page.locator('[data-testid="spot-submit"]').click()
+    await check("saving a lowered buy updates the DB row in place", async () => {
+      assert.equal((await put).status(), 200)
+      await page.waitForFunction(
+        () => document.querySelector('[data-testid="spot-form"]')?.getAttribute("data-mode") === "add"
+      )
+      const r = await dbRow(julyBuyId)
+      assert.equal(r.qty, 2)
+      assert.equal(r.price, 200)
+      assert.equal(await rowCount(), rowsBeforeEdit, "no row added or removed")
+      assert.match(await rowOn("2026-07-01").innerText(), /\$400/)
+    })
+    await check("the sell it stranded is flagged with what was held", async () => {
+      await page.waitForSelector('[data-testid="spot-oversold"]')
+      assert.equal(await flags().count(), 1)
+      assert.match(
+        await rowOn("2026-08-05").locator('[data-testid="spot-oversold"]').innerText(),
+        /only 2 held/
+      )
+    })
+    await page.screenshot({ path: `${SHOTS}/spot-6-flagged.png`, fullPage: true })
+
+    const aug5SellId = String(
+      (
+        await sql`
+          SELECT id FROM public.spot_entries
+          WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND ticker = 'BTC'
+            AND traded_at::date = '2026-08-05'
+        `
+      )[0].id
+    )
+    await rowOn("2026-08-05").locator('[data-testid="spot-edit-entry"]').click()
+    await amountInput("coins").fill("5")
+    await page.locator('[data-testid="spot-submit"]').click()
+    await check("enlarging a sell past what was held is blocked in the form", async () => {
+      await page.waitForSelector('[data-testid="spot-error"]')
+      assert.match(await text("spot-error"), /Only 2 BTC held on 2026-08-05/)
+      assert.equal((await dbRow(aug5SellId)).qty, 3)
+      assert.equal(await formMode(), "edit", "the form stays open to fix it")
+    })
+
+    await amountInput("coins").fill("2")
+    const put2 = page.waitForResponse(
+      (r) => r.url().includes("/api/spot/entries") && r.request().method() === "PUT"
+    )
+    await page.locator('[data-testid="spot-submit"]').click()
+    await check("shrinking the stranded sell clears the flag", async () => {
+      assert.equal((await put2).status(), 200)
+      await page.waitForFunction(
+        () => document.querySelectorAll('[data-testid="spot-oversold"]').length === 0
+      )
+      assert.equal((await dbRow(aug5SellId)).qty, 2)
+    })
+    await check("the fresh-cycle average after the edits is still $1000", async () => {
+      assert.match(await text("spot-avg-entry-BTC"), /^\$1,?000(\.00)?$/)
+      assert.match(await text("spot-qty-BTC"), /^1 BTC$/)
+    })
+
+    await reloadApp(page)
+    await page.waitForSelector('[data-testid="spot-entry-row"]')
+    await check("edits survive a reload", async () => {
+      assert.match(await rowOn("2026-07-01").innerText(), /\$400/)
+      assert.equal(await flags().count(), 0)
+    })
+
     console.log("\ncharts render")
     await check("all three charts draw SVG content", async () => {
       const svgs = await page.locator(".recharts-surface").count()

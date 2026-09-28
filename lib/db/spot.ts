@@ -50,6 +50,27 @@ export async function insertEntry(
 }
 
 /**
+ * Updates one entry's amounts. Ticker, side and date are fixed once written.
+ * Returns null when the id does not belong to this user or is deleted.
+ */
+export async function updateEntry(
+  telegramId: string,
+  id: string,
+  amounts: { qty: number; price: number }
+): Promise<SpotEntry | null> {
+  const sql = getSql()
+  const rows = (await sql`
+    UPDATE public.spot_entries
+    SET qty = ${amounts.qty}, price = ${amounts.price}
+    WHERE telegram_id = ${BigInt(telegramId)}
+      AND id = ${BigInt(id)}
+      AND deleted_at IS NULL
+    RETURNING id, ticker, side, qty, price, traded_at
+  `) as Record<string, unknown>[]
+  return rows.length > 0 ? rowToEntry(rows[0]) : null
+}
+
+/**
  * Soft-deletes one entry. Returns false when the id does not belong to this
  * user, which is what stops one user deleting another's row.
  */

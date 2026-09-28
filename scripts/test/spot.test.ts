@@ -11,7 +11,9 @@ import {
   computeTotals,
   dayRange,
   firstTradeDay,
+  heldBefore,
   heldQty,
+  oversoldSells,
   shiftDay,
   tickersOf,
 } from "@/lib/services/spotService"
@@ -275,6 +277,72 @@ test("heldQty reports the sellable amount and clamps at zero", () => {
   ]
   assert.ok(close(1.5)(heldQty(entries, "BTC")))
   assert.equal(heldQty(entries, "ETH"), 0, "a ticker never bought holds nothing")
+})
+
+test("same-day entries replay in numeric id order, so id 10 follows id 9", () => {
+  // Form entries all land at midday UTC, so same-day rows tie on tradedAt. A
+  // string compare put "10" before "9" and replayed the SELL before its BUY.
+  const at = "2026-03-01T12:00:00.000Z"
+  const entries: SpotEntry[] = [
+    { id: "9", ticker: "BTC", side: "BUY", qty: 1, price: 100, tradedAt: at },
+    { id: "10", ticker: "BTC", side: "SELL", qty: 1, price: 150, tradedAt: at },
+  ]
+  const h = computeHolding("BTC", entries, null)
+  assert.equal(h.qty, 0, "the sell closed the position")
+  assert.ok(close(50)(h.realisedPnl))
+  assert.equal(oversoldSells(entries).size, 0, "the sell is not flagged")
+})
+
+test("heldBefore counts only what was held on the sell's date", () => {
+  const entries = [
+    entry({ qty: 1, price: 100, tradedAt: "2026-03-01T12:00:00.000Z" }),
+    entry({ qty: 2, price: 100, tradedAt: "2026-05-01T12:00:00.000Z" }),
+  ]
+  assert.equal(heldBefore(entries, "BTC", "2026-01-01T12:00:00.000Z"), 0, "before any buy")
+  assert.equal(heldBefore(entries, "BTC", "2026-04-01T12:00:00.000Z"), 1)
+  assert.equal(heldBefore(entries, "BTC", "2026-05-01T12:00:00.000Z"), 3, "a same-day buy counts")
+  assert.equal(heldBefore(entries, "ETH", "2026-06-01T12:00:00.000Z"), 0)
+  // Today's holdings (3) are what the old check used; a Jan sell must see 0.
+  assert.equal(heldQty(entries, "BTC"), 3)
+})
+
+test("heldBefore with an id excludes that entry and everything after it", () => {
+  const buy = entry({ qty: 2, price: 100, tradedAt: "2026-03-01T12:00:00.000Z" })
+  const sell = entry({ qty: 1, price: 150, side: "SELL", tradedAt: "2026-04-01T12:00:00.000Z" })
+  const later = entry({ qty: 5, price: 100, tradedAt: "2026-05-01T12:00:00.000Z" })
+  assert.equal(heldBefore([buy, sell, later], "BTC", sell.tradedAt, sell.id), 2)
+})
+
+test("oversoldSells is empty for a consistent ledger", () => {
+  const entries = [
+    entry({ qty: 2, price: 100, tradedAt: "2026-03-01T12:00:00.000Z" }),
+    entry({ qty: 2, price: 150, side: "SELL", tradedAt: "2026-04-01T12:00:00.000Z" }),
+  ]
+  assert.equal(oversoldSells(entries).size, 0)
+})
+
+test("oversoldSells flags a sell stranded by a lowered buy, with what was held", () => {
+  const buy = entry({ qty: 0.5, price: 100, tradedAt: "2026-03-01T12:00:00.000Z" })
+  const sell = entry({ qty: 1, price: 150, side: "SELL", tradedAt: "2026-04-01T12:00:00.000Z" })
+  const flagged = oversoldSells([buy, sell])
+  assert.deepEqual([...flagged.keys()], [sell.id])
+  assert.equal(flagged.get(sell.id), 0.5)
+})
+
+test("oversoldSells flags a sell whose buy was deleted, and tracks tickers apart", () => {
+  const eth = entry({ ticker: "ETH", qty: 5, price: 10, tradedAt: "2026-03-01T12:00:00.000Z" })
+  const sell = entry({ qty: 1, price: 150, side: "SELL", tradedAt: "2026-04-01T12:00:00.000Z" })
+  const flagged = oversoldSells([eth, sell])
+  assert.equal(flagged.get(sell.id), 0, "ETH holdings do not fund a BTC sell")
+})
+
+test("oversoldSells tolerates float dust when selling the whole position", () => {
+  const entries = [
+    entry({ qty: 0.1, price: 100, tradedAt: "2026-03-01T12:00:00.000Z" }),
+    entry({ qty: 0.2, price: 100, tradedAt: "2026-03-02T12:00:00.000Z" }),
+    entry({ qty: 0.30000000000000004, price: 150, side: "SELL", tradedAt: "2026-04-01T12:00:00.000Z" }),
+  ]
+  assert.equal(oversoldSells(entries).size, 0)
 })
 
 test("shiftDay moves across month and year boundaries", () => {

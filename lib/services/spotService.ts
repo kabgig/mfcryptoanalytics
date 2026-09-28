@@ -18,10 +18,19 @@ export const DUST = 1e-8
 
 /** Pure functions only — no I/O — so every rule below is unit-testable. */
 
+/**
+ * Trade order, ties broken by id — the same `ORDER BY traded_at, id` the DB uses.
+ *
+ * Ids are compared as numbers. Every form entry lands at midday UTC, so same-day
+ * rows tie on traded_at, and a string compare put id "10" before "9": a SELL
+ * replayed ahead of its same-day BUY and was clamped to nothing.
+ */
 function sortEntries(entries: SpotEntry[]): SpotEntry[] {
   return [...entries].sort((a, b) => {
     const t = a.tradedAt.localeCompare(b.tradedAt)
-    return t !== 0 ? t : a.id.localeCompare(b.id)
+    if (t !== 0) return t
+    const d = Number(a.id) - Number(b.id)
+    return Number.isNaN(d) ? a.id.localeCompare(b.id) : d
   })
 }
 
@@ -355,4 +364,49 @@ export function heldQty(entries: SpotEntry[], ticker: string): number {
     else qty = Math.max(0, qty - e.qty)
   }
   return qty <= DUST ? 0 : qty
+}
+
+/**
+ * Units of `ticker` held at a point in the ledger — what a SELL there may sell.
+ *
+ * With `id`, that is everything replayed before that existing entry. Without
+ * one, it is everything traded at or before `tradedAt`: a new row gets the
+ * largest id, so it sorts after every entry sharing its timestamp.
+ */
+export function heldBefore(
+  entries: SpotEntry[],
+  ticker: string,
+  tradedAt: string,
+  id?: string
+): number {
+  let qty = 0
+  for (const e of sortEntries(entries.filter((e) => e.ticker === ticker))) {
+    if (id !== undefined ? e.id === id : e.tradedAt > tradedAt) break
+    if (e.side === "BUY") qty += e.qty
+    else qty = Math.max(0, qty - e.qty)
+  }
+  return qty <= DUST ? 0 : qty
+}
+
+/**
+ * SELLs that sell more than was held when they happened, as id → units held.
+ *
+ * Only a new or enlarged SELL is rejected. Lowering or deleting an earlier BUY
+ * is allowed even when it strands a later SELL, and this is how the table
+ * flags that SELL for the user to fix. The maths already clamps such a sell
+ * to what was held, so the totals stay consistent in the meantime.
+ */
+export function oversoldSells(entries: SpotEntry[]): Map<string, number> {
+  const out = new Map<string, number>()
+  const held = new Map<string, number>()
+  for (const e of sortEntries(entries)) {
+    const qty = held.get(e.ticker) ?? 0
+    if (e.side === "BUY") {
+      held.set(e.ticker, qty + e.qty)
+      continue
+    }
+    if (e.qty - qty > DUST) out.set(e.id, qty <= DUST ? 0 : qty)
+    held.set(e.ticker, Math.max(0, qty - e.qty))
+  }
+  return out
 }
