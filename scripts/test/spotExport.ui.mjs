@@ -39,6 +39,7 @@ const EXPECTED_HEADER = [
   "qtyApplied", "oversold", "positionQty", "costBasis", "avgEntryBefore", "avgEntryAfter",
   "realisedPnl", "realisedPnlPct", "cumRealisedPnl",
   "cycle", "priceVsAvgPct", "daysSincePrevEntry", "currentPrice", "changeSinceEntryPct",
+  "planned", "why", "feeling", "note",
 ]
 
 const sql = neon(process.env.DATABASE_URL)

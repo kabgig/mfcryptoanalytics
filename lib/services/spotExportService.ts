@@ -1,5 +1,6 @@
 import { escapeCsvField } from "@/lib/services/exportService"
 import { DUST, oversoldSells, sortEntries } from "@/lib/services/spotService"
+import { EMPTY_SPOT_JOURNAL, serializeSpotTags } from "@/lib/services/spotJournalFields"
 import type { SpotEntry } from "@/types/spot"
 
 /**
@@ -148,6 +149,9 @@ function num(v: number | null): number | null {
 
 type Cell = string | number | null | undefined
 
+const journalOf = (r: SpotLedgerRow) => r.entry.journal ?? EMPTY_SPOT_JOURNAL
+const yesNo = (v: boolean | null) => (v == null ? null : v ? "yes" : "no")
+
 export const SPOT_EXPORT_COLUMNS: readonly { header: string; value: (r: SpotLedgerRow) => Cell }[] = [
   { header: "tradedAt", value: (r) => r.entry.tradedAt },
   { header: "ticker", value: (r) => r.entry.ticker },
@@ -156,7 +160,7 @@ export const SPOT_EXPORT_COLUMNS: readonly { header: string; value: (r: SpotLedg
   { header: "price", value: (r) => r.entry.price },
   { header: "total", value: (r) => num(r.entry.qty * r.entry.price) },
   { header: "qtyApplied", value: (r) => num(r.qtyApplied) },
-  { header: "oversold", value: (r) => (r.oversold == null ? null : r.oversold ? "yes" : "no") },
+  { header: "oversold", value: (r) => yesNo(r.oversold) },
   { header: "positionQty", value: (r) => num(r.positionQty) },
   { header: "costBasis", value: (r) => num(r.costBasis) },
   { header: "avgEntryBefore", value: (r) => num(r.avgEntryBefore) },
@@ -169,6 +173,13 @@ export const SPOT_EXPORT_COLUMNS: readonly { header: string; value: (r: SpotLedg
   { header: "daysSincePrevEntry", value: (r) => r.daysSincePrevEntry },
   { header: "currentPrice", value: (r) => r.currentPrice },
   { header: "changeSinceEntryPct", value: (r) => num(r.changeSinceEntryPct) },
+  // The journal, last: what the user wrote by hand, next to what the maths says.
+  // Tags are '|'-joined like the futures export; the note is the only cell that
+  // may need quoting (commas, line breaks), which escapeCsvField handles.
+  { header: "planned", value: (r) => yesNo(journalOf(r).planned) },
+  { header: "why", value: (r) => serializeSpotTags(journalOf(r).why) },
+  { header: "feeling", value: (r) => serializeSpotTags(journalOf(r).feeling) },
+  { header: "note", value: (r) => journalOf(r).note },
 ]
 
 function cell(value: Cell): string {

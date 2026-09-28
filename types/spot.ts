@@ -6,6 +6,27 @@ export interface SpotEntry {
   qty: number
   price: number
   tradedAt: string // ISO string
+  /**
+   * The user's notes on this entry. Always present on entries the API returns;
+   * optional so entries built elsewhere (tests, the DCA maths) need not carry it.
+   */
+  journal?: SpotJournal
+}
+
+/**
+ * The journal on one spot entry. Every field has an explicit "unset" value, so
+ * an entry with no journal is `EMPTY_SPOT_JOURNAL` rather than a missing key.
+ * The tags are validated against lib/services/spotJournalFields.ts.
+ */
+export interface SpotJournal {
+  /** Whether the trade was planned in advance; null when not answered. */
+  planned: boolean | null
+  /** Why it was taken — several tags, in vocabulary order. */
+  why: string[]
+  /** How it felt — several tags, in vocabulary order. */
+  feeling: string[]
+  /** Free text, "" when empty. */
+  note: string
 }
 
 /** One ticker's current state, after replaying every entry in trade order. */

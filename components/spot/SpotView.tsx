@@ -10,7 +10,7 @@ import {
   computeHoldings,
   tickersOf,
 } from "@/lib/services/spotService"
-import type { SpotEntry } from "@/types/spot"
+import type { SpotEntry, SpotJournal } from "@/types/spot"
 import { SpotAllocation } from "./SpotAllocation"
 import { SpotDcaChart } from "./SpotDcaChart"
 import { SpotEntriesTable } from "./SpotEntriesTable"
@@ -154,6 +154,29 @@ export function SpotView() {
     [telegramId]
   )
 
+  // The entries loader runs once, before any row — and so any journal icon —
+  // exists, so replacing the one entry with the server's copy cannot race it.
+  const saveJournal = useCallback(
+    async (id: string, journal: SpotJournal): Promise<string | null> => {
+      if (!telegramId) return "Not signed in"
+      try {
+        const res = await fetch(`/api/spot/entries?id=${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(journal),
+        })
+        const data = await res.json()
+        if (!res.ok) return (data.error as string) ?? "Could not save journal"
+        const saved = data.entry as SpotEntry
+        setEntries((prev) => prev.map((e) => (e.id === id ? saved : e)))
+        return null
+      } catch {
+        return "Could not save journal"
+      }
+    },
+    [telegramId]
+  )
+
   const { history, current, unpriced } = prices
 
   const holdings = useMemo(() => computeHoldings(entries, current), [entries, current])
@@ -236,6 +259,7 @@ export function SpotView() {
             editingId={editing?.id ?? null}
             onEdit={setEditing}
             onDelete={deleteEntry}
+            onSaveJournal={saveJournal}
             currentPrices={current}
           />
         </>

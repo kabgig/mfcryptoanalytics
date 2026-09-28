@@ -1,5 +1,12 @@
-import { getEntries, insertEntry, softDeleteEntry, updateEntry } from "@/lib/db/spot"
+import {
+  getEntries,
+  insertEntry,
+  softDeleteEntry,
+  updateEntry,
+  updateEntryJournal,
+} from "@/lib/db/spot"
 import { DUST, heldBefore } from "@/lib/services/spotService"
+import { parseSpotJournalBody } from "@/lib/services/spotJournalFields"
 import { requireUser } from "@/lib/auth/session"
 import { enforceBodyLimit } from "@/lib/api/body-limit"
 import { serverError } from "@/lib/api/errors"
@@ -149,6 +156,36 @@ export async function PUT(request: Request) {
     }
 
     const entry = await updateEntry(user.telegramId, id, amounts)
+    if (!entry) return Response.json({ error: "Not found" }, { status: 404 })
+    return Response.json({ ok: true, entry })
+  } catch (err) {
+    return serverError(ROUTE, err)
+  }
+}
+
+/**
+ * Replaces an entry's journal: planned, why, feeling and note. A separate verb
+ * from PUT so saving a journal can never touch the amounts, and editing the
+ * amounts can never touch the journal. All four fields are required.
+ */
+export async function PATCH(request: Request) {
+  const user = await requireUser()
+  if (user instanceof Response) return user
+
+  const tooLarge = enforceBodyLimit(request)
+  if (tooLarge) return tooLarge
+
+  const id = parseId(request)
+  if (!id) return badRequest("Missing or invalid id")
+
+  const body = await readBody(request)
+  if (!body) return badRequest("Invalid JSON body")
+
+  const journal = parseSpotJournalBody(body)
+  if (typeof journal === "string") return badRequest(journal)
+
+  try {
+    const entry = await updateEntryJournal(user.telegramId, id, journal)
     if (!entry) return Response.json({ error: "Not found" }, { status: 404 })
     return Response.json({ ok: true, entry })
   } catch (err) {

@@ -97,6 +97,11 @@ CREATE TABLE public.spot_entries (
     traded_at timestamp with time zone NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     deleted_at timestamp with time zone,
+    planned boolean,
+    why text,
+    feeling text,
+    note text,
+    CONSTRAINT spot_entries_note_len_chk CHECK (((note IS NULL) OR (char_length(note) <= 4000))),
     CONSTRAINT spot_entries_price_check CHECK ((price >= (0)::numeric)),
     CONSTRAINT spot_entries_qty_check CHECK ((qty > (0)::numeric)),
     CONSTRAINT spot_entries_side_chk CHECK (((side)::text = ANY ((ARRAY['BUY'::character varying, 'SELL'::character varying])::text[])))
@@ -529,4 +534,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260902000001'),
     ('20260905000001'),
     ('20260907000001'),
-    ('20260920000001');
+    ('20260920000001'),
+    ('20260928000001');

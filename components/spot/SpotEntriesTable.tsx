@@ -8,6 +8,7 @@ import { buildSpotCsv, spotExportFilename } from "@/lib/services/spotExportServi
 import { oversoldSells } from "@/lib/services/spotService"
 import type { SpotEntry } from "@/types/spot"
 import { price, qty, usd } from "./format"
+import { SpotJournalButton, type SaveSpotJournal } from "./SpotJournalButton"
 
 interface Props {
   entries: SpotEntry[]
@@ -15,11 +16,19 @@ interface Props {
   editingId: string | null
   onEdit: (entry: SpotEntry) => void
   onDelete: (id: string) => Promise<void>
+  onSaveJournal: SaveSpotJournal
   /** Latest price per ticker, for the export's "compared with today" columns. */
   currentPrices?: Record<string, number>
 }
 
-export function SpotEntriesTable({ entries, editingId, onEdit, onDelete, currentPrices }: Props) {
+export function SpotEntriesTable({
+  entries,
+  editingId,
+  onEdit,
+  onDelete,
+  onSaveJournal,
+  currentPrices,
+}: Props) {
   const [deleting, setDeleting] = useState<string | null>(null)
 
   // SELLs stranded by a later edit or delete of the BUY that funded them.
@@ -62,7 +71,7 @@ export function SpotEntriesTable({ entries, editingId, onEdit, onDelete, current
                   <th className="py-2 pr-3 text-right font-medium">Qty</th>
                   <th className="py-2 pr-3 text-right font-medium">Price</th>
                   <th className="py-2 pr-3 text-right font-medium">Total</th>
-                  <th className="py-2 w-16" />
+                  <th className="py-2 w-24" />
                 </tr>
               </thead>
               <tbody>
@@ -108,6 +117,11 @@ export function SpotEntriesTable({ entries, editingId, onEdit, onDelete, current
                       {usd(e.qty * e.price)}
                     </td>
                     <td className="py-2 whitespace-nowrap text-right">
+                      <SpotJournalButton
+                        entry={e}
+                        onSave={onSaveJournal}
+                        disabled={deleting === e.id}
+                      />
                       <button
                         data-testid="spot-edit-entry"
                         aria-label={`Edit ${e.side} ${e.ticker} entry`}

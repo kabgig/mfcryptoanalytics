@@ -1,5 +1,6 @@
 import { getSql } from "@/lib/db"
-import type { SpotEntry } from "@/types/spot"
+import { journalFromRow, serializeSpotTags } from "@/lib/services/spotJournalFields"
+import type { SpotEntry, SpotJournal } from "@/types/spot"
 
 function rowToEntry(r: Record<string, unknown>): SpotEntry {
   return {
@@ -9,6 +10,7 @@ function rowToEntry(r: Record<string, unknown>): SpotEntry {
     qty: Number(r.qty),
     price: Number(r.price),
     tradedAt: (r.traded_at as Date).toISOString(),
+    journal: journalFromRow(r),
   }
 }
 
@@ -16,7 +18,7 @@ function rowToEntry(r: Record<string, unknown>): SpotEntry {
 export async function getEntries(telegramId: string): Promise<SpotEntry[]> {
   const sql = getSql()
   const rows = (await sql`
-    SELECT id, ticker, side, qty, price, traded_at
+    SELECT id, ticker, side, qty, price, traded_at, planned, why, feeling, note
     FROM public.spot_entries
     WHERE telegram_id = ${BigInt(telegramId)}
       AND deleted_at IS NULL
@@ -44,7 +46,7 @@ export async function insertEntry(
     INSERT INTO public.spot_entries (telegram_id, ticker, side, qty, price, traded_at)
     VALUES (${BigInt(telegramId)}, ${entry.ticker}, ${entry.side},
             ${entry.qty}, ${entry.price}, ${entry.tradedAt})
-    RETURNING id, ticker, side, qty, price, traded_at
+    RETURNING id, ticker, side, qty, price, traded_at, planned, why, feeling, note
   `) as Record<string, unknown>[]
   return rowToEntry(rows[0])
 }
@@ -65,7 +67,32 @@ export async function updateEntry(
     WHERE telegram_id = ${BigInt(telegramId)}
       AND id = ${BigInt(id)}
       AND deleted_at IS NULL
-    RETURNING id, ticker, side, qty, price, traded_at
+    RETURNING id, ticker, side, qty, price, traded_at, planned, why, feeling, note
+  `) as Record<string, unknown>[]
+  return rows.length > 0 ? rowToEntry(rows[0]) : null
+}
+
+/**
+ * Replaces one entry's journal. Empty tags and a blank note are stored as NULL,
+ * so "cleared" and "never written" read back the same. Returns null when the id
+ * does not belong to this user or is deleted.
+ */
+export async function updateEntryJournal(
+  telegramId: string,
+  id: string,
+  journal: SpotJournal
+): Promise<SpotEntry | null> {
+  const sql = getSql()
+  const rows = (await sql`
+    UPDATE public.spot_entries
+    SET planned = ${journal.planned},
+        why     = ${serializeSpotTags(journal.why)},
+        feeling = ${serializeSpotTags(journal.feeling)},
+        note    = ${journal.note === "" ? null : journal.note}
+    WHERE telegram_id = ${BigInt(telegramId)}
+      AND id = ${BigInt(id)}
+      AND deleted_at IS NULL
+    RETURNING id, ticker, side, qty, price, traded_at, planned, why, feeling, note
   `) as Record<string, unknown>[]
   return rows.length > 0 ? rowToEntry(rows[0]) : null
 }

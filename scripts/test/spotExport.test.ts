@@ -48,6 +48,7 @@ test("header lists every column once, in declared order", () => {
     "qtyApplied", "oversold", "positionQty", "costBasis", "avgEntryBefore", "avgEntryAfter",
     "realisedPnl", "realisedPnlPct", "cumRealisedPnl",
     "cycle", "priceVsAvgPct", "daysSincePrevEntry", "currentPrice", "changeSinceEntryPct",
+    "planned", "why", "feeling", "note",
   ]) assert.ok(header.includes(h), `missing ${h}`)
 })
 
@@ -213,4 +214,64 @@ test("tiny prices keep their significant digits", () => {
 
 test("spotExportFilename is date-stamped and distinct from the trades export", () => {
   assert.equal(spotExportFilename(new Date("2026-09-28T22:00:00Z")), "spot-2026-09-28.csv")
+})
+
+// ---------------------------------------------------------------- journal
+
+/** RFC 4180 parse — the note is the one cell that may be quoted. */
+function parseCsv(csv: string): Record<string, string>[] {
+  const rows: string[][] = [[]]
+  let field = ""
+  let quoted = false
+  for (let i = 0; i < csv.length; i++) {
+    const ch = csv[i]
+    if (quoted) {
+      if (ch === '"' && csv[i + 1] === '"') { field += '"'; i++ }
+      else if (ch === '"') quoted = false
+      else field += ch
+    } else if (ch === '"') quoted = true
+    else if (ch === ",") { rows.at(-1)!.push(field); field = "" }
+    else if (ch === "\r" && csv[i + 1] === "\n") { rows.at(-1)!.push(field); field = ""; rows.push([]); i++ }
+    else field += ch
+  }
+  rows.pop() // the empty row after the trailing CRLF
+  const [header, ...body] = rows
+  return body.map((r) => {
+    assert.equal(r.length, header.length, `ragged row: ${r.join("|")}`)
+    return Object.fromEntries(header.map((h, i) => [h, r[i]]))
+  })
+}
+
+test("journal columns come last, after every computed column", () => {
+  const header = SPOT_EXPORT_COLUMNS.map((c) => c.header)
+  assert.deepEqual(header.slice(-4), ["planned", "why", "feeling", "note"])
+  assert.equal(header.indexOf("changeSinceEntryPct"), header.length - 5)
+})
+
+test("journal fields export: yes/no, '|'-joined tags, the note verbatim", () => {
+  const csv = parseCsv(buildSpotCsv([
+    entry({ qty: 1, price: 100, tradedAt: "2026-06-01T12:00:00.000Z",
+      journal: { planned: true, why: ["dca", "dip"], feeling: ["calm", "fomo"], note: "plain" } }),
+    entry({ side: "SELL", qty: 1, price: 150, tradedAt: "2026-06-02T12:00:00.000Z",
+      journal: { planned: false, why: ["take_profit"], feeling: [], note: 'up 50%, "finally"\nnext: rebuy' } }),
+  ]))
+  const [sell, buy] = csv
+  assert.equal(buy.planned, "yes")
+  assert.equal(buy.why, "dca|dip")
+  assert.equal(buy.feeling, "calm|fomo")
+  assert.equal(buy.note, "plain")
+  assert.equal(sell.planned, "no")
+  assert.equal(sell.why, "take_profit")
+  assert.equal(sell.feeling, "")
+  assert.equal(sell.note, 'up 50%, "finally"\nnext: rebuy', "commas, quotes and newlines survive")
+  // The computed columns before the note are still intact on the quoted row.
+  assert.equal(sell.side, "SELL")
+  near(sell.realisedPnl, 50)
+})
+
+test("an entry with no journal (legacy shape) exports four blank cells", () => {
+  const [r] = parseCsv(buildSpotCsv([entry({ qty: 1, price: 100, tradedAt: "2026-06-01T12:00:00.000Z" })]))
+  assert.deepEqual([r.planned, r.why, r.feeling, r.note], ["", "", "", ""])
+  // And the plain split-by-comma reader above still works on journal-free data.
+  assert.equal(records(buildSpotCsv([entry({ qty: 1, price: 100, tradedAt: "2026-06-01T12:00:00.000Z" })])).length, 1)
 })
