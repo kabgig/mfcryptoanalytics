@@ -1,7 +1,8 @@
 /**
  * Headless UI test for the stale-snapshot race on the dashboard.
  *
- * HomeView loads its notes and overrides maps once on mount. Every save in
+ * HomeView loads its overrides map (the journal, notes included) and the
+ * deleted-trades list once on mount. Every save in
  * between is optimistic and per-key, so a response still in flight when the
  * user saves used to replace the whole map and silently undo a write that had
  * already reached Postgres — the row reverted on screen and exported blank.
@@ -11,7 +12,7 @@
  * request. That is why it surfaced as an intermittent failure of
  * test:ui:overrides (2 of 3 cold starts) rather than a reproducible one.
  *
- * This test does not wait for luck: it intercepts the two mount GETs, lets the
+ * This test does not wait for luck: it intercepts the mount loaders, lets the
  * server answer immediately so the body is genuinely the pre-edit snapshot, and
  * then holds that body back until after the edits have been made.
  *
@@ -108,7 +109,7 @@ async function main() {
   }, TEST_TELEGRAM_ID)
 
   /**
-   * Holds the mount GETs of the two maps back until `release` resolves.
+   * Holds the mount loaders back until `release` resolves.
    *
    * route.fetch() first, deliberately: the server answers at intercept time, so
    * the body captured really is the state before the edits below. Delaying
@@ -118,9 +119,9 @@ async function main() {
    */
   async function holdSnapshots(page, release) {
     const captured = []
-    await page.route("**/api/trades/{overrides,notes,deleted}", async (route) => {
+    await page.route("**/api/trades/{overrides,deleted}", async (route) => {
       // /deleted is a POST — it takes a body — so it is matched by path, not
-      // by verb, unlike the two GET loaders.
+      // by verb, unlike the GET loader.
       const isLoader =
         route.request().method() === "GET" ||
         new URL(route.request().url()).pathname === "/api/trades/deleted"
@@ -150,16 +151,18 @@ async function main() {
     await p.waitForSelector('[data-testid="journal-form"]', { state: "detached" })
   }
 
-  async function saveNote(p, ticker, phase, text) {
-    await rowFor(p, ticker).locator(`[data-testid="note-${phase}"]`).click()
-    await p.waitForSelector('[data-testid="note-popup"]')
-    await p.locator('[data-testid="note-textarea"]').fill(text)
+  // A second, separate save through the same form: the note is part of the
+  // journal now, so it rides the overrides snapshot and must survive it too.
+  async function saveNote(p, ticker, text) {
+    await journalIcon(p, ticker).click()
+    await p.waitForSelector('[data-testid="journal-form"]')
+    await p.locator('[data-testid="journal-notes"]').fill(text)
     const responded = p.waitForResponse(
-      (r) => r.url().includes("/api/trades/notes") && r.request().method() === "POST"
+      (r) => r.url().includes("/api/trades/overrides") && r.request().method() === "POST"
     )
-    await p.locator('[data-testid="note-save"]').click()
+    await p.locator('[data-testid="journal-save"]').click()
     assert.equal((await responded).status(), 200, "note save did not return 200")
-    await p.waitForSelector('[data-testid="note-popup"]', { state: "detached" })
+    await p.waitForSelector('[data-testid="journal-form"]', { state: "detached" })
   }
 
   async function csvRow(p, ticker) {
@@ -192,10 +195,11 @@ async function main() {
     await first.waitForSelector('[data-testid="bias-cell"]')
 
     await saveJournal(first, "BTCUSDT", "orderflow")
-    await saveNote(first, "BTCUSDT", "before", "planned the entry")
+    await saveNote(first, "BTCUSDT", "planned the entry")
 
     await check("the write reached the database before the snapshot landed", async () => {
       assert.equal((await storedRow("sn-1")).strategy, "orderflow")
+      assert.equal((await storedRow("sn-1")).notes, "planned the entry")
     })
 
     // Let the pre-edit snapshot through, and give React time to apply it.
@@ -204,7 +208,10 @@ async function main() {
 
     await check("both held responses really were the pre-edit snapshot", async () => {
       // If this fails the test is not exercising the race at all.
-      assert.equal(captured.length >= 2, true, `captured ${captured.length} snapshots`)
+      assert.ok(
+        captured.some((b) => b.includes('"overrides"')),
+        `the overrides snapshot was not held (captured ${captured.length})`
+      )
       assert.equal(
         captured.some((b) => b.includes("orderflow")), false,
         "a captured snapshot already contained the edit"
@@ -214,15 +221,12 @@ async function main() {
       assert.equal(await journalIcon(first, "BTCUSDT").getAttribute("data-filled"), "true")
     })
     await check("the note survives the stale snapshot", async () => {
-      assert.equal(
-        await rowFor(first, "BTCUSDT").locator('[data-testid="note-before"]').getAttribute("data-filled"),
-        "true"
-      )
+      assert.equal(await journalIcon(first, "BTCUSDT").getAttribute("title"), "planned the entry")
     })
     await check("the export carries the journal entry, not a blank cell", async () => {
       const btc = await csvRow(first, "BTCUSDT")
       assert.equal(btc("strategy"), "orderflow")
-      assert.equal(btc("noteBefore"), "planned the entry")
+      assert.equal(btc("notes"), "planned the entry")
     })
     await check("an untouched trade still takes its value from the snapshot", async () => {
       // The merge must not turn into "ignore the server" — sn-2 was never
@@ -248,8 +252,19 @@ async function main() {
       assert.equal(captured2.some((b) => b.includes("orderflow")), true)
     })
 
-    // Clearing the only field set on sn-1 deletes the row outright.
-    await saveJournal(second, "BTCUSDT", "")
+    // Clearing both fields set on sn-1 deletes the row outright.
+    await journalIcon(second, "BTCUSDT").click()
+    await second.waitForSelector('[data-testid="journal-form"]')
+    await second.locator('[data-testid="journal-strategy"]').selectOption("")
+    await second.locator('[data-testid="journal-notes"]').fill("")
+    {
+      const responded = second.waitForResponse(
+        (r) => r.url().includes("/api/trades/overrides") && r.request().method() === "POST"
+      )
+      await second.locator('[data-testid="journal-save"]').click()
+      assert.equal((await responded).status(), 200, "journal clear did not return 200")
+      await second.waitForSelector('[data-testid="journal-form"]', { state: "detached" })
+    }
     await check("the clear reached the database", async () => {
       assert.equal(await storedRow("sn-1"), undefined)
     })
@@ -263,6 +278,7 @@ async function main() {
     await check("the export shows the cleared entry as blank", async () => {
       const btc = await csvRow(second, "BTCUSDT")
       assert.equal(btc("strategy"), "")
+      assert.equal(btc("notes"), "", "a stale snapshot resurrected the cleared note")
     })
     await check("the untouched trade is still there after a clear", async () => {
       assert.match(await biasCell(second, "ETHUSDT").innerText(), /sell/i)

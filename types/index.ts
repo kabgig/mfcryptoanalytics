@@ -12,18 +12,6 @@ export interface Trade {
   side?: "long" | "short"
 }
 
-/** The three journalling moments of a trade. */
-export type TradeNotePhase = "before" | "during" | "after"
-
-/** A single trade's journal. A phase is absent when the user wrote nothing. */
-export type TradeNotes = Partial<Record<TradeNotePhase, string>>
-
-/**
- * Every note a user has, keyed by `tradeKey(exchange, id)` — trade ids are only
- * unique per exchange, so the exchange must be part of the key.
- */
-export type TradeNotesMap = Record<string, TradeNotes>
-
 /**
  * Direction the user was trading. Distinct from `Trade.side` on purpose: `side`
  * is whatever the exchange reported (only Bybit and Bitunix report one), while
@@ -33,7 +21,12 @@ export type TradeNotesMap = Record<string, TradeNotes>
 export type TradeBias = "buy" | "sell"
 
 /** The journal fields that take exactly one value from a controlled list. */
-export type TradeJournalSingleChoice = "strategy" | "timeframe" | "killzone" | "trend"
+export type TradeJournalSingleChoice =
+  | "strategy"
+  | "timeframe"
+  | "killzone"
+  | "trend"
+  | "entryOrder"
 
 /**
  * The journal fields that take a list of values from a controlled list. A setup
@@ -74,6 +67,8 @@ export interface TradeOverride {
   trend?: string
   /** The confluence that justified the entry — a level, a sweep, delta, … */
   signals?: string[]
+  /** Whether the position was entered with a limit or a market order. */
+  entryOrder?: string
   entry?: number
   tp2?: number
   riskPct?: number
@@ -85,11 +80,17 @@ export interface TradeOverride {
   exitReason?: string[]
   mistake?: string[]
   emotion?: string[]
+  /**
+   * The one free-text note on the trade. Absent rather than "" when blank.
+   * Replaced the three before/during/after notes; 20260929000001 folded those
+   * into this field, labelled by phase.
+   */
+  notes?: string
 }
 
 /**
- * Every override a user has, keyed by `tradeKey(exchange, id)` — same keying as
- * TradeNotesMap, and for the same reason: ids are only unique per exchange.
+ * Every override a user has, keyed by `tradeKey(exchange, id)` — trade ids are
+ * only unique per exchange, so the exchange must be part of the key.
  */
 export type TradeOverridesMap = Record<string, TradeOverride>
 

@@ -1,7 +1,7 @@
 import { tradeKey } from "@/lib/db/trades"
 import { resolveTrade } from "@/lib/services/overridesService"
 import { serializeChoices } from "@/lib/services/journalFields"
-import type { Trade, TradeNotesMap, TradeOverridesMap } from "@/types"
+import type { Trade, TradeOverridesMap } from "@/types"
 
 /**
  * Trade history export, built for pasting into an LLM chat for pattern analysis.
@@ -29,6 +29,7 @@ export const EXPORT_COLUMNS = [
   "killzone",
   "trend",
   "signals",
+  "entryOrder",
   "entry",
   "tp1",
   "tp2",
@@ -39,9 +40,7 @@ export const EXPORT_COLUMNS = [
   "exitReason",
   "mistake",
   "emotion",
-  "noteBefore",
-  "noteDuring",
-  "noteAfter",
+  "notes",
 ] as const
 
 /** Wraps a field in quotes when it contains a delimiter, quote or newline. */
@@ -56,7 +55,7 @@ function cell(value: string | number | null | undefined): string {
 }
 
 /**
- * One CSV row per trade, newest close first, with the journal notes joined in.
+ * One CSV row per trade, newest close first, with the journal joined in.
  * Numbers are written raw (no currency symbols or thousands separators) so a
  * spreadsheet — or an LLM — reads them as numbers rather than strings.
  *
@@ -81,7 +80,6 @@ function cell(value: string | number | null | undefined): string {
  */
 export function buildTradesCsv(
   trades: Trade[],
-  notes: TradeNotesMap = {},
   overrides: TradeOverridesMap = {}
 ): string {
   const rows = [EXPORT_COLUMNS.join(",")]
@@ -89,7 +87,6 @@ export function buildTradesCsv(
   for (const trade of trades) {
     const key = tradeKey(trade.exchange, trade.id)
     const t = resolveTrade(trade, overrides[key])
-    const n = notes[key] ?? {}
     rows.push([
       cell(t.closeTime),
       cell(t.openTime),
@@ -105,6 +102,7 @@ export function buildTradesCsv(
       cell(t.journal.killzone),
       cell(t.journal.trend),
       cell(serializeChoices(t.journal.signals ?? [])),
+      cell(t.journal.entryOrder),
       cell(t.journal.entry),
       cell(t.tp1),
       cell(t.tp2),
@@ -115,9 +113,7 @@ export function buildTradesCsv(
       cell(serializeChoices(t.journal.exitReason ?? [])),
       cell(serializeChoices(t.journal.mistake ?? [])),
       cell(serializeChoices(t.journal.emotion ?? [])),
-      cell(n.before),
-      cell(n.during),
-      cell(n.after),
+      cell(t.journal.notes),
     ].join(","))
   }
 

@@ -4,6 +4,7 @@ import {
   isBias,
   isStorableNumber,
   mergeOverride,
+  normalizeNotes,
   NUMBER_FIELDS,
   type OverridePatch,
 } from "@/lib/services/overridesService"
@@ -37,6 +38,7 @@ const CHOICE_COLUMNS = {
   timeframe: "timeframe",
   killzone: "killzone",
   trend: "trend",
+  entryOrder: "entry_order",
   signals: "signals",
   exitReason: "exit_reason",
   mistake: "mistake",
@@ -48,6 +50,7 @@ export type OverrideRow = {
   trade_id: string
   bias: string | null
   rules_ok: boolean | null
+  notes: string | null
 } & Record<
   (typeof NUMBER_COLUMNS)[keyof typeof NUMBER_COLUMNS],
   string | number | null
@@ -94,6 +97,8 @@ export function rowsToOverridesMap(rows: OverrideRow[]): TradeOverridesMap {
 
     if (isBias(r.bias)) override.bias = r.bias
     if (typeof r.rules_ok === "boolean") override.rulesOK = r.rules_ok
+    const notes = normalizeNotes(r.notes)
+    if (notes !== null) override.notes = notes
 
     // A row that survived the table's CHECK but carries nothing usable is
     // dropped rather than surfaced as an empty journal entry.
@@ -104,15 +109,16 @@ export function rowsToOverridesMap(rows: OverrideRow[]): TradeOverridesMap {
 
 /**
  * Every override belonging to a user, in one query. Loaded once on dashboard
- * mount and joined to the trades client-side — same shape as getNotes, and for
- * the same reason: no per-trade round trip, and no join against cached_trades,
- * whose rows may not exist yet for client-fetched exchanges.
+ * mount and joined to the trades client-side: no per-trade round trip, and no
+ * join against cached_trades, whose rows may not exist yet for client-fetched
+ * exchanges.
  */
 export async function getOverrides(telegramId: string): Promise<TradeOverridesMap> {
   const sql = getSql()
   const rows = (await sql`
     SELECT exchange, trade_id, bias, entry, tp1, tp2, sl, risk_pct, rr, rules_ok,
-           strategy, timeframe, killzone, trend, signals, exit_reason, mistake, emotion
+           strategy, timeframe, killzone, trend, entry_order, signals,
+           exit_reason, mistake, emotion, notes
     FROM public.trade_overrides
     WHERE telegram_id = ${BigInt(telegramId)}
   `) as OverrideRow[]
@@ -128,7 +134,8 @@ async function getOverride(
   const sql = getSql()
   const rows = (await sql`
     SELECT exchange, trade_id, bias, entry, tp1, tp2, sl, risk_pct, rr, rules_ok,
-           strategy, timeframe, killzone, trend, signals, exit_reason, mistake, emotion
+           strategy, timeframe, killzone, trend, entry_order, signals,
+           exit_reason, mistake, emotion, notes
     FROM public.trade_overrides
     WHERE telegram_id = ${BigInt(telegramId)}
       AND exchange    = ${exchange}
@@ -146,8 +153,8 @@ async function getOverride(
  * has to delete the row instead of writing one the table's CHECK would reject.
  * Only the owning user ever edits a given row, so there is nothing to race.
  *
- * The user row is upserted first for the same reason as saveNote: telegramId
- * comes from the client and the user may not exist yet on their first action.
+ * The user row is upserted first: the user may not exist yet on their first
+ * action.
  */
 export async function saveOverride(
   telegramId: string,
@@ -184,7 +191,8 @@ export async function saveOverride(
     INSERT INTO public.trade_overrides (
       telegram_id, exchange, trade_id,
       bias, entry, tp1, tp2, sl, risk_pct, rr, rules_ok,
-      strategy, timeframe, killzone, trend, signals, exit_reason, mistake, emotion
+      strategy, timeframe, killzone, trend, entry_order, signals,
+      exit_reason, mistake, emotion, notes
     )
     VALUES (
       ${tid}, ${exchange}, ${tradeId},
@@ -192,11 +200,12 @@ export async function saveOverride(
       ${next.tp2 ?? null}, ${next.sl ?? null}, ${next.riskPct ?? null},
       ${next.rr ?? null}, ${next.rulesOK ?? null},
       ${next.strategy ?? null}, ${next.timeframe ?? null}, ${next.killzone ?? null},
-      ${next.trend ?? null},
+      ${next.trend ?? null}, ${next.entryOrder ?? null},
       ${serializeChoices(next.signals ?? [])},
       ${serializeChoices(next.exitReason ?? [])},
       ${serializeChoices(next.mistake ?? [])},
-      ${serializeChoices(next.emotion ?? [])}
+      ${serializeChoices(next.emotion ?? [])},
+      ${next.notes ?? null}
     )
     ON CONFLICT (telegram_id, exchange, trade_id) DO UPDATE SET
       bias        = EXCLUDED.bias,
@@ -211,10 +220,12 @@ export async function saveOverride(
       timeframe   = EXCLUDED.timeframe,
       killzone    = EXCLUDED.killzone,
       trend       = EXCLUDED.trend,
+      entry_order = EXCLUDED.entry_order,
       signals     = EXCLUDED.signals,
       exit_reason = EXCLUDED.exit_reason,
       mistake     = EXCLUDED.mistake,
       emotion     = EXCLUDED.emotion,
+      notes       = EXCLUDED.notes,
       updated_at  = NOW()
   `
 
@@ -222,9 +233,9 @@ export async function saveOverride(
 }
 
 /**
- * Drops every override attached to a trade. Not wired to soft delete, for the
- * same reason as deleteNotesForTrade: a deleted trade can be restored, and
- * losing the user's own numbers with it would make the delete irreversible.
+ * Drops every override attached to a trade. Not wired to soft delete on purpose:
+ * a deleted trade can be restored, and losing the user's own numbers and notes
+ * with it would make the delete irreversible.
  */
 export async function deleteOverridesForTrade(
   telegramId: string,

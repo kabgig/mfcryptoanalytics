@@ -17,7 +17,7 @@ export const SPOT_FEELINGS = ["calm", "unsure", "thrill", "fomo"] as const
 export type SpotWhy = (typeof SPOT_WHY)[number]
 export type SpotFeeling = (typeof SPOT_FEELINGS)[number]
 
-/** Same cap as the futures notes (components/dashboard/TradeJournal.tsx). */
+/** A journal note, not an essay. (The futures note allows more — see MAX_NOTES_LENGTH.) */
 export const MAX_SPOT_NOTE_LENGTH = 4000
 
 /**

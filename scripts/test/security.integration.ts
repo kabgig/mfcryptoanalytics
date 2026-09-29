@@ -224,8 +224,9 @@ async function main() {
       ["/api/trades/delete", { exchange: "OKX" }],
       ["/api/trades/restore", { exchange: "OKX" }],
       ["/api/import/trades", {}],
-      ["/api/trades/notes", { exchange: "OKX", id: "x", phase: "nope" }],
       ["/api/trades/overrides", { exchange: "OKX" }],
+      ["/api/trades/overrides", { exchange: "OKX", id: "x", notes: 42 }],
+      ["/api/trades/overrides", { exchange: "OKX", id: "x", signals: ["delta"] }],
     ] as [string, unknown][]) {
       await check(`${path} rejects bad input without leaking`, async () => {
         const { status, json, text } = await post(path, body)
@@ -414,9 +415,7 @@ async function main() {
       assert.equal((await fetch(`${BASE}/api/cron/cleanup`)).status, 401)
     })
 
-    await check("/api/trades/notes and /overrides still read", async () => {
-      const notes = await fetch(`${BASE}/api/trades/notes`, { headers: { cookie } })
-      assert.equal(notes.status, 200)
+    await check("/api/trades/overrides still reads", async () => {
       const ov = await fetch(`${BASE}/api/trades/overrides`, { headers: { cookie } })
       assert.equal(ov.status, 200)
     })

@@ -6,6 +6,7 @@ import {
   CHOICES,
   choiceLabel,
   computeRr,
+  ENTRY_ORDERS,
   EXIT_REASONS,
   KILLZONES,
   MISTAKES,
@@ -20,7 +21,11 @@ import {
   TIMEFRAMES,
   TRENDS,
 } from "@/lib/services/journalFields"
-import type { OverridePatch, ResolvedTrade } from "@/lib/services/overridesService"
+import {
+  MAX_NOTES_LENGTH,
+  type OverridePatch,
+  type ResolvedTrade,
+} from "@/lib/services/overridesService"
 import type { SaveOverride } from "@/components/dashboard/TradeOverrideCell"
 import type {
   TradeJournalChoice,
@@ -30,10 +35,10 @@ import type {
 } from "@/types"
 
 /**
- * The full journal entry for one trade: the plan written before the entry and
- * the review written after the exit.
+ * The full journal entry for one trade: the plan written before the entry, the
+ * review written after the exit, and one free-text note.
  *
- * A modal rather than a popover — sixteen fields do not belong hanging off a
+ * A modal rather than a popover — eighteen fields do not belong hanging off a
  * table cell — following the overlay pattern in components/settings/ApiKeysModal.
  * Everything is saved in one request, because half the value of the form is
  * seeing plan and outcome next to each other.
@@ -68,6 +73,7 @@ function toDraft(journal: TradeOverride): Draft {
     draft[key] = serializeChoices(journal[key] ?? []) ?? ""
   }
   draft.rulesOK = journal.rulesOK === undefined ? "" : journal.rulesOK ? "yes" : "no"
+  draft.notes = journal.notes ?? ""
   return draft
 }
 
@@ -86,6 +92,8 @@ function toPatch(draft: Draft): OverridePatch {
     patch[key] = values.length === 0 ? null : values
   }
   patch.rulesOK = draft.rulesOK === "" ? null : draft.rulesOK === "yes"
+  // Blank is sent as null so a note-only entry that is cleared deletes the row.
+  patch.notes = draft.notes.trim() === "" ? null : draft.notes
   return patch
 }
 
@@ -154,7 +162,7 @@ function MultiChoice({
   value: string
   onChange: (next: string) => void
   options: readonly string[]
-  columns?: 1 | 2 | 3
+  columns?: 1 | 2 | 3 | 4
 }) {
   const selected = useMemo(() => new Set(parseChoices(field, value)), [field, value])
 
@@ -168,7 +176,13 @@ function MultiChoice({
   }
 
   const gridClass =
-    columns === 3 ? "sm:grid-cols-3" : columns === 2 ? "sm:grid-cols-2" : "sm:grid-cols-1"
+    columns === 4
+      ? "sm:grid-cols-4"
+      : columns === 3
+        ? "sm:grid-cols-3"
+        : columns === 2
+          ? "sm:grid-cols-2"
+          : "sm:grid-cols-1"
 
   return (
     <fieldset
@@ -326,13 +340,19 @@ export function TradeJournalForm({
               </Field>
             </div>
             {/* Full width rather than a cell in the grid above: signals is a
-                checkbox group, and six of them across a quarter of the modal
-                would wrap every label. */}
+                checkbox group, and eight of them across a quarter of the modal
+                would wrap every label. Four across, so the ASK and Delta pairs
+                read as two rows of four. */}
             <Field label="Signals" hint="tick every one that applied">
               <MultiChoice field="signals" value={draft.signals}
-                onChange={set("signals")} options={SIGNALS} columns={3} />
+                onChange={set("signals")} options={SIGNALS} columns={4} />
             </Field>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {/* The order type sits with the entry price it describes. */}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+              <Field label="Entry order">
+                <Choice field="entryOrder" value={draft.entryOrder} onChange={set("entryOrder")}
+                  options={ENTRY_ORDERS} placeholder="—" />
+              </Field>
               <Field label="Entry">
                 <NumberInput field="entry" value={draft.entry} onChange={set("entry")} placeholder="price" />
               </Field>
@@ -406,6 +426,24 @@ export function TradeJournalForm({
             </Field>
           </section>
 
+          <section className="space-y-2 border-t border-border pt-4">
+            <Field label="Notes" hint="thesis, how it played out, the lesson">
+              {/* whitespace-pre-wrap for the same reason the checkbox labels need
+                  whitespace-normal: the table cell's nowrap inherits into this
+                  overlay, and a textarea obeys white-space too — without it a
+                  long line never wraps. */}
+              <textarea
+                value={draft.notes}
+                onChange={(e) => set("notes")(e.target.value)}
+                maxLength={MAX_NOTES_LENGTH}
+                rows={6}
+                placeholder="Free text — saved with the rest of the journal"
+                data-testid="journal-notes"
+                className={`${inputClass} resize-y whitespace-pre-wrap`}
+              />
+            </Field>
+          </section>
+
           {error && <p className="text-xs text-destructive">{error}</p>}
         </div>
 
@@ -448,6 +486,12 @@ export function TradeJournalButton({
 
   // Bias lives in its own column, so it does not count towards "has a journal".
   const filled = Object.keys(trade.journal).some((k) => k !== "bias")
+  // The note is the tooltip, so it can be read without opening the form — what
+  // the old per-phase note icons offered.
+  const notes = trade.journal.notes
+  const title = notes
+    ? notes.length > 400 ? `${notes.slice(0, 400)}…` : notes
+    : filled ? "Journal — click to edit" : "Journal — plan, review and notes"
 
   return (
     <>
@@ -458,7 +502,7 @@ export function TradeJournalButton({
         data-testid="journal-open"
         data-filled={filled ? "true" : "false"}
         aria-label={`Journal for ${trade.ticker} trade${filled ? " (filled in)" : ""}`}
-        title={filled ? "Journal — click to edit" : "Journal — plan and review"}
+        title={title}
         className={`flex h-6 w-6 items-center justify-center rounded transition-colors disabled:pointer-events-none disabled:opacity-40 ${
           filled
             ? "text-sky-500 hover:bg-sky-500/15"

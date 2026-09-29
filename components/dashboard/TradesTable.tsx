@@ -1,6 +1,6 @@
 "use client"
 
-import type { Trade, TradeNotePhase, TradeNotesMap, TradeOverridesMap } from "@/types"
+import type { Trade, TradeOverridesMap } from "@/types"
 import {
   Table,
   TableBody,
@@ -14,7 +14,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { motion, useInView } from "motion/react"
 import { useRef } from "react"
 import { X, RotateCcw, Download } from "lucide-react"
-import { TradeJournal } from "@/components/dashboard/TradeJournal"
 import { tradeKey } from "@/lib/db/trades"
 import { buildTradesCsv, downloadCsv } from "@/lib/services/exportService"
 import { resolveTrade, type ResolvedTrade } from "@/lib/services/overridesService"
@@ -32,17 +31,11 @@ interface TradesTableProps {
   /** When provided, the header gets a "show deleted" toggle. */
   onToggleDeleted?: (next: boolean) => void
   /**
-   * Journal notes keyed by `tradeKey(exchange, id)`. Supplying `onSaveNote`
-   * turns on the journal column — read-only tables (share links, import
-   * previews) omit it and never render, or leak, a user's notes.
-   */
-  notes?: TradeNotesMap
-  onSaveNote?: (trade: Trade, phase: TradeNotePhase, body: string) => Promise<void>
-  /**
-   * The user's journal entries keyed by `tradeKey(exchange, id)`. Always applied
-   * when supplied; supplying `onSaveOverride` additionally turns on the Bias
-   * picker and the 📋 journal form, so read-only tables (share links, import
-   * previews) render plain values and never expose a journal.
+   * The user's journal entries — notes included — keyed by
+   * `tradeKey(exchange, id)`. Always applied when supplied; supplying
+   * `onSaveOverride` additionally turns on the Bias picker and the Journal
+   * column, so read-only tables (share links, import previews) pass neither and
+   * never render, or leak, a user's journal.
    */
   overrides?: TradeOverridesMap
   onSaveOverride?: SaveOverride
@@ -99,15 +92,13 @@ export function TradesTable({
   onRestore,
   showDeleted = false,
   onToggleDeleted,
-  notes,
-  onSaveNote,
   overrides,
   onSaveOverride,
   exportable = false,
 }: TradesTableProps) {
   const tableRef = useRef<HTMLTableSectionElement>(null)
   const hasActions = Boolean(onDelete)
-  const hasJournal = Boolean(onSaveNote)
+  const hasJournal = Boolean(onSaveOverride)
   // Overrides are folded in once here rather than at each cell, so the rendered
   // rows and the CSV export can never disagree about which value won.
   const resolve = (trade: Trade): ResolvedTrade =>
@@ -132,7 +123,7 @@ export function TradesTable({
             type="button"
             // Exports exactly what is on screen — the same period filter and the
             // same deleted/not-deleted set the user is looking at.
-            onClick={() => downloadCsv(buildTradesCsv(rows.map((r) => r.trade), notes, overrides))}
+            onClick={() => downloadCsv(buildTradesCsv(rows.map((r) => r.trade), overrides))}
             disabled={rows.length === 0}
             title="Download visible trades and notes as CSV"
             data-testid="export-trades"
@@ -172,7 +163,7 @@ export function TradesTable({
                 <TableHead className="w-20">Bias</TableHead>
                 <TableHead>Open Time</TableHead>
                 <TableHead>Close Time</TableHead>
-                {hasJournal && <TableHead className="w-28">Journal</TableHead>}
+                {hasJournal && <TableHead className="w-16">Journal</TableHead>}
                 {hasActions && <TableHead className="w-10" />}
               </TableRow>
             </TableHeader>
@@ -222,20 +213,12 @@ export function TradesTable({
                       {formatDate(trade.closeTime)}
                     </TableCell>
                     {hasJournal && (
-                      <TableCell className="w-28">
-                        <div className="flex items-center gap-0.5">
-                          <TradeJournal
-                            trade={trade}
-                            notes={notes?.[tradeKey(trade.exchange, trade.id)] ?? {}}
-                            onSave={onSaveNote!}
-                            disabled={deleted}
-                          />
-                          <TradeJournalButton
-                            trade={trade}
-                            onSave={onSaveOverride}
-                            disabled={deleted}
-                          />
-                        </div>
+                      <TableCell className="w-16">
+                        <TradeJournalButton
+                          trade={trade}
+                          onSave={onSaveOverride}
+                          disabled={deleted}
+                        />
                       </TableCell>
                     )}
                     {hasActions && (

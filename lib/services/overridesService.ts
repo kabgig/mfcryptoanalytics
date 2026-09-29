@@ -41,6 +41,15 @@ export const NUMBER_LIMITS = {
   rr: { min: 0, max: 1000 },
 } as const
 
+/**
+ * Longest note we store, in UTF-16 code units (what String.length counts).
+ *
+ * Larger than the old 4000-per-phase cap on purpose: 20260929000001 folded up to
+ * three of those notes, plus their labels, into this one field, and a merged
+ * note must still be re-savable from the form without being refused.
+ */
+export const MAX_NOTES_LENGTH = 16_000
+
 export type NumberField = keyof typeof NUMBER_LIMITS
 export const NUMBER_FIELDS = Object.keys(NUMBER_LIMITS) as NumberField[]
 
@@ -52,6 +61,7 @@ export const OVERRIDE_FIELDS = [
   "killzone",
   "trend",
   "signals",
+  "entryOrder",
   "entry",
   "tp1",
   "tp2",
@@ -62,8 +72,20 @@ export const OVERRIDE_FIELDS = [
   "exitReason",
   "mistake",
   "emotion",
+  "notes",
 ] as const
 export type OverrideField = (typeof OVERRIDE_FIELDS)[number]
+
+/**
+ * A note in its storable form: trimmed and bounded, or null when blank. The API
+ * refuses an over-long note with a 400 first; the slice is the backstop for a
+ * caller that skipped it.
+ */
+export function normalizeNotes(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  const text = value.trim().slice(0, MAX_NOTES_LENGTH)
+  return text === "" ? null : text
+}
 
 export function isBias(value: unknown): value is TradeBias {
   return value === "buy" || value === "sell"
@@ -155,7 +177,7 @@ export function resolveTrades(
  * Merges a patch onto a stored journal entry. A key set to null clears that
  * field (falling back to the exchange value, or to the computed R:R); a key left
  * out is untouched — so the Bias cell can save one field without having to send
- * the other fifteen.
+ * the other seventeen.
  *
  * For a multi-valued field an empty array clears it exactly as null does: an
  * unticked list and a never-touched one are the same answer, and letting `[]`
@@ -206,6 +228,14 @@ export function mergeOverride(
   if ("rulesOK" in patch) {
     if (typeof patch.rulesOK === "boolean") next.rulesOK = patch.rulesOK
     else delete next.rulesOK
+  }
+
+  if ("notes" in patch) {
+    // Blank clears, exactly as an unticked list does — a whitespace-only note is
+    // not content, and the column's CHECK rejects one anyway.
+    const text = normalizeNotes(patch.notes)
+    if (text !== null) next.notes = text
+    else delete next.notes
   }
 
   return OVERRIDE_FIELDS.every((f) => next[f] === undefined) ? null : next

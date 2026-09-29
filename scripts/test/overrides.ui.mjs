@@ -87,7 +87,8 @@ async function teardown() {
 async function storedRow(tradeId) {
   const rows = await sql`
     SELECT bias, entry, tp1, tp2, sl, risk_pct, rr, rules_ok,
-           strategy, timeframe, killzone, trend, signals, exit_reason, mistake, emotion
+           strategy, timeframe, killzone, trend, entry_order, signals,
+           exit_reason, mistake, emotion, notes
     FROM public.trade_overrides
     WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND trade_id = ${tradeId}
   `
@@ -265,8 +266,8 @@ async function main() {
       for (const f of ["entry", "tp1", "tp2", "sl", "riskPct", "rr"]) {
         assert.equal(await journalValue(f), "", `${f} should start empty`)
       }
-      for (const f of ["strategy", "timeframe", "killzone", "trend", "rulesOK",
-                       "signals", "exitReason", "mistake", "emotion"]) {
+      for (const f of ["strategy", "timeframe", "killzone", "trend", "entryOrder", "rulesOK",
+                       "signals", "exitReason", "mistake", "emotion", "notes"]) {
         assert.equal(await journalValue(f), "", `${f} should start unselected`)
       }
       // Nothing pre-ticked in any of the three checkbox groups.
@@ -305,11 +306,12 @@ async function main() {
     console.log("\nfilling a full journal entry")
     await fillJournal("BTCUSDT", {
       strategy: "orderflow", timeframe: "15m", killzone: "london",
-      trend: "with_trend",
+      trend: "with_trend", entryOrder: "limit",
       entry: 100, tp1: 120, tp2: 140, sl: 90, riskPct: 1.5,
       rulesOK: "yes",
-      // A setup is a confluence: a sweep into a level with delta confirming.
-      signals: ["at_level", "delta", "sweep"],
+      // A setup is a confluence: a sweep into a level with both ASK and the
+      // higher delta threshold confirming.
+      signals: ["at_level", "ask1_5", "delta5", "sweep"],
       // Several tags each: scaled out at TP1 then stopped out of the runner,
       // two things wrong with the trade, two feelings during it.
       exitReason: ["tp1", "sl"],
@@ -327,6 +329,7 @@ async function main() {
       assert.equal(row.timeframe, "15m")
       assert.equal(row.killzone, "london")
       assert.equal(row.trend, "with_trend")
+      assert.equal(row.entry_order, "limit")
       assert.equal(Number(row.entry), 100)
       assert.equal(Number(row.tp1), 120)
       assert.equal(Number(row.tp2), 140)
@@ -335,7 +338,7 @@ async function main() {
       assert.equal(row.rules_ok, true)
       // The four multi-valued fields land '|'-joined in their one column, in
       // vocabulary order rather than the order the boxes were ticked.
-      assert.equal(row.signals, "at_level|delta|sweep")
+      assert.equal(row.signals, "at_level|ask1_5|delta5|sweep")
       assert.equal(row.exit_reason, "tp1|sl")
       assert.equal(row.mistake, "no_stop|chased_price")
       assert.equal(row.emotion, "fear|greed")
@@ -364,7 +367,8 @@ async function main() {
     await check("reopening loads every stored value back into the form", async () => {
       assert.equal(await journalValue("strategy"), "orderflow")
       assert.equal(await journalValue("trend"), "with_trend")
-      assert.equal(await journalValue("signals"), "at_level|delta|sweep")
+      assert.equal(await journalValue("signals"), "at_level|ask1_5|delta5|sweep")
+      assert.equal(await journalValue("entryOrder"), "limit")
       assert.equal(await journalValue("entry"), "100")
       assert.equal(await journalValue("tp2"), "140")
       assert.equal(await journalValue("riskPct"), "1.5")
@@ -375,7 +379,7 @@ async function main() {
     })
     await check("every tag the user ticked comes back ticked", async () => {
       for (const [field, options] of [
-        ["signals", ["at_level", "delta", "sweep"]],
+        ["signals", ["at_level", "ask1_5", "delta5", "sweep"]],
         ["exitReason", ["tp1", "sl"]],
         ["mistake", ["no_stop", "chased_price"]],
         ["emotion", ["fear", "greed"]],
@@ -392,10 +396,12 @@ async function main() {
         await page.locator('[data-testid="journal-mistake-traded_the_news"] input').isChecked(),
         false
       )
-      assert.equal(
-        await page.locator('[data-testid="journal-signals-ask5"] input').isChecked(),
-        false
-      )
+      for (const o of ["ask5", "delta1_5"]) {
+        assert.equal(
+          await page.locator(`[data-testid="journal-signals-${o}"] input`).isChecked(),
+          false, `signals/${o} should not be ticked`
+        )
+      }
     })
     await check("the reopened form recomputes R:R from the stored levels", async () => {
       assert.match(await page.locator('[data-testid="journal-rr-readout"]').innerText(), /R:R 2 /)
@@ -425,13 +431,23 @@ async function main() {
 
       const signals = await page.locator('[data-testid="journal-signals"] label').allInnerTexts()
       assert.deepEqual(signals, [
-        "At level", "ASK5", "Delta", "Diff channel", "Diff crossing", "Sweep",
+        "At level", "ASK1.5", "ASK5", "Delta 1.5", "Delta 5",
+        "Diff channel", "Diff crossing", "Sweep",
       ], signals.join(" | "))
 
       const trend = await page.locator('[data-testid="journal-trend"] option').allInnerTexts()
       assert.deepEqual(trend, ["—", "With the trend", "Against the trend"], trend.join(" | "))
-      // No slug leaks to the user through either control.
-      for (const t of [...signals, ...trend]) assert.equal(t.includes("_"), false, t)
+      const order = await page.locator('[data-testid="journal-entryOrder"] option').allInnerTexts()
+      assert.deepEqual(order, ["—", "Limit", "Market"], order.join(" | "))
+      // No slug leaks to the user through any control.
+      for (const t of [...signals, ...trend, ...order]) assert.equal(t.includes("_"), false, t)
+    })
+    await check("the eight signals sit in two rows of four", async () => {
+      const tops = await page.locator('[data-testid="journal-signals"] label')
+        .evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)))
+      const rows = [...new Set(tops)]
+      assert.equal(rows.length, 2, `signals laid out in ${rows.length} rows: ${tops.join(",")}`)
+      assert.deepEqual(tops.slice(0, 4).every((t) => t === rows[0]), true, tops.join(","))
     })
     await check("no signal label overflows its column", async () => {
       // Same trap the mistake list fell into: this modal renders from a table
@@ -887,8 +903,8 @@ async function main() {
       assert.equal(header.indexOf("bias"), header.indexOf("side") + 1)
     })
     await check("the csv carries every journal column", async () => {
-      for (const c of ["strategy","timeframe","killzone","entry","tp1","tp2","sl",
-                       "riskPct","rr","rulesOK","exitReason","mistake","emotion"]) {
+      for (const c of ["strategy","timeframe","killzone","entryOrder","entry","tp1","tp2","sl",
+                       "riskPct","rr","rulesOK","exitReason","mistake","emotion","notes"]) {
         assert.ok(header.includes(c), `${c} missing from: ${records[0]}`)
       }
     })
@@ -897,6 +913,8 @@ async function main() {
       assert.equal(btc[header.indexOf("strategy")], "orderflow")
       assert.equal(btc[header.indexOf("timeframe")], "15m")
       assert.equal(btc[header.indexOf("killzone")], "london")
+      assert.equal(btc[header.indexOf("entryOrder")], "limit")
+      assert.equal(btc[header.indexOf("signals")], "at_level|ask1_5|delta5|sweep")
       assert.equal(btc[header.indexOf("entry")], "100")
       assert.equal(btc[header.indexOf("tp1")], "120")
       assert.equal(btc[header.indexOf("tp2")], "140")

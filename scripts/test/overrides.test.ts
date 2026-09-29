@@ -33,7 +33,7 @@ function row(over: Partial<OverrideRow> & { exchange: string; trade_id: string }
   return {
     bias: null, entry: null, tp1: null, tp2: null, sl: null, risk_pct: null, rr: null,
     rules_ok: null, strategy: null, timeframe: null, killzone: null, exit_reason: null,
-    mistake: null, emotion: null, signals: null, trend: null,
+    mistake: null, emotion: null, signals: null, trend: null, entry_order: null, notes: null,
     ...over,
   }
 }
@@ -238,7 +238,7 @@ test("the csv carries bias alongside the exchange's own side", () => {
 
 test("the csv exports the overridden tp/sl, not the exchange's nulls", () => {
   const [header, csvRow] = parseCsv(
-    buildTradesCsv([trade({ id: "1", exchange: "OKX" })], {}, {
+    buildTradesCsv([trade({ id: "1", exchange: "OKX" })], {
       "OKX|1": { tp1: 70000, sl: 65000, bias: "sell" },
     })
   )
@@ -254,4 +254,24 @@ test("a trade with no override still exports empty tp/sl/bias cells", () => {
   assert.equal(csvRow[header.indexOf("tp1")], "")
   assert.equal(csvRow[header.indexOf("sl")], "")
   assert.equal(csvRow[header.indexOf("bias")], "")
+})
+
+test("rowsToOverridesMap reads entry order and the note", () => {
+  const map = rowsToOverridesMap([
+    row({ exchange: "OKX", trade_id: "1", entry_order: "limit", notes: "Before:\nplan" }),
+  ])
+  assert.deepEqual(map["OKX|1"], { entryOrder: "limit", notes: "Before:\nplan" })
+})
+
+test("rowsToOverridesMap drops an unknown order type and a blank note", () => {
+  // Neither survives validation, so a row carrying only these is no entry at all.
+  const map = rowsToOverridesMap([
+    row({ exchange: "OKX", trade_id: "1", entry_order: "stop", notes: "   " }),
+  ])
+  assert.equal("OKX|1" in map, false)
+})
+
+test("rowsToOverridesMap keeps a notes-only row", () => {
+  const map = rowsToOverridesMap([row({ exchange: "OKX", trade_id: "1", notes: "only a note" })])
+  assert.deepEqual(map["OKX|1"], { notes: "only a note" })
 })

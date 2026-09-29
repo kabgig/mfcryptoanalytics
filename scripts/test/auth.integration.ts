@@ -82,7 +82,6 @@ async function main() {
 
     const GUARDED_GET = [
       "/api/me",
-      "/api/trades/notes",
       "/api/trades/overrides",
       "/api/spot/entries",
       "/api/spot/prices",
@@ -102,7 +101,7 @@ async function main() {
       "/api/trades/delete", "/api/trades/restore", "/api/trades-store",
       "/api/import/trades", "/api/import/check-ids", "/api/balance",
       "/api/trades", "/api/trades-asia", "/api/trades-global",
-      "/api/trades/notes", "/api/trades/overrides", "/api/spot/entries",
+      "/api/trades/overrides", "/api/spot/entries",
       "/api/admin/impersonate",
     ]
     for (const path of GUARDED_POST) {
@@ -233,12 +232,11 @@ async function main() {
     })
 
     await check("a journal note written by Bob lands on Bob", async () => {
-      await bob("/api/trades/notes", {
-        telegramId: ALICE, exchange: EXCHANGE, id: "auth-b1",
-        phase: "before", body: "bob's note",
+      await bob("/api/trades/overrides", {
+        telegramId: ALICE, exchange: EXCHANGE, id: "auth-b1", notes: "bob's note",
       })
       const rows = await sql`
-        SELECT telegram_id FROM public.trade_notes WHERE body = ${"bob's note"}
+        SELECT telegram_id FROM public.trade_overrides WHERE notes = ${"bob's note"}
       ` as { telegram_id: string }[]
       assert.equal(rows.length, 1)
       assert.equal(String(rows[0].telegram_id), BOB)

@@ -8,6 +8,7 @@ import {
   choiceListLabel,
   computeRr,
   EMOTIONS,
+  ENTRY_ORDERS,
   EXIT_REASONS,
   isChoice,
   isChoiceList,
@@ -23,7 +24,12 @@ import {
   TIMEFRAMES,
   TRENDS,
 } from "@/lib/services/journalFields"
-import { mergeOverride, resolveTrade } from "@/lib/services/overridesService"
+import {
+  MAX_NOTES_LENGTH,
+  mergeOverride,
+  normalizeNotes,
+  resolveTrade,
+} from "@/lib/services/overridesService"
 import { buildTradesCsv, EXPORT_COLUMNS } from "@/lib/services/exportService"
 import type { Trade } from "@/types"
 
@@ -144,8 +150,8 @@ test("the emotion list carries greed alongside thrill", () => {
 
 test("isChoice only accepts a field's own options", () => {
   assert.deepEqual([...CHOICE_FIELDS].sort(), [
-    "emotion", "exitReason", "killzone", "mistake", "signals", "strategy",
-    "timeframe", "trend",
+    "emotion", "entryOrder", "exitReason", "killzone", "mistake", "signals",
+    "strategy", "timeframe", "trend",
   ])
   assert.ok(isChoice("emotion", "greed"))
   assert.ok(isChoice("strategy", "orderflow"))
@@ -284,12 +290,12 @@ test("a multi-select field stores every tag the user ticked", () => {
   })
 })
 
-test("exactly four fields are multi-select and the other four are not", () => {
+test("exactly four fields are multi-select and the other five are not", () => {
   assert.deepEqual([...MULTI_CHOICE_FIELDS], [
     "signals", "exitReason", "mistake", "emotion",
   ])
   assert.deepEqual([...SINGLE_CHOICE_FIELDS], [
-    "strategy", "timeframe", "killzone", "trend",
+    "strategy", "timeframe", "killzone", "trend", "entryOrder",
   ])
   // Together they still account for every choice field, or a field would slip
   // through both the API validator and the form untouched.
@@ -408,7 +414,7 @@ test("the csv carries every journal field", () => {
 
 test("the csv exports a journal entry, including the computed R:R", () => {
   const [header, csvRow] = parseCsv(
-    buildTradesCsv([trade({ id: "1", exchange: "OKX" })], {}, {
+    buildTradesCsv([trade({ id: "1", exchange: "OKX" })], {
       "OKX|1": {
         strategy: "pa", timeframe: "1h", killzone: "nyam",
         entry: 100, tp1: 120, tp2: 140, sl: 90, riskPct: 1.5,
@@ -434,7 +440,7 @@ test("the csv exports a journal entry, including the computed R:R", () => {
 
 test("the csv writes a multi-tag field into one pipe-joined cell", () => {
   const [header, csvRow] = parseCsv(
-    buildTradesCsv([trade({ id: "1", exchange: "OKX" })], {}, {
+    buildTradesCsv([trade({ id: "1", exchange: "OKX" })], {
       "OKX|1": {
         exitReason: ["tp1", "sl"],
         mistake: ["no_stop", "chased_price"],
@@ -451,7 +457,7 @@ test("the csv writes a multi-tag field into one pipe-joined cell", () => {
 test("a multi-tag cell needs no csv quoting", () => {
   // The point of choosing '|' over ',': the export is meant to paste into a
   // spreadsheet or an LLM without anything having to unpick quoting first.
-  const csv = buildTradesCsv([trade({ id: "1", exchange: "OKX" })], {}, {
+  const csv = buildTradesCsv([trade({ id: "1", exchange: "OKX" })], {
     "OKX|1": { mistake: ["no_stop", "chased_price", "traded_the_news"] },
   })
   assert.ok(csv.includes("no_stop|chased_price|traded_the_news"), csv)
@@ -483,9 +489,10 @@ test("signals is multi-valued and trend is not", () => {
   assert.equal(SINGLE_CHOICE_FIELDS.includes("signals" as never), false)
 })
 
-test("the signal vocabulary is the six the chart actually shows", () => {
+test("the signal vocabulary is the eight the chart actually shows", () => {
   assert.deepEqual([...SIGNALS], [
-    "at_level", "ask5", "delta", "diff_channel", "diff_crossing", "sweep",
+    "at_level", "ask1_5", "ask5", "delta1_5", "delta5", "diff_channel",
+    "diff_crossing", "sweep",
   ])
   for (const signal of SIGNALS) assert.ok(isChoice("signals", signal), signal)
   // A value from another field is still wrong here.
@@ -519,9 +526,9 @@ test("trend takes exactly two answers", () => {
 
 test("a confluence of signals round-trips through its one column", () => {
   // Stored canonically — vocabulary order, not the order they were ticked.
-  const stored = serializeChoices(normalizeChoices("signals", ["sweep", "at_level", "delta"]))
-  assert.equal(stored, "at_level|delta|sweep")
-  assert.deepEqual(parseChoices("signals", stored), ["at_level", "delta", "sweep"])
+  const stored = serializeChoices(normalizeChoices("signals", ["sweep", "at_level", "delta5"]))
+  assert.equal(stored, "at_level|delta5|sweep")
+  assert.deepEqual(parseChoices("signals", stored), ["at_level", "delta5", "sweep"])
 })
 
 test("a signals-only journal entry is a real entry", () => {
@@ -552,7 +559,7 @@ test("an unknown signal is dropped rather than stored", () => {
 
 test("the csv carries the confluence and the trend", () => {
   const [header, csvRow] = parseCsv(
-    buildTradesCsv([trade({ id: "1", exchange: "OKX" })], {}, {
+    buildTradesCsv([trade({ id: "1", exchange: "OKX" })], {
       "OKX|1": { signals: ["at_level", "sweep"], trend: "against_trend" },
     })
   )
@@ -563,4 +570,109 @@ test("the csv carries the confluence and the trend", () => {
   // through rather than in the order the fields were added to the app.
   assert.equal(header.indexOf("trend"), header.indexOf("killzone") + 1)
   assert.equal(header.indexOf("signals"), header.indexOf("trend") + 1)
+})
+
+// ---------------------------------------- ASK / Delta thresholds, entry order
+
+test("delta is split into two thresholds and ASK gains a 1.5", () => {
+  for (const signal of ["ask1_5", "ask5", "delta1_5", "delta5"]) {
+    assert.ok(isChoice("signals", signal), signal)
+  }
+  assert.equal(choiceLabel("ask1_5"), "ASK1.5")
+  assert.equal(choiceLabel("delta1_5"), "Delta 1.5")
+  assert.equal(choiceLabel("delta5"), "Delta 5")
+})
+
+test("the retired `delta` slug is gone — 20260929000002 renamed it to `delta5`", () => {
+  // Same shape as poi → at_level: an unmigrated row would lose the tag on read.
+  assert.equal(isChoice("signals", "delta"), false)
+  assert.deepEqual(parseChoices("signals", "at_level|delta|sweep"), ["at_level", "sweep"])
+  // The migrated row keeps its position — delta5 took delta's slot — so a
+  // re-save of it is a no-op rather than a reorder.
+  const migrated = "at_level|delta5|sweep"
+  assert.equal(serializeChoices(parseChoices("signals", migrated)), migrated)
+})
+
+test("both ASK and both Delta thresholds can be ticked together", () => {
+  const merged = mergeOverride({}, { signals: ["delta5", "ask1_5", "delta1_5", "ask5"] })
+  assert.deepEqual(merged, { signals: ["ask1_5", "ask5", "delta1_5", "delta5"] })
+})
+
+test("entry order takes exactly limit or market, one of them", () => {
+  assert.deepEqual([...ENTRY_ORDERS], ["limit", "market"])
+  assert.deepEqual(CHOICES.entryOrder, ENTRY_ORDERS)
+  assert.ok(isChoice("entryOrder", "limit"))
+  assert.ok(isChoice("entryOrder", "market"))
+  for (const bad of ["stop", "LIMIT", "", null, ["limit"]]) {
+    assert.equal(isChoice("entryOrder", bad), false, `${String(bad)} should be rejected`)
+  }
+  assert.equal(choiceLabel("limit"), "Limit")
+  assert.equal(choiceLabel("market"), "Market")
+})
+
+test("an entry-order-only journal is a real entry, and clearing it empties the row", () => {
+  assert.deepEqual(mergeOverride({}, { entryOrder: "market" }), { entryOrder: "market" })
+  assert.equal(mergeOverride({ entryOrder: "market" }, { entryOrder: null }), null)
+  assert.equal(mergeOverride({}, { entryOrder: "stop" }), null, "an unknown order type is dropped")
+  // Setting it leaves the rest of the journal alone.
+  assert.deepEqual(
+    mergeOverride({ strategy: "pa", signals: ["sweep"] }, { entryOrder: "limit" }),
+    { strategy: "pa", signals: ["sweep"], entryOrder: "limit" }
+  )
+})
+
+test("entry order is marked as the user's own on the resolved trade", () => {
+  const t = resolveTrade(trade({ id: "1", exchange: "OKX" }), { entryOrder: "limit" })
+  assert.equal(t.overridden.entryOrder, true)
+  assert.equal(resolveTrade(trade({ id: "1", exchange: "OKX" }), {}).overridden.entryOrder, false)
+})
+
+test("the csv carries entry order beside the signals", () => {
+  const [header, csvRow] = parseCsv(
+    buildTradesCsv([trade({ id: "1", exchange: "OKX" })], {
+      "OKX|1": { signals: ["ask1_5", "delta5"], entryOrder: "limit" },
+    })
+  )
+  const col = (name: string) => csvRow[header.indexOf(name)]
+  assert.equal(col("entryOrder"), "limit")
+  assert.equal(col("signals"), "ask1_5|delta5")
+  assert.equal(header.indexOf("entryOrder"), header.indexOf("signals") + 1)
+})
+
+// ------------------------------------------------------------------- notes
+
+test("a note is stored trimmed, and a notes-only entry is a real entry", () => {
+  assert.deepEqual(mergeOverride({}, { notes: "  held the retest  " }), { notes: "held the retest" })
+  const t = resolveTrade(trade({ id: "1", exchange: "OKX" }), { notes: "x" })
+  assert.equal(t.overridden.notes, true)
+})
+
+test("a blank note clears, and clearing the last field still empties the row", () => {
+  // The row-delete signal: a whitespace-only note is not content.
+  assert.equal(mergeOverride({ notes: "x" }, { notes: "   \n " }), null)
+  assert.equal(mergeOverride({ notes: "x" }, { notes: null }), null)
+  assert.deepEqual(mergeOverride({ notes: "x", strategy: "pa" }, { notes: "" }), { strategy: "pa" })
+})
+
+test("saving the rest of the journal leaves the note alone", () => {
+  const stored = { notes: "multi\nline, \"quoted\"", strategy: "pa" }
+  assert.deepEqual(
+    mergeOverride(stored, { strategy: "macro" }),
+    { notes: "multi\nline, \"quoted\"", strategy: "macro" }
+  )
+})
+
+test("an over-long note is bounded at MAX_NOTES_LENGTH, and a merged legacy note fits", () => {
+  const merged = mergeOverride({}, { notes: "a".repeat(MAX_NOTES_LENGTH + 50) })
+  assert.equal(merged?.notes?.length, MAX_NOTES_LENGTH)
+  // 20260929000001 folds up to three 4000-char notes plus labels into one.
+  const legacy = ["Before:", "During:", "After:"].map((l) => `${l}\n${"x".repeat(4000)}`).join("\n\n")
+  assert.ok(legacy.length <= MAX_NOTES_LENGTH, `${legacy.length} > ${MAX_NOTES_LENGTH}`)
+  assert.equal(normalizeNotes(legacy), legacy)
+})
+
+test("normalizeNotes only accepts non-blank strings", () => {
+  for (const bad of [null, undefined, 1, {}, "", "   "]) {
+    assert.equal(normalizeNotes(bad), null, String(bad))
+  }
 })

@@ -9,13 +9,14 @@ import type {
  *
  * One module so the inputs, the API validator and the CSV export can never
  * disagree about what a tag means. Adding a value here is all it takes for the
- * three of them to accept it — only `strategy`, `timeframe`, `killzone` and
- * `trend` are additionally pinned by a CHECK constraint in the database, so
- * extending *those* four needs a migration as well.
+ * three of them to accept it — only `strategy`, `timeframe`, `killzone`,
+ * `trend` and `entryOrder` are additionally pinned by a CHECK constraint in the
+ * database, so extending *those* five needs a migration as well.
  *
- * Two kinds of field live here. `strategy`, `timeframe`, `killzone` and `trend`
- * take one answer: a trade has a single setup, on a single timeframe, in a
- * single session, in one direction relative to the trend. `signals`,
+ * Two kinds of field live here. `strategy`, `timeframe`, `killzone`, `trend` and
+ * `entryOrder` take one answer: a trade has a single setup, on a single
+ * timeframe, in a single session, in one direction relative to the trend, entered
+ * with one kind of order. `signals`,
  * `exitReason`, `mistake` and `emotion` take several — a setup is a confluence
  * of signals, a position can scale out at TP1 and get stopped out of the runner,
  * and a trade that went wrong rarely went wrong in exactly one way. Holding
@@ -44,15 +45,28 @@ export const TRENDS = ["with_trend", "against_trend"] as const
  * No CHECK constraint in the database, for the same reason mistake and emotion
  * carry none — this list will grow as the user's read of the market does, and
  * adding a signal should be a one-line change here, not a migration.
+ *
+ * `delta` was split into `delta1_5` and `delta5` — the two thresholds the chart
+ * distinguishes — and every stored `delta` became `delta5`
+ * (20260929000002). `ask1_5` sits beside `ask5` for the same reason.
  */
 export const SIGNALS = [
   "at_level",
+  "ask1_5",
   "ask5",
-  "delta",
+  "delta1_5",
+  "delta5",
   "diff_channel",
   "diff_crossing",
   "sweep",
 ] as const
+
+/**
+ * How the position was entered: resting at a price, or taken at the market.
+ * Single-valued and pinned by a CHECK — an order is one or the other, and there
+ * is no third kind this journal cares about.
+ */
+export const ENTRY_ORDERS = ["limit", "market"] as const
 
 export const EXIT_REASONS = ["tp1", "tp2", "sl", "be", "manual"] as const
 
@@ -98,6 +112,7 @@ export type Timeframe = (typeof TIMEFRAMES)[number]
 export type Killzone = (typeof KILLZONES)[number]
 export type Trend = (typeof TRENDS)[number]
 export type Signal = (typeof SIGNALS)[number]
+export type EntryOrder = (typeof ENTRY_ORDERS)[number]
 export type ExitReason = (typeof EXIT_REASONS)[number]
 export type Mistake = (typeof MISTAKES)[number]
 export type Emotion = (typeof EMOTIONS)[number]
@@ -109,6 +124,7 @@ export const CHOICES = {
   killzone: KILLZONES,
   trend: TRENDS,
   signals: SIGNALS,
+  entryOrder: ENTRY_ORDERS,
   exitReason: EXIT_REASONS,
   mistake: MISTAKES,
   emotion: EMOTIONS,
@@ -122,6 +138,7 @@ export const SINGLE_CHOICE_FIELDS = [
   "timeframe",
   "killzone",
   "trend",
+  "entryOrder",
 ] as const satisfies readonly TradeJournalSingleChoice[]
 
 /** The choice fields that hold a list — none, one, or several tags. */
@@ -217,7 +234,10 @@ const LABELS: Record<string, string> = {
   with_trend: "With the trend",
   against_trend: "Against the trend",
   at_level: "At level",
+  ask1_5: "ASK1.5",
   ask5: "ASK5",
+  delta1_5: "Delta 1.5",
+  delta5: "Delta 5",
   diff_channel: "Diff channel",
   diff_crossing: "Diff crossing",
   manual: "Closed by hand",

@@ -2,6 +2,7 @@ import { getOverrides, saveOverride } from "@/lib/db/tradeOverrides"
 import {
   isBias,
   isStorableNumber,
+  MAX_NOTES_LENGTH,
   NUMBER_FIELDS,
   NUMBER_LIMITS,
   type OverridePatch,
@@ -14,6 +15,14 @@ import {
   SINGLE_CHOICE_FIELDS,
 } from "@/lib/services/journalFields"
 import { requireUser } from "@/lib/auth/session"
+import { enforceBodyLimit } from "@/lib/api/body-limit"
+import { serverError } from "@/lib/api/errors"
+
+/**
+ * Twice the default cap, because `notes` is free text: 16k UTF-16 units can be
+ * ~48 KB of UTF-8 in the worst case, before the rest of the journal is added.
+ */
+const BODY_LIMIT = 64 * 1024
 
 export const dynamic = "force-dynamic"
 
@@ -29,8 +38,9 @@ export const dynamic = "force-dynamic"
  *   Patch semantics: a field left out is untouched, a field sent as null is
  *   cleared (the exchange value, or the computed R:R, takes over again).
  *   Clearing the last one deletes the row and comes back as override: null.
- *   exitReason, mistake and emotion take an array; a bare string still means the
- *   one-tag list it used to, and [] clears the field like null does.
+ *   signals, exitReason, mistake and emotion take an array; a bare string still
+ *   means the one-tag list it used to, and [] clears the field like null does.
+ *   notes is a string of at most MAX_NOTES_LENGTH; blank clears it.
  */
 export async function GET() {
   const user = await requireUser()
@@ -39,8 +49,7 @@ export async function GET() {
   try {
     return Response.json({ overrides: await getOverrides(user.telegramId) })
   } catch (err) {
-    console.error("[trades/overrides] GET error:", err)
-    return Response.json({ error: "Internal server error" }, { status: 500 })
+    return serverError("trades/overrides GET", err)
   }
 }
 
@@ -48,16 +57,24 @@ export async function POST(request: Request) {
   const user = await requireUser()
   if (user instanceof Response) return user
 
-  try {
-    const body = (await request.json()) as {
-      exchange?: string
-      id?: string
-      [field: string]: unknown
-    }
+  const tooLarge = enforceBodyLimit(request, BODY_LIMIT)
+  if (tooLarge) return tooLarge
 
+  let body: Record<string, unknown>
+  try {
+    const parsed: unknown = await request.json()
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return Response.json({ error: "Body must be a JSON object" }, { status: 400 })
+    }
+    body = parsed as Record<string, unknown>
+  } catch {
+    return Response.json({ error: "Invalid JSON" }, { status: 400 })
+  }
+
+  try {
     const { exchange, id } = body
 
-    if (!exchange || !id) {
+    if (typeof exchange !== "string" || typeof id !== "string" || !exchange || !id) {
       return Response.json({ error: "Missing exchange or id" }, { status: 400 })
     }
 
@@ -138,6 +155,19 @@ export async function POST(request: Request) {
       else return Response.json({ error: "rulesOK must be true, false or null" }, { status: 400 })
     }
 
+    if ("notes" in raw) {
+      const value = raw.notes
+      if (value === null || value === "") patch.notes = null
+      else if (typeof value !== "string") {
+        return Response.json({ error: "notes must be a string or null" }, { status: 400 })
+      } else if (value.length > MAX_NOTES_LENGTH) {
+        return Response.json(
+          { error: `notes must be at most ${MAX_NOTES_LENGTH} characters` },
+          { status: 400 }
+        )
+      } else patch.notes = value
+    }
+
     if (Object.keys(patch).length === 0) {
       return Response.json({ error: "Nothing to update" }, { status: 400 })
     }
@@ -145,7 +175,6 @@ export async function POST(request: Request) {
     const override = await saveOverride(user.telegramId, exchange, id, patch)
     return Response.json({ ok: true, override })
   } catch (err) {
-    console.error("[trades/overrides] POST error:", err)
-    return Response.json({ error: "Internal server error" }, { status: 500 })
+    return serverError("trades/overrides POST", err)
   }
 }

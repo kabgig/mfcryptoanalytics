@@ -2,8 +2,10 @@
  * Headless UI test for the per-trade journal and the CSV export.
  *
  * Seeds a synthetic user through the API, drives the real dashboard in Chromium,
- * and asserts the ‹ ● › icons write, edit, clear and persist notes — then that
- * the export button produces a CSV carrying those notes.
+ * and asserts the one Notes field inside the 📋 journal form writes, edits,
+ * clears and persists a note — that a note migrated from the old three
+ * before/during/after popups loads into it — and that the export button produces
+ * a CSV carrying it in a single `notes` column.
  * Screenshots land in scripts/test/screenshots/.
  *
  * SAFETY: every read and write is scoped to TEST_TELEGRAM_ID, a synthetic user
@@ -69,6 +71,7 @@ async function post(path, body) {
 
 async function teardown() {
   const tid = BigInt(TEST_TELEGRAM_ID)
+  await sql`DELETE FROM public.trade_overrides    WHERE telegram_id = ${tid}`
   await sql`DELETE FROM public.trade_notes        WHERE telegram_id = ${tid}`
   await sql`DELETE FROM public.cached_trades      WHERE telegram_id = ${tid}`
   await sql`DELETE FROM public.exchange_fetch_log WHERE telegram_id = ${tid}`
@@ -117,135 +120,167 @@ async function main() {
     apiCalls.push(`${req.method()} ${new URL(req.url()).pathname} → ${(body ?? "").slice(0, 120)}`)
   })
 
-  const rowFor = (ticker) => page.locator("tbody tr").filter({ hasText: ticker })
-  const icon = (ticker, phase) => rowFor(ticker).locator(`[data-testid="note-${phase}"]`)
-  const filled = async (ticker, phase) =>
-    (await icon(ticker, phase).getAttribute("data-filled")) === "true"
+  const rowFor = (ticker, p = page) => p.locator("tbody tr").filter({ hasText: ticker })
+  const journalIcon = (ticker, p = page) => rowFor(ticker, p).locator('[data-testid="journal-open"]')
+  const filled = async (ticker, p = page) =>
+    (await journalIcon(ticker, p).getAttribute("data-filled")) === "true"
+  const notesBox = (p = page) => p.locator('[data-testid="journal-notes"]')
+  const storedNotes = async (tradeId) => {
+    const rows = await sql`
+      SELECT notes FROM public.trade_overrides
+      WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND trade_id = ${tradeId}
+    `
+    return rows.length === 0 ? undefined : rows[0].notes
+  }
+
+  async function openJournal(ticker, p = page) {
+    await journalIcon(ticker, p).click()
+    await p.waitForSelector('[data-testid="journal-form"]')
+  }
+  async function closeJournal(p = page) {
+    await p.locator('button[aria-label="Close journal"]').click()
+    await p.waitForSelector('[data-testid="journal-form"]', { state: "detached" })
+  }
 
   /**
-   * Opens a phase's editor, types, saves, and waits for the POST to land.
+   * Opens the journal, types the note, saves, and waits for the POST to land.
    * The UI updates optimistically, so waiting on the DOM alone would let a
    * later reload abort the in-flight write and silently lose the note.
    */
-  async function writeNote(ticker, phase, text) {
-    await icon(ticker, phase).click()
-    await page.waitForSelector('[data-testid="note-popup"]')
-    await page.locator('[data-testid="note-textarea"]').fill(text)
+  async function writeNote(ticker, text) {
+    await openJournal(ticker)
+    await notesBox().fill(text)
     const responded = page.waitForResponse(
-      (r) => r.url().includes("/api/trades/notes") && r.request().method() === "POST"
+      (r) => r.url().includes("/api/trades/overrides") && r.request().method() === "POST"
     )
-    await page.locator('[data-testid="note-save"]').click()
+    await page.locator('[data-testid="journal-save"]').click()
     const res = await responded
-    assert.equal(res.status(), 200, `note save returned ${res.status()}`)
-    await page.waitForSelector('[data-testid="note-popup"]', { state: "detached" })
+    assert.equal(res.status(), 200, `journal save returned ${res.status()}`)
+    await page.waitForSelector('[data-testid="journal-form"]', { state: "detached" })
   }
 
   try {
     await gotoApp(page, BASE)
-    await page.waitForSelector('[data-testid="note-before"]')
+    await page.waitForSelector('[data-testid="journal-open"]')
     await page.screenshot({ path: `${SHOTS}/j1-initial.png`, fullPage: true })
 
     console.log("\ninitial render")
-    await check("every row shows all three journal icons", async () => {
+    await check("the three per-phase note icons are gone", async () => {
       for (const phase of ["before", "during", "after"]) {
-        assert.equal(
-          await page.locator(`[data-testid="note-${phase}"]`).count(), TRADES.length,
-          `expected one ${phase} icon per row`
-        )
+        assert.equal(await page.locator(`[data-testid="note-${phase}"]`).count(), 0, phase)
       }
+      assert.equal(await page.locator('[data-testid="note-popup"]').count(), 0)
     })
-    await check("icons are visible without hovering", async () => {
-      assert.ok(await icon("BTCUSDT", "before").isVisible())
+    await check("every row has exactly one journal button", async () => {
+      assert.equal(await page.locator('[data-testid="journal-open"]').count(), TRADES.length)
     })
-    await check("no icon starts out marked as having a note", async () => {
-      for (const phase of ["before", "during", "after"]) {
-        assert.equal(await filled("BTCUSDT", phase), false, `${phase} started filled`)
-      }
+    await check("the page never asks for the removed notes endpoint", async () => {
+      assert.equal(apiCalls.some((c) => c.includes("/api/trades/notes")), false, apiCalls.join("\n"))
+    })
+    await check("no row starts out marked as journalled", async () => {
+      assert.equal(await filled("BTCUSDT"), false)
+      assert.equal(await filled("ETHUSDT"), false)
+    })
+
+    console.log("\nthe notes field")
+    await openJournal("BTCUSDT")
+    await page.locator('[data-testid="journal-form"]').screenshot({ path: `${SHOTS}/j2-form-notes.png` })
+    await check("the journal form has one notes field, empty for a new trade", async () => {
+      assert.equal(await page.locator('[data-testid="journal-form"] textarea').count(), 1)
+      assert.equal(await notesBox().inputValue(), "")
+    })
+    await check("a long line wraps inside the field instead of running off", async () => {
+      // The form renders from a table cell that sets whitespace-nowrap, and a
+      // textarea obeys white-space too.
+      await notesBox().fill("word ".repeat(200))
+      const box = await notesBox().evaluate((el) => ({
+        ws: getComputedStyle(el).whiteSpace,
+        overflowX: el.scrollWidth - el.clientWidth,
+      }))
+      assert.equal(box.ws, "pre-wrap")
+      assert.ok(box.overflowX <= 1, `the note scrolls sideways by ${box.overflowX}px`)
+    })
+    await closeJournal()
+    await check("closing without saving stores nothing", async () => {
+      assert.equal(await storedNotes("journal-1"), undefined)
     })
 
     console.log("\nwrite a note")
-    await icon("BTCUSDT", "before").click()
-    await page.waitForSelector('[data-testid="note-popup"]')
-    await page.screenshot({ path: `${SHOTS}/j2-editor-open.png`, fullPage: true })
-    await check("the editor opens empty for a trade with no note", async () => {
-      assert.equal(await page.locator('[data-testid="note-textarea"]').inputValue(), "")
+    await writeNote("BTCUSDT", "Broke the range high on volume")
+    await check("the button marks the trade as journalled", async () => {
+      assert.equal(await filled("BTCUSDT"), true)
     })
-    await page.keyboard.press("Escape")
-    await page.waitForSelector('[data-testid="note-popup"]', { state: "detached" })
-
-    await writeNote("BTCUSDT", "before", "Broke the range high on volume")
-    await check("the icon marks the phase as written up", async () => {
-      assert.equal(await filled("BTCUSDT", "before"), true)
+    await check("the note is the button's tooltip", async () => {
+      assert.equal(await journalIcon("BTCUSDT").getAttribute("title"), "Broke the range high on volume")
     })
-    await check("the other two phases stay unmarked", async () => {
-      assert.equal(await filled("BTCUSDT", "during"), false)
-      assert.equal(await filled("BTCUSDT", "after"), false)
+    await check("the note landed in trade_overrides, not trade_notes", async () => {
+      assert.equal(await storedNotes("journal-1"), "Broke the range high on volume")
+      const legacy = await sql`
+        SELECT 1 FROM public.trade_notes WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)}`
+      assert.equal(legacy.length, 0)
     })
     await check("the note does not bleed onto the other trade's row", async () => {
-      assert.equal(await filled("ETHUSDT", "before"), false)
+      assert.equal(await filled("ETHUSDT"), false)
     })
 
     console.log("\nedit an existing note")
-    await icon("BTCUSDT", "before").click()
-    await page.waitForSelector('[data-testid="note-popup"]')
-    await check("reopening loads the saved text back into the editor", async () => {
-      assert.equal(
-        await page.locator('[data-testid="note-textarea"]').inputValue(),
-        "Broke the range high on volume"
-      )
+    await openJournal("BTCUSDT")
+    await check("reopening loads the saved text back into the field", async () => {
+      assert.equal(await notesBox().inputValue(), "Broke the range high on volume")
     })
-    await page.keyboard.press("Escape")
-    await page.waitForSelector('[data-testid="note-popup"]', { state: "detached" })
-
-    await writeNote("BTCUSDT", "before", "Broke the range high on volume — sized up too fast")
-    await check("the edit replaces the note rather than adding a second one", async () => {
+    await closeJournal()
+    await writeNote("BTCUSDT", NASTY_NOTE)
+    await check("the edit replaces the note rather than adding a second row", async () => {
       const rows = await sql`
-        SELECT phase, body FROM public.trade_notes
+        SELECT notes FROM public.trade_overrides
         WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND trade_id = 'journal-1'
       `
       assert.equal(rows.length, 1)
-      assert.match(rows[0].body, /sized up too fast/)
+      assert.equal(rows[0].notes, NASTY_NOTE, "a multiline note should survive verbatim")
     })
 
-    console.log("\nall three phases, including multiline and punctuation")
-    await writeNote("BTCUSDT", "during", "Held through the retest")
-    await writeNote("BTCUSDT", "after", NASTY_NOTE)
-    await page.screenshot({ path: `${SHOTS}/j3-notes-written.png`, fullPage: true })
-    await check("all three icons are marked", async () => {
-      for (const phase of ["before", "during", "after"]) {
-        assert.equal(await filled("BTCUSDT", phase), true, `${phase} not marked`)
-      }
-    })
-    await check("the DB holds exactly one row per phase", async () => {
+    console.log("\nthe note alongside the rest of the journal")
+    await openJournal("BTCUSDT")
+    await page.locator('[data-testid="journal-strategy"]').selectOption("pa")
+    await page.locator('[data-testid="journal-entryOrder"]').selectOption("market")
+    {
+      const responded = page.waitForResponse(
+        (r) => r.url().includes("/api/trades/overrides") && r.request().method() === "POST"
+      )
+      await page.locator('[data-testid="journal-save"]').click()
+      assert.equal((await responded).status(), 200)
+      await page.waitForSelector('[data-testid="journal-form"]', { state: "detached" })
+    }
+    await check("saving other fields leaves the note alone", async () => {
       const rows = await sql`
-        SELECT phase FROM public.trade_notes
+        SELECT notes, strategy, entry_order FROM public.trade_overrides
         WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)} AND trade_id = 'journal-1'
-        ORDER BY phase
       `
-      assert.deepEqual(rows.map((r) => r.phase), ["after", "before", "during"])
-    })
-    await check("a multiline note survives the round trip verbatim", async () => {
-      const rows = await sql`
-        SELECT body FROM public.trade_notes
-        WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)}
-          AND trade_id = 'journal-1' AND phase = 'after'
-      `
-      assert.equal(rows[0].body, NASTY_NOTE)
+      assert.equal(rows[0].notes, NASTY_NOTE)
+      assert.equal(rows[0].strategy, "pa")
+      assert.equal(rows[0].entry_order, "market")
     })
 
     console.log("\nclearing a note")
-    await writeNote("BTCUSDT", "during", "")
-    await check("saving an empty note unmarks the icon", async () => {
-      assert.equal(await filled("BTCUSDT", "during"), false)
+    await writeNote("ETHUSDT", "only a note")
+    await check("a notes-only entry is a real journal entry", async () => {
+      assert.equal(await storedNotes("journal-2"), "only a note")
+      assert.equal(await filled("ETHUSDT"), true)
     })
-    await check("clearing deletes the row rather than storing a blank", async () => {
-      const rows = await sql`
-        SELECT 1 FROM public.trade_notes
-        WHERE telegram_id = ${BigInt(TEST_TELEGRAM_ID)}
-          AND trade_id = 'journal-1' AND phase = 'during'
-      `
-      assert.equal(rows.length, 0)
+    await writeNote("ETHUSDT", "   ")
+    await check("saving a blank note unmarks the row and deletes it", async () => {
+      assert.equal(await filled("ETHUSDT"), false)
+      assert.equal(await storedNotes("journal-2"), undefined)
     })
+
+    console.log("\nlegacy data")
+    // Exactly what 20260929000001 writes for a trade that had before and after
+    // notes: one field, each phase under its label.
+    const MIGRATED = "Before:\nplanned the breakout\n\nAfter:\nexited early"
+    await sql`
+      INSERT INTO public.trade_overrides (telegram_id, exchange, trade_id, notes)
+      VALUES (${BigInt(TEST_TELEGRAM_ID)}, ${EXCHANGE}, 'journal-2', ${MIGRATED})
+    `
 
     // NOTE ON ORDER: this cold-load check must run BEFORE the export block.
     // Once a download has fired in this browser context, Chromium does not
@@ -260,35 +295,28 @@ async function main() {
     const fresh = await context.newPage()
     fresh.on("pageerror", (e) => pageErrors.push(`[fresh] ${e.stack ?? String(e)}`))
     await gotoApp(fresh, BASE)
-    await fresh.waitForSelector('[data-testid="note-before"]')
+    await fresh.waitForSelector('[data-testid="journal-open"][data-filled="true"]')
     await fresh.screenshot({ path: `${SHOTS}/j5-fresh-load.png`, fullPage: true })
 
-    await check("notes survive a fresh load of the app", async () => {
-      const row = fresh.locator("tbody tr").filter({ hasText: "BTCUSDT" })
-      assert.equal(await row.locator('[data-testid="note-before"]').getAttribute("data-filled"), "true")
-      assert.equal(await row.locator('[data-testid="note-after"]').getAttribute("data-filled"), "true")
-      // The one we cleared must come back cleared.
-      assert.equal(await row.locator('[data-testid="note-during"]').getAttribute("data-filled"), "false")
+    await check("the note survives a fresh load of the app", async () => {
+      await openJournal("BTCUSDT", fresh)
+      assert.equal(await notesBox(fresh).inputValue(), NASTY_NOTE)
+      await closeJournal(fresh)
     })
-    await check("the reloaded editor still holds the text", async () => {
-      const row = fresh.locator("tbody tr").filter({ hasText: "BTCUSDT" })
-      await row.locator('[data-testid="note-before"]').click()
-      await fresh.waitForSelector('[data-testid="note-textarea"]')
-      assert.match(
-        await fresh.locator('[data-testid="note-textarea"]').inputValue(),
-        /sized up too fast/
-      )
+    await check("a migrated before/after note loads into the one field", async () => {
+      assert.equal(await filled("ETHUSDT", fresh), true)
+      await openJournal("ETHUSDT", fresh)
+      assert.equal(await notesBox(fresh).inputValue(), MIGRATED)
+      await fresh.locator('[data-testid="journal-form"]').screenshot({ path: `${SHOTS}/j6-migrated-note.png` })
+      await closeJournal(fresh)
     })
     await fresh.close()
 
     console.log("\nexport")
-    // The export serialises whatever notes state `page` holds. Assert it is
-    // actually loaded first — otherwise a slow /api/trades/notes produces an
-    // empty note column and a failure that looks like an escaping bug.
-    await page
-      .locator('tbody tr')
-      .filter({ hasText: "BTCUSDT" })
-      .locator('[data-testid="note-before"][data-filled="true"]')
+    // The export serialises whatever overrides state `page` holds, and `page`
+    // never saw the migrated note written straight to the DB. Assert BTC's note
+    // is loaded, then export.
+    await journalIcon("BTCUSDT").and(page.locator('[data-filled="true"]'))
       .waitFor({ state: "attached", timeout: 30_000 })
 
     const download = await Promise.all([
@@ -305,34 +333,38 @@ async function main() {
     await check("the download is a date-stamped csv", async () => {
       assert.match(download.suggestedFilename(), /^trades-\d{4}-\d{2}-\d{2}\.csv$/)
     })
-    await check("the csv header carries the three note columns", async () => {
-      const header = csv.replace(/^﻿/, "").split("\r\n")[0]
-      assert.ok(header.includes("noteBefore,noteDuring,noteAfter"), header)
+    await check("the csv header carries one notes column and no per-phase ones", async () => {
+      const header = csv.replace(/^\uFEFF/, "").split("\r\n")[0].split(",")
+      assert.ok(header.includes("notes"), header.join(","))
+      for (const gone of ["noteBefore", "noteDuring", "noteAfter"]) {
+        assert.equal(header.includes(gone), false, `${gone} is still exported`)
+      }
+      assert.ok(header.includes("entryOrder"), header.join(","))
     })
-    await check("the csv contains both trades and the notes written above", async () => {
+    await check("the csv contains both trades and the note written above", async () => {
       assert.ok(csv.includes("BTCUSDT"), "BTCUSDT missing")
       assert.ok(csv.includes("ETHUSDT"), "ETHUSDT missing")
-      assert.ok(csv.includes("sized up too fast"), "before-note missing")
+      assert.ok(csv.includes("revenge-traded"), "note missing")
       // The nasty note's inner quotes must be doubled, not left raw.
       assert.ok(csv.includes('""too big""'), "quotes were not escaped")
     })
     await check("the multiline note stayed inside one quoted field", async () => {
       // 1 header + 2 trade records. A broken escape would split the note's
       // newline into a third record.
-      const records = csv.replace(/^﻿/, "").split(/\r\n(?=[^"]*(?:"[^"]*"[^"]*)*$)/).filter(Boolean)
+      const records = csv.replace(/^\uFEFF/, "").split(/\r\n(?=[^"]*(?:"[^"]*"[^"]*)*$)/).filter(Boolean)
       assert.equal(records.length, 3, `expected 3 records, got ${records.length}`)
     })
     await check("the app is still usable after exporting", async () => {
       // downloadCsv injects and removes an anchor and revokes a blob URL; none
       // of that may leave the page in a state where the journal stops working.
-      await writeNote("ETHUSDT", "after", "Exported, then kept journalling")
-      assert.equal(await filled("ETHUSDT", "after"), true)
+      await writeNote("ETHUSDT", "Exported, then kept journalling")
+      assert.equal(await storedNotes("journal-2"), "Exported, then kept journalling")
     })
 
     console.log("\nisolation")
-    await check("a share link never exposes the journal", async () => {
+    await check("a share link never exposes the note", async () => {
       // Notes are private commentary. The share page renders TradesTable without
-      // onSaveNote, so no journal column — but the payload must not carry them
+      // overrides, so no journal column — but the payload must not carry them
       // either, or a future UI change would leak them silently.
       // The route only accepts 48 lowercase hex chars, so a readable label
       // would be rejected as an invalid token before it ever reads a trade.
@@ -344,8 +376,8 @@ async function main() {
       const res = await fetch(`${BASE}/api/share/${token}`)
       const payload = JSON.stringify(await res.json())
       assert.ok(payload.includes("BTCUSDT"), "share payload should still carry trades")
-      assert.equal(payload.includes("sized up too fast"), false, "share payload leaked a note")
       assert.equal(payload.includes("revenge-traded"), false, "share payload leaked a note")
+      assert.equal(payload.includes("kept journalling"), false, "share payload leaked a note")
     })
 
     console.log("\nhygiene")
@@ -361,7 +393,7 @@ async function main() {
     console.error("\nbrowser errors:", pageErrors)
     console.error("network issues:", netIssues)
     console.error("rows in DOM:", await page.locator("tbody tr").count().catch(() => "?"))
-    console.error("journal icons in DOM:", await page.locator('[data-testid="note-before"]').count().catch(() => "?"))
+    console.error("journal buttons in DOM:", await page.locator('[data-testid="journal-open"]').count().catch(() => "?"))
     console.error("first row html:", await page.locator("tbody tr").first().evaluate((el) => el.outerHTML).catch(() => "?"))
     console.error("api calls:\n  " + apiCalls.slice(-12).join("\n  "))
     throw err

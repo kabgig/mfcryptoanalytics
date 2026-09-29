@@ -1,14 +1,12 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { tradeKey } from "@/lib/db/trades"
-import { rowsToNotesMap, isNotePhase, NOTE_PHASES } from "@/lib/db/tradeNotes"
 import {
   buildTradesCsv,
   escapeCsvField,
   exportFilename,
   EXPORT_COLUMNS,
 } from "@/lib/services/exportService"
-import type { Trade, TradeNotesMap } from "@/types"
+import type { Trade, TradeOverridesMap } from "@/types"
 
 function trade(over: Partial<Trade> & { id: string; exchange: string }): Trade {
   return {
@@ -52,47 +50,6 @@ function parseCsv(csv: string): string[][] {
   return rows
 }
 
-// ---------------------------------------------------------------- note phases
-
-test("isNotePhase accepts exactly the three journalling moments", () => {
-  assert.deepEqual(NOTE_PHASES, ["before", "during", "after"])
-  for (const p of NOTE_PHASES) assert.ok(isNotePhase(p))
-  for (const bad of ["BEFORE", "midway", "", null, undefined, 1]) {
-    assert.equal(isNotePhase(bad), false, `${String(bad)} should not be a phase`)
-  }
-})
-
-test("rowsToNotesMap groups the three phases onto one trade key", () => {
-  const map = rowsToNotesMap([
-    { exchange: "OKX", trade_id: "1", phase: "before", body: "breakout setup" },
-    { exchange: "OKX", trade_id: "1", phase: "after", body: "took profit early" },
-  ])
-  assert.deepEqual(map, {
-    "OKX|1": { before: "breakout setup", after: "took profit early" },
-  })
-  // during was never written, so it must be absent rather than empty-string
-  assert.equal("during" in map["OKX|1"], false)
-})
-
-test("rowsToNotesMap keeps notes on same-id trades from different exchanges apart", () => {
-  // Trade ids are only unique per exchange (see the cached_trades PK), so a note
-  // on OKX|1 must not show up on Bybit|1.
-  const map = rowsToNotesMap([
-    { exchange: "OKX", trade_id: "1", phase: "before", body: "okx note" },
-    { exchange: "Bybit", trade_id: "1", phase: "before", body: "bybit note" },
-  ])
-  assert.equal(map[tradeKey("OKX", "1")].before, "okx note")
-  assert.equal(map[tradeKey("Bybit", "1")].before, "bybit note")
-})
-
-test("rowsToNotesMap drops rows with an unknown phase instead of throwing", () => {
-  const map = rowsToNotesMap([
-    { exchange: "OKX", trade_id: "1", phase: "sideways", body: "junk" },
-    { exchange: "OKX", trade_id: "1", phase: "before", body: "real" },
-  ])
-  assert.deepEqual(map["OKX|1"], { before: "real" })
-})
-
 // ------------------------------------------------------------------ csv rules
 
 test("escapeCsvField only quotes when it has to", () => {
@@ -112,38 +69,45 @@ test("buildTradesCsv emits a header plus one row per trade", () => {
   assert.equal(rows.length, 3)
 })
 
-test("buildTradesCsv joins each trade's notes onto its own row", () => {
+test("buildTradesCsv joins each trade's note onto its own row", () => {
   const trades = [
     trade({ id: "1", exchange: "OKX", ticker: "BTCUSDT" }),
     trade({ id: "2", exchange: "OKX", ticker: "ETHUSDT" }),
+    trade({ id: "1", exchange: "Bybit", ticker: "SOLUSDT" }),
   ]
-  const notes: TradeNotesMap = {
-    "OKX|1": { before: "b1", during: "d1", after: "a1" },
-    "OKX|2": { after: "a2" },
+  const overrides: TradeOverridesMap = {
+    "OKX|1": { notes: "n1" },
+    // Same id, other exchange: must not bleed onto OKX|1 or pick up its note.
+    "Bybit|1": { notes: "bybit note" },
   }
-  const [header, ...rows] = parseCsv(buildTradesCsv(trades, notes))
+  const [header, ...rows] = parseCsv(buildTradesCsv(trades, overrides))
   const col = (row: string[], name: string) => row[header.indexOf(name)]
 
   assert.equal(col(rows[0], "ticker"), "BTCUSDT")
-  assert.equal(col(rows[0], "noteBefore"), "b1")
-  assert.equal(col(rows[0], "noteDuring"), "d1")
-  assert.equal(col(rows[0], "noteAfter"), "a1")
-
+  assert.equal(col(rows[0], "notes"), "n1")
   assert.equal(col(rows[1], "ticker"), "ETHUSDT")
-  assert.equal(col(rows[1], "noteBefore"), "")
-  assert.equal(col(rows[1], "noteAfter"), "a2")
+  assert.equal(col(rows[1], "notes"), "", "a trade with no note exports blank")
+  assert.equal(col(rows[2], "notes"), "bybit note")
+})
+
+test("the export carries one notes column, not the three per-phase ones", () => {
+  assert.ok(EXPORT_COLUMNS.includes("notes"))
+  for (const gone of ["noteBefore", "noteDuring", "noteAfter"]) {
+    assert.equal(EXPORT_COLUMNS.includes(gone as never), false, `${gone} is still exported`)
+  }
+  // Last, where the three used to sit, so the structured columns stay together.
+  assert.equal(EXPORT_COLUMNS[EXPORT_COLUMNS.length - 1], "notes")
 })
 
 test("a note full of commas, quotes and newlines survives a round trip", () => {
   // This is the whole reason the writer does real RFC 4180 escaping: journal
   // text is freeform and will contain every delimiter the format uses.
   const body = 'Entry at 3.5, "too big" a size\nStopped out; revenge-traded'
-  const [header, row] = parseCsv(
-    buildTradesCsv([trade({ id: "1", exchange: "OKX" })], { "OKX|1": { before: body } })
-  )
-  assert.equal(row[header.indexOf("noteBefore")], body)
+  const csv = buildTradesCsv([trade({ id: "1", exchange: "OKX" })], { "OKX|1": { notes: body } })
+  const [header, row] = parseCsv(csv)
+  assert.equal(row[header.indexOf("notes")], body)
   // And the escaping must not have leaked an extra record.
-  assert.equal(parseCsv(buildTradesCsv([trade({ id: "1", exchange: "OKX" })], { "OKX|1": { before: body } })).length, 2)
+  assert.equal(parseCsv(csv).length, 2)
 })
 
 test("buildTradesCsv writes numbers raw so a spreadsheet reads them as numbers", () => {

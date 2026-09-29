@@ -10,9 +10,7 @@ import { fetchAllBalances, type BalanceResult } from '@/lib/services/balanceServ
 import { LandingPage } from '@/components/home/LandingPage'
 import { RefreshCw, TriangleAlert, Globe } from 'lucide-react'
 import Link from 'next/link'
-import type {
-  Trade, TradeNotePhase, TradeNotes, TradeNotesMap, TradeOverride, TradeOverridesMap,
-} from '@/types'
+import type { Trade, TradeOverride, TradeOverridesMap } from '@/types'
 import { tradeKey } from '@/lib/db/trades'
 import { mergeOverride, type OverridePatch, type ResolvedTrade } from '@/lib/services/overridesService'
 import { mergeServerList, mergeServerSnapshot } from '@/lib/services/snapshot'
@@ -124,13 +122,11 @@ export function HomeView() {
   const [balanceLoading, setBalanceLoading] = useState(false)
   const [deletedTrades, setDeletedTrades] = useState<Trade[]>([])
   const [showDeleted, setShowDeleted] = useState(false)
-  const [notes, setNotes] = useState<TradeNotesMap>({})
   const [overrides, setOverrides] = useState<TradeOverridesMap>({})
   // What the user has done to each trade since this mount — a value, or null
-  // for "cleared". The three loaders below replace their whole collection when
+  // for "cleared". The two loaders below replace their whole collection when
   // they answer, so without this a response still in flight overwrites a save
   // that already reached the database. See mergeServerSnapshot.
-  const localNotes = useRef<Map<string, TradeNotes | null>>(new Map())
   const localOverrides = useRef<Map<string, TradeOverride | null>>(new Map())
   const localDeleted = useRef<Map<string, Trade | null>>(new Map())
   const period = usePeriodStore((s) => s.selection)
@@ -281,25 +277,10 @@ export function HomeView() {
     return () => { cancelled = true }
   }, [telegramId])
 
-  // Journal notes for every trade, loaded once and joined to the rows in memory.
-  // Keyed by exchange|id, so it survives trades arriving from several exchanges
-  // at different times without needing to re-fetch per batch.
-  useEffect(() => {
-    if (!telegramId) return
-    let cancelled = false
-    fetch(`/api/trades/notes`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (cancelled) return
-        setNotes(mergeServerSnapshot((data.notes ?? {}) as TradeNotesMap, localNotes.current))
-      })
-      .catch(() => { /* non-critical — the table just renders empty icons */ })
-    return () => { cancelled = true }
-  }, [telegramId])
-
-  // Manual TP / SL / Bias, loaded and joined exactly like the notes above. No
-  // exchange reports a tp or sl, so for most users this map is the only source
-  // those two columns ever have.
+  // The journal — Bias, TP / SL, the plan, the review and the notes — for every
+  // trade, loaded once and joined to the rows in memory. Keyed by exchange|id,
+  // so it survives trades arriving from several exchanges at different times
+  // without needing to re-fetch per batch.
   useEffect(() => {
     if (!telegramId) return
     let cancelled = false
@@ -314,53 +295,9 @@ export function HomeView() {
     return () => { cancelled = true }
   }, [telegramId])
 
-  // Writes one note. Optimistic like handleDelete, but it rethrows so the
-  // editor can keep the popover open and show the user what failed instead of
-  // silently swallowing their text.
-  const handleSaveNote = useCallback(async (
-    trade: Trade,
-    phase: TradeNotePhase,
-    body: string
-  ) => {
-    if (!telegramId) return
-    const key = tradeKey(trade.exchange, trade.id)
-    const trimmed = body.trim()
-
-    // Captured from inside the updater rather than from `notes` directly, so
-    // this callback does not depend on the notes map and stay stable across
-    // every save — otherwise each keystroke-save would re-render the whole table.
-    let previous: TradeNotes = {}
-    setNotes((prev) => {
-      previous = prev[key] ?? {}
-      const next = { ...previous }
-      if (trimmed) next[phase] = trimmed
-      else delete next[phase]
-      // Recorded from inside the updater because `previous` is only knowable
-      // here. StrictMode runs this twice with the same `prev`, and React may
-      // replay it for a discarded render, so it must stay idempotent — it is:
-      // the same input always records the same intent.
-      localNotes.current.set(key, next)
-      return { ...prev, [key]: next }
-    })
-
-    try {
-      const res = await fetch('/api/trades/notes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ exchange: trade.exchange, id: trade.id, phase, body }),
-      })
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.status)
-    } catch (err) {
-      console.warn('[HomeView] note save failed, reverting:', err)
-      localNotes.current.set(key, previous)
-      setNotes((prev) => ({ ...prev, [key]: previous }))
-      throw err
-    }
-  }, [telegramId])
-
-  // Writes one trade's TP / SL / Bias patch. Same optimistic-then-rethrow shape
-  // as handleSaveNote: the cell keeps its popover open and shows what failed
-  // rather than silently dropping the value.
+  // Writes one trade's journal patch. Optimistic like handleDelete, but it
+  // rethrows so the form or cell stays open and shows what failed rather than
+  // silently dropping the user's input.
   const handleSaveOverride = useCallback(async (
     trade: ResolvedTrade,
     patch: OverridePatch
@@ -576,8 +513,6 @@ export function HomeView() {
         deletedTrades={filteredDeletedTrades}
         showDeleted={showDeleted}
         onToggleDeleted={setShowDeleted}
-        notes={notes}
-        onSaveNote={handleSaveNote}
         overrides={overrides}
         onSaveOverride={handleSaveOverride}
         exportable
