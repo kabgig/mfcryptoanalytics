@@ -133,7 +133,11 @@ export function exportFilename(now: Date = new Date()): string {
 export function downloadCsv(csv: string, filename = exportFilename()): void {
   // The BOM makes Excel open UTF-8 tickers and notes correctly instead of
   // mangling them as Latin-1.
-  const blob = new Blob(["﻿", csv], { type: "text/csv;charset=utf-8" })
+  downloadBlob(new Blob(["﻿", csv], { type: "text/csv;charset=utf-8" }), filename)
+}
+
+/** Hands any blob to the browser as a download — the CSV above, or the spot zip. */
+export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement("a")
   a.href = url

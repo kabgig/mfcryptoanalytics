@@ -212,8 +212,8 @@ test("tiny prices keep their significant digits", () => {
   near(Number(csvRow.avgEntryAfter) / 0.00000123456789, 1)
 })
 
-test("spotExportFilename is date-stamped and distinct from the trades export", () => {
-  assert.equal(spotExportFilename(new Date("2026-09-28T22:00:00Z")), "spot-2026-09-28.csv")
+test("spotExportFilename is a date-stamped zip, distinct from the trades export", () => {
+  assert.equal(spotExportFilename(new Date("2026-09-28T22:00:00Z")), "spot-2026-09-28.zip")
 })
 
 // ---------------------------------------------------------------- journal

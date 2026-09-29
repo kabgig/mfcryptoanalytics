@@ -4,7 +4,7 @@
  * Drives the real /spot page in Chromium: one journal icon per row, the popup's
  * Planned / Why / Feeling / Note fields, save (button and ⌘↵), cancel, reload,
  * the 3-line scrolling note, and the neighbouring flows the journal must not
- * disturb — editing amounts, the CSV export and delete. Every assertion is on
+ * disturb — editing amounts, the export's ledger CSV and delete. Every assertion is on
  * the DOM or the stored row, not on a screenshot.
  *
  * SAFETY: every read and write is scoped to TEST_TELEGRAM_ID, a synthetic user
@@ -20,6 +20,7 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createRequire } from "node:module"
 import { neon } from "@neondatabase/serverless"
+import { unzipSync } from "fflate"
 import { signInBrowser } from "./helpers/session.mjs"
 import { gotoApp, reloadApp } from "./helpers/nav.mjs"
 
@@ -291,12 +292,13 @@ async function main() {
     })
 
     const download = await Promise.all([page.waitForEvent("download"), tid("export-spot").click()]).then(([d]) => d)
+    // The export is a zip; the journal lives in its ledger.csv.
     const raw = await download.createReadStream().then(async (s) => {
-      let out = ""
-      for await (const chunk of s) out += chunk
-      return out
+      const chunks = []
+      for await (const chunk of s) chunks.push(chunk)
+      return new TextDecoder().decode(unzipSync(new Uint8Array(Buffer.concat(chunks)))["ledger.csv"])
     })
-    await check("the CSV export carries the journal, multi-line note intact", async () => {
+    await check("the export's ledger carries the journal, multi-line note intact", async () => {
       const recs = parseCsv(raw.replace(/^﻿/, ""))
       const buy = recs.find((r) => r.side === "BUY")
       const sell = recs.find((r) => r.side === "SELL")

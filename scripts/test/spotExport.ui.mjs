@@ -1,11 +1,12 @@
 /**
- * Headless UI test for the Spot CSV export.
+ * Headless UI test for the Spot export (a zip of summary, tokens and ledger CSVs).
  *
  * Drives the real /spot page in Chromium: checks the Export button is disabled
  * with no entries, seeds a DCA history (two buys, a partial sell, a sell to
- * flat, a re-buy, plus a soft-deleted row and an ETH buy), clicks Export and
- * asserts on the downloaded CSV itself — header, row set, and the derived
- * position / PnL / cycle columns — against the same numbers the page shows.
+ * flat, a re-buy, plus a soft-deleted row, an ETH buy and a fully sold SOL),
+ * clicks Export, unzips the download and asserts on the three files — header,
+ * row set, the derived position / PnL / cycle columns, the per-token rows and
+ * the portfolio totals — against the same numbers the page shows.
  *
  * SAFETY: every read and write is scoped to TEST_TELEGRAM_ID, a synthetic user
  * created and removed by this script. Teardown runs in a finally block, and a
@@ -20,6 +21,7 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createRequire } from "node:module"
 import { neon } from "@neondatabase/serverless"
+import { unzipSync } from "fflate"
 import { signInBrowser } from "./helpers/session.mjs"
 import { gotoApp, reloadApp } from "./helpers/nav.mjs"
 
@@ -41,6 +43,32 @@ const EXPECTED_HEADER = [
   "cycle", "priceVsAvgPct", "daysSincePrevEntry", "currentPrice", "changeSinceEntryPct",
   "planned", "why", "feeling", "note",
 ]
+
+const TOKEN_HEADER = [
+  "ticker", "status", "holding", "avgEntry", "currentPrice", "costBasis", "totalInvested",
+  "marketValue", "unrealisedPnl", "unrealisedPnlPct", "realisedPnl", "allocationPct",
+  "buyCount", "sellCount", "firstEntryAt", "lastEntryAt",
+]
+
+const SUMMARY_HEADER = [
+  "exportedAt", "portfolioValue", "costBasis", "totalInvested", "unrealisedPnl",
+  "unrealisedPnlPct", "realisedPnl", "openPositions", "tickers", "entries",
+  "unpricedTickers", "firstEntryAt", "lastEntryAt",
+]
+
+/** Keeps the BOM — TextDecoder drops it by default, which would hide a missing one. */
+const decode = (bytes) => new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes)
+
+/** A BOM-prefixed, CRLF-terminated, never-quoted CSV → header + records. */
+function parse(text) {
+  const lines = text.replace(/^\uFEFF/, "").split("\r\n").slice(0, -1)
+  const header = lines[0].split(",")
+  const recs = lines.slice(1).map((l) => Object.fromEntries(l.split(",").map((v, i) => [header[i], v])))
+  return { header, recs }
+}
+
+/** "$1,274.64" / "+$0.00" / "-$12.30" → number. */
+const money = (s) => Number(s.replace(/[$,+]/g, ""))
 
 const sql = neon(process.env.DATABASE_URL)
 
@@ -70,6 +98,9 @@ async function seed() {
     ["BTC", "SELL", 3, 150, "2026-08-11T12:00:00Z", null],
     ["BTC", "BUY", 2, 120, "2026-09-01T12:00:00Z", null],
     ["ETH", "BUY", 0.5, 3000, "2026-07-15T12:00:00Z", null],
+    // Fully sold: no coin card, but a closed row with realised PnL in tokens.csv.
+    ["SOL", "BUY", 2, 10, "2026-05-01T12:00:00Z", null],
+    ["SOL", "SELL", 2, 25, "2026-05-10T12:00:00Z", null],
     // Soft-deleted: must not appear in the table or the export.
     ["BTC", "BUY", 99, 1, "2026-06-15T12:00:00Z", new Date().toISOString()],
   ]
@@ -135,38 +166,46 @@ async function main() {
     await page.waitForSelector('[data-testid="spot-entry-row"]')
     const prices = await (await pricesRes).json()
 
-    await check("the table lists the 6 live entries and the button is enabled", async () => {
-      assert.equal(await rowCount(), 6)
+    await check("the table lists the 8 live entries and the button reads Export ZIP", async () => {
+      assert.equal(await rowCount(), 8)
       assert.equal(await exportBtn.isDisabled(), false)
+      assert.equal((await exportBtn.innerText()).trim(), "Export ZIP")
     })
     await page.screenshot({ path: `${SHOTS}/spot-export-1-ready.png`, fullPage: true })
 
     const download = await Promise.all([page.waitForEvent("download"), exportBtn.click()]).then(
       ([d]) => d
     )
-    const raw = await download.createReadStream().then(async (s) => {
-      let out = ""
-      for await (const chunk of s) out += chunk
-      return out
+    const bytes = await download.createReadStream().then(async (s) => {
+      const chunks = []
+      for await (const chunk of s) chunks.push(chunk)
+      return new Uint8Array(Buffer.concat(chunks))
     })
 
-    await check("the download is a date-stamped spot csv", async () => {
-      assert.match(download.suggestedFilename(), /^spot-\d{4}-\d{2}-\d{2}\.csv$/)
-    })
-    await check("the file starts with a UTF-8 BOM and ends with CRLF", async () => {
-      assert.ok(raw.startsWith("﻿"), "missing BOM")
-      assert.ok(raw.endsWith("\r\n"), "missing trailing CRLF")
+    await check("the download is a date-stamped spot zip", async () => {
+      assert.match(download.suggestedFilename(), /^spot-\d{4}-\d{2}-\d{2}\.zip$/)
+      assert.deepEqual([...bytes.slice(0, 4)], [0x50, 0x4b, 0x03, 0x04], "not a zip (PK\\x03\\x04)")
     })
 
-    const lines = raw.replace(/^﻿/, "").split("\r\n").slice(0, -1)
-    const header = lines[0].split(",")
-    const recs = lines.slice(1).map((l) => Object.fromEntries(l.split(",").map((v, i) => [header[i], v])))
+    const files = unzipSync(bytes)
+    await check("the zip holds exactly summary.csv, tokens.csv and ledger.csv", async () => {
+      assert.deepEqual(Object.keys(files).sort(), ["ledger.csv", "summary.csv", "tokens.csv"])
+    })
+    await check("every file starts with a UTF-8 BOM and ends with CRLF", async () => {
+      for (const [name, b] of Object.entries(files)) {
+        const text = decode(b)
+        assert.ok(text.startsWith("\uFEFF"), `${name}: missing BOM`)
+        assert.ok(text.endsWith("\r\n"), `${name}: missing trailing CRLF`)
+      }
+    })
 
-    await check("the header is exactly the documented columns", async () => {
+    const { header, recs } = parse(decode(files["ledger.csv"]))
+
+    await check("the ledger header is exactly the documented columns", async () => {
       assert.deepEqual(header, EXPECTED_HEADER)
     })
     await check("one record per live entry — the soft-deleted row is absent", async () => {
-      assert.equal(recs.length, 6)
+      assert.equal(recs.length, 8)
       assert.ok(!recs.some((r) => r.qty === "99"), "soft-deleted entry was exported")
     })
     await check("records are newest first", async () => {
@@ -210,9 +249,65 @@ async function main() {
       }
     })
 
+    console.log("\ntokens.csv")
+    const tokens = parse(decode(files["tokens.csv"]))
+    const tok = Object.fromEntries(tokens.recs.map((r) => [r.ticker, r]))
+    await check("the header is exactly the documented columns, one row per ticker", async () => {
+      assert.deepEqual(tokens.header, TOKEN_HEADER)
+      assert.deepEqual(tokens.recs.map((r) => r.ticker).sort(), ["BTC", "ETH", "SOL"])
+    })
+    await check("BTC's row matches its coin card and the ledger", async () => {
+      assert.equal(tok.BTC.status, "open")
+      assert.equal(tok.BTC.holding, "2")
+      assert.equal(tok.BTC.avgEntry, "120")
+      assert.equal(tok.BTC.realisedPnl, "250")
+      assert.equal(tok.BTC.buyCount, "3")
+      assert.equal(tok.BTC.sellCount, "2")
+      assert.match(await page.locator('[data-testid="spot-qty-BTC"]').innerText(), /^2 BTC$/)
+    })
+    await check("fully sold SOL is a closed row that keeps its realised PnL", async () => {
+      assert.equal(tok.SOL.status, "closed")
+      assert.equal(tok.SOL.holding, "0")
+      assert.equal(tok.SOL.avgEntry, "")
+      assert.equal(tok.SOL.realisedPnl, "30")
+      assert.equal(tok.SOL.allocationPct, "")
+      assert.equal(await page.locator('[data-testid="spot-coin-card-SOL"]').count(), 0)
+    })
+    await check("value and PnL are the page's price, or blank without one", async () => {
+      for (const r of tokens.recs.filter((r) => r.status === "open")) {
+        const p = prices.current?.[r.ticker]
+        assert.equal(r.currentPrice, p == null ? "" : String(p), `${r.ticker} currentPrice`)
+        assert.equal(r.marketValue === "", p == null, `${r.ticker} marketValue`)
+        assert.equal(r.unrealisedPnl === "", p == null, `${r.ticker} unrealisedPnl`)
+      }
+    })
+
+    console.log("\nsummary.csv")
+    const summary = parse(decode(files["summary.csv"]))
+    const [sum] = summary.recs
+    await check("the header is exactly the documented columns, with one row", async () => {
+      assert.deepEqual(summary.header, SUMMARY_HEADER)
+      assert.equal(summary.recs.length, 1)
+    })
+    await check("the totals equal the four tiles on screen, to the cent", async () => {
+      const tile = async (id) => money(await page.locator(`[data-testid="${id}"]`).innerText())
+      assert.equal(Number(sum.portfolioValue).toFixed(2), (await tile("spot-portfolio-value")).toFixed(2))
+      assert.equal(Number(sum.costBasis).toFixed(2), (await tile("spot-cost-basis")).toFixed(2))
+      assert.equal(Number(sum.unrealisedPnl).toFixed(2), (await tile("spot-unrealised-pnl")).toFixed(2))
+      assert.equal(Number(sum.realisedPnl).toFixed(2), (await tile("spot-realised-pnl")).toFixed(2))
+      assert.equal(sum.realisedPnl, "280")
+    })
+    await check("the counts and dates describe the live entries only", async () => {
+      assert.equal(sum.openPositions, "2")
+      assert.equal(sum.tickers, "3")
+      assert.equal(sum.entries, "8")
+      assert.equal(sum.firstEntryAt, "2026-05-01T12:00:00.000Z")
+      assert.equal(sum.lastEntryAt, "2026-09-01T12:00:00.000Z")
+    })
+
     console.log("\nafter export")
     await check("the page is still usable — rows and button intact", async () => {
-      assert.equal(await rowCount(), 6)
+      assert.equal(await rowCount(), 8)
       assert.equal(await exportBtn.isDisabled(), false)
     })
     await check("no uncaught page errors", () => {

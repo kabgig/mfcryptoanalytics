@@ -3,8 +3,8 @@
 import { useMemo, useState } from "react"
 import { Trash2, Loader2, Pencil, TriangleAlert, Download } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { downloadCsv } from "@/lib/services/exportService"
-import { buildSpotCsv, spotExportFilename } from "@/lib/services/spotExportService"
+import { downloadBlob } from "@/lib/services/exportService"
+import { buildSpotZip, spotExportFilename } from "@/lib/services/spotExportService"
 import { oversoldSells } from "@/lib/services/spotService"
 import type { SpotEntry } from "@/types/spot"
 import { price, qty, usd } from "./format"
@@ -30,6 +30,22 @@ export function SpotEntriesTable({
   currentPrices,
 }: Props) {
   const [deleting, setDeleting] = useState<string | null>(null)
+  // fflate loads on the first click; the button stays disabled until the zip is
+  // built so a double click cannot start two downloads.
+  const [exporting, setExporting] = useState(false)
+
+  async function exportZip() {
+    setExporting(true)
+    try {
+      const now = new Date()
+      const zip = await buildSpotZip(entries, currentPrices, now)
+      downloadBlob(new Blob([zip as BlobPart], { type: "application/zip" }), spotExportFilename(now))
+    } catch (err) {
+      console.error("[spot export]", err)
+    } finally {
+      setExporting(false)
+    }
+  }
 
   // SELLs stranded by a later edit or delete of the BUY that funded them.
   const oversold = useMemo(() => oversoldSells(entries), [entries])
@@ -45,14 +61,18 @@ export function SpotEntriesTable({
         </CardTitle>
         <button
           type="button"
-          onClick={() => downloadCsv(buildSpotCsv(entries, currentPrices), spotExportFilename())}
-          disabled={entries.length === 0}
-          title="Download every entry with position and PnL columns as CSV"
+          onClick={exportZip}
+          disabled={entries.length === 0 || exporting}
+          title="Download a zip of three CSVs: portfolio summary, per-token summary and every entry"
           data-testid="export-spot"
           className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:opacity-40"
         >
-          <Download className="h-3.5 w-3.5" />
-          Export CSV
+          {exporting ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Download className="h-3.5 w-3.5" />
+          )}
+          Export ZIP
         </button>
       </CardHeader>
       <CardContent>

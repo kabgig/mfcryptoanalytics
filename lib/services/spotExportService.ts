@@ -1,7 +1,14 @@
 import { escapeCsvField } from "@/lib/services/exportService"
-import { DUST, oversoldSells, sortEntries } from "@/lib/services/spotService"
+import {
+  DUST,
+  buildAllocation,
+  computeHoldings,
+  computeTotals,
+  oversoldSells,
+  sortEntries,
+} from "@/lib/services/spotService"
 import { EMPTY_SPOT_JOURNAL, serializeSpotTags } from "@/lib/services/spotJournalFields"
-import type { SpotEntry } from "@/types/spot"
+import type { SpotEntry, SpotHolding } from "@/types/spot"
 
 /**
  * Spot ledger export, built for analysing a DCA history in a spreadsheet or an
@@ -17,6 +24,11 @@ import type { SpotEntry } from "@/types/spot"
  * Columns are declared once in SPOT_EXPORT_COLUMNS — adding one is a single
  * line there, plus a field on SpotLedgerRow if it needs new replay state. Every
  * consumer reads by header name, never by position.
+ *
+ * The download is a zip of three CSVs (buildSpotZip): the ledger above, one row
+ * per ticker (tokens.csv) and one row for the whole portfolio (summary.csv).
+ * CSV has no sheets, and three flat files keep every one of them a single table
+ * any importer reads.
  */
 
 export interface SpotLedgerRow {
@@ -148,11 +160,12 @@ function num(v: number | null): number | null {
 }
 
 type Cell = string | number | null | undefined
+type Column<T> = { header: string; value: (r: T) => Cell }
 
 const journalOf = (r: SpotLedgerRow) => r.entry.journal ?? EMPTY_SPOT_JOURNAL
 const yesNo = (v: boolean | null) => (v == null ? null : v ? "yes" : "no")
 
-export const SPOT_EXPORT_COLUMNS: readonly { header: string; value: (r: SpotLedgerRow) => Cell }[] = [
+export const SPOT_EXPORT_COLUMNS: readonly Column<SpotLedgerRow>[] = [
   { header: "tradedAt", value: (r) => r.entry.tradedAt },
   { header: "ticker", value: (r) => r.entry.ticker },
   { header: "side", value: (r) => r.entry.side },
@@ -187,20 +200,184 @@ function cell(value: Cell): string {
   return escapeCsvField(String(value))
 }
 
+
+function toCsv<T>(columns: readonly Column<T>[], rows: readonly T[]): string {
+  const lines = [columns.map((c) => c.header).join(",")]
+  for (const r of rows) lines.push(columns.map((c) => cell(c.value(r))).join(","))
+  // Trailing newline: some spreadsheet importers drop the final row without it.
+  return lines.join("\r\n") + "\r\n"
+}
+
 /** One CSV row per entry, newest first — the reverse of replay order. */
 export function buildSpotCsv(
   entries: SpotEntry[],
   currentPrices: Record<string, number> = {}
 ): string {
-  const rows = [SPOT_EXPORT_COLUMNS.map((c) => c.header).join(",")]
-  for (const r of buildSpotLedger(entries, currentPrices).reverse()) {
-    rows.push(SPOT_EXPORT_COLUMNS.map((c) => cell(c.value(r))).join(","))
-  }
-  // Trailing newline: some spreadsheet importers drop the final row without it.
-  return rows.join("\r\n") + "\r\n"
+  return toCsv(SPOT_EXPORT_COLUMNS, buildSpotLedger(entries, currentPrices).reverse())
 }
 
-/** e.g. `spot-2026-09-28.csv` — sits next to the trades export in a downloads folder. */
+// ---------------------------------------------------------------- tokens.csv
+
+/**
+ * One ticker, as the dashboard's coin card shows it plus what the card leaves
+ * out. Closed tickers are included (holding 0) so their realised PnL is kept.
+ */
+export interface SpotTokenRow {
+  holding: SpotHolding
+  /** Share of the priced open portfolio; null when closed or unpriced. */
+  allocationPct: number | null
+  firstEntryAt: string
+  lastEntryAt: string
+}
+
+export function buildSpotTokens(
+  entries: SpotEntry[],
+  currentPrices: Record<string, number> = {}
+): SpotTokenRow[] {
+  const holdings = computeHoldings(entries, currentPrices)
+  const allocation = new Map(buildAllocation(holdings).map((a) => [a.ticker, a.pct]))
+  const span = new Map<string, { first: string; last: string }>()
+  for (const e of entries) {
+    const s = span.get(e.ticker)
+    if (!s) span.set(e.ticker, { first: e.tradedAt, last: e.tradedAt })
+    else {
+      if (e.tradedAt < s.first) s.first = e.tradedAt
+      if (e.tradedAt > s.last) s.last = e.tradedAt
+    }
+  }
+  return holdings.map((h) => ({
+    holding: h,
+    allocationPct: allocation.get(h.ticker) ?? null,
+    firstEntryAt: span.get(h.ticker)!.first,
+    lastEntryAt: span.get(h.ticker)!.last,
+  }))
+}
+
+// Unpriced tickers leave value and PnL blank (computeHolding's nulls), never 0.
+export const SPOT_TOKEN_COLUMNS: readonly Column<SpotTokenRow>[] = [
+  { header: "ticker", value: (r) => r.holding.ticker },
+  { header: "status", value: (r) => (r.holding.qty > DUST ? "open" : "closed") },
+  { header: "holding", value: (r) => num(r.holding.qty) },
+  { header: "avgEntry", value: (r) => num(r.holding.avgEntry) },
+  { header: "currentPrice", value: (r) => r.holding.currentPrice },
+  { header: "costBasis", value: (r) => num(r.holding.costBasis) },
+  { header: "totalInvested", value: (r) => num(r.holding.totalInvested) },
+  { header: "marketValue", value: (r) => num(r.holding.marketValue) },
+  { header: "unrealisedPnl", value: (r) => num(r.holding.unrealisedPnl) },
+  { header: "unrealisedPnlPct", value: (r) => num(r.holding.unrealisedPct) },
+  { header: "realisedPnl", value: (r) => num(r.holding.realisedPnl) },
+  { header: "allocationPct", value: (r) => num(r.allocationPct) },
+  { header: "buyCount", value: (r) => r.holding.buyCount },
+  // Sells that actually sold something — a fully oversold SELL is not counted.
+  { header: "sellCount", value: (r) => r.holding.sellCount },
+  { header: "firstEntryAt", value: (r) => r.firstEntryAt },
+  { header: "lastEntryAt", value: (r) => r.lastEntryAt },
+]
+
+/** One row per ticker, in the dashboard's order (largest value first). */
+export function buildSpotTokensCsv(
+  entries: SpotEntry[],
+  currentPrices: Record<string, number> = {}
+): string {
+  return toCsv(SPOT_TOKEN_COLUMNS, buildSpotTokens(entries, currentPrices))
+}
+
+// --------------------------------------------------------------- summary.csv
+
+/** The dashboard's four tiles, plus what they are computed over. */
+export interface SpotSummaryRow {
+  totals: ReturnType<typeof computeTotals>
+  exportedAt: string
+  tickers: number
+  entries: number
+  /** Open tickers with no price: counted in cost basis but not in value. */
+  unpricedTickers: string[]
+  firstEntryAt: string | null
+  lastEntryAt: string | null
+}
+
+export function buildSpotSummary(
+  entries: SpotEntry[],
+  currentPrices: Record<string, number> = {},
+  now: Date = new Date()
+): SpotSummaryRow {
+  const holdings = computeHoldings(entries, currentPrices)
+  const dates = entries.map((e) => e.tradedAt).sort()
+  return {
+    totals: computeTotals(holdings),
+    exportedAt: now.toISOString(),
+    tickers: holdings.length,
+    entries: entries.length,
+    unpricedTickers: holdings
+      .filter((h) => h.qty > DUST && h.currentPrice == null)
+      .map((h) => h.ticker)
+      .sort(),
+    firstEntryAt: dates[0] ?? null,
+    lastEntryAt: dates.at(-1) ?? null,
+  }
+}
+
+export const SPOT_SUMMARY_COLUMNS: readonly Column<SpotSummaryRow>[] = [
+  { header: "exportedAt", value: (r) => r.exportedAt },
+  { header: "portfolioValue", value: (r) => num(r.totals.marketValue) },
+  { header: "costBasis", value: (r) => num(r.totals.costBasis) },
+  { header: "totalInvested", value: (r) => num(r.totals.totalInvested) },
+  { header: "unrealisedPnl", value: (r) => num(r.totals.unrealisedPnl) },
+  { header: "unrealisedPnlPct", value: (r) => num(r.totals.unrealisedPct) },
+  { header: "realisedPnl", value: (r) => num(r.totals.realisedPnl) },
+  { header: "openPositions", value: (r) => r.totals.openTickers },
+  { header: "tickers", value: (r) => r.tickers },
+  { header: "entries", value: (r) => r.entries },
+  { header: "unpricedTickers", value: (r) => r.unpricedTickers.join("|") },
+  { header: "firstEntryAt", value: (r) => r.firstEntryAt },
+  { header: "lastEntryAt", value: (r) => r.lastEntryAt },
+]
+
+/** A single data row — the whole portfolio. */
+export function buildSpotSummaryCsv(
+  entries: SpotEntry[],
+  currentPrices: Record<string, number> = {},
+  now: Date = new Date()
+): string {
+  return toCsv(SPOT_SUMMARY_COLUMNS, [buildSpotSummary(entries, currentPrices, now)])
+}
+
+// ----------------------------------------------------------------------- zip
+
+/** File name → CSV text, in the order a reader should open them. */
+export function buildSpotExportFiles(
+  entries: SpotEntry[],
+  currentPrices: Record<string, number> = {},
+  now: Date = new Date()
+): Record<string, string> {
+  return {
+    "summary.csv": buildSpotSummaryCsv(entries, currentPrices, now),
+    "tokens.csv": buildSpotTokensCsv(entries, currentPrices),
+    "ledger.csv": buildSpotCsv(entries, currentPrices),
+  }
+}
+
+/**
+ * The three CSVs zipped. Each carries a UTF-8 BOM, as downloadCsv adds to a
+ * lone CSV, so Excel does not read the files as Latin-1 once unzipped. fflate is
+ * loaded on demand so it costs nothing until the button is pressed.
+ */
+export async function buildSpotZip(
+  entries: SpotEntry[],
+  currentPrices: Record<string, number> = {},
+  now: Date = new Date()
+): Promise<Uint8Array> {
+  const { strToU8, zipSync } = await import("fflate")
+  const files = buildSpotExportFiles(entries, currentPrices, now)
+  return zipSync(
+    Object.fromEntries(
+      Object.entries(files).map(([name, csv]) => [name, strToU8("\uFEFF" + csv)])
+    ),
+    { mtime: now }
+  )
+}
+
+/** e.g. `spot-2026-09-28.zip` — sits next to the trades export in a downloads folder. */
 export function spotExportFilename(now: Date = new Date()): string {
-  return `spot-${now.toISOString().slice(0, 10)}.csv`
+  return `spot-${now.toISOString().slice(0, 10)}.zip`
 }
