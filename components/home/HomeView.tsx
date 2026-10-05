@@ -8,7 +8,8 @@ import { TradesTable } from '@/components/dashboard/TradesTable'
 import { computeStats } from '@/lib/services/statsService'
 import { fetchAllBalances, type BalanceResult } from '@/lib/services/balanceService'
 import { LandingPage } from '@/components/home/LandingPage'
-import { RefreshCw, TriangleAlert, Globe } from 'lucide-react'
+import { useNavbarRefresh } from '@/components/layout/useNavbarRefresh'
+import { TriangleAlert, Globe } from 'lucide-react'
 import Link from 'next/link'
 import type { Trade, TradeOverride, TradeOverridesMap } from '@/types'
 import { tradeKey } from '@/lib/db/trades'
@@ -445,6 +446,10 @@ export function HomeView() {
   const stats = computeStats(filteredTrades)
   const hasAnyKey = buildExchangeConfigs().length > 0
 
+  // Navbar refresh icon: bypass the trade cache, like the old in-page button.
+  const forceRefresh = useCallback(() => { runFetch(true) }, [runFetch])
+  useNavbarRefresh(telegramId ? forceRefresh : null, loading, 'trades')
+
   // Until /api/me answers, a stale cached id must not decide this either way.
   if (!hydrated && !telegramId) return null
   if (hydrated && !telegramId) return <LandingPage />
@@ -462,7 +467,7 @@ export function HomeView() {
         </div>
       )}
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        {loading ? (
+        {loading && (
           <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-2 text-sm text-amber-600 dark:text-amber-400">
             <span className="relative flex h-2.5 w-2.5 shrink-0">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
@@ -474,18 +479,10 @@ export function HomeView() {
                 : `Data is Loading… (${loadedExchanges.join(', ')} ready)`}
             </span>
           </div>
-        ) : (
-          <button
-            onClick={() => runFetch(true)}
-            disabled={loading}
-            className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Refresh
-          </button>
         )}
-        {/* Viz link + period filters grouped on the right */}
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* Viz link + period filters grouped on the right — ml-auto keeps them
+            there when the loading pill is absent. */}
+        <div className="ml-auto flex items-center gap-2 flex-wrap">
           <Link
             href="/viz"
             className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"

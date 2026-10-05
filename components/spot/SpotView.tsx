@@ -1,9 +1,10 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { RefreshCw, TriangleAlert } from "lucide-react"
+import { TriangleAlert } from "lucide-react"
 import { useUserStore } from "@/lib/store/userStore"
 import { LandingPage } from "@/components/home/LandingPage"
+import { useNavbarRefresh } from "@/components/layout/useNavbarRefresh"
 import {
   buildAllocation,
   buildPortfolioSeries,
@@ -187,6 +188,10 @@ export function SpotView() {
   )
   const tickers = useMemo(() => tickersOf(entries), [entries])
 
+  // Navbar refresh icon reloads market prices, as the old in-page button did.
+  const refreshPrices = useCallback(() => { void loadPrices() }, [loadPrices])
+  useNavbarRefresh(telegramId ? refreshPrices : null, pricesLoading, "prices")
+
   if (!telegramId) return <LandingPage />
 
   return (
@@ -198,14 +203,6 @@ export function SpotView() {
             Manually tracked long-term DCA positions.
           </p>
         </div>
-        <button
-          onClick={loadPrices}
-          disabled={pricesLoading}
-          className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-accent disabled:opacity-50"
-        >
-          <RefreshCw className={`h-4 w-4 ${pricesLoading ? "animate-spin" : ""}`} />
-          Refresh prices
-        </button>
       </div>
 
       {error && (

@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback, useMemo } from "react"
 import { useUserStore } from "@/lib/store/userStore"
 import { computeWeeklyPnl, DAY_NAMES } from "@/lib/services/wmonService"
 import { LandingPage } from "@/components/home/LandingPage"
+import { useNavbarRefresh } from "@/components/layout/useNavbarRefresh"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { RefreshCw, TriangleAlert } from "lucide-react"
+import { TriangleAlert } from "lucide-react"
 import type { Trade } from "@/types"
 import { fetchFuturesTrades as fetchBinanceFutures } from "@/lib/exchanges/adapters/binance/futures"
 import { fetchFuturesTrades as fetchBybitFutures } from "@/lib/exchanges/adapters/bybit/futures"
@@ -273,6 +274,10 @@ export function WMonView() {
 
   const chartData = useMemo(() => computeWeeklyPnl(filteredTrades), [filteredTrades])
 
+  // Navbar refresh icon: bypass the trade cache, like the old in-page button.
+  const forceRefresh = useCallback(() => { runFetch(true) }, [runFetch])
+  useNavbarRefresh(telegramId ? forceRefresh : null, loading, "trades")
+
   if (!telegramId) return <LandingPage />
 
   return (
@@ -300,7 +305,7 @@ export function WMonView() {
         <h1 className="text-xl font-semibold tracking-tight">Weekday PnL Monitor</h1>
         <div className="flex items-center gap-3 flex-wrap">
           <PeriodSelector value={period} onChange={setPeriod} />
-          {loading ? (
+          {loading && (
             <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-2 text-sm text-amber-600 dark:text-amber-400">
               <span className="relative flex h-2.5 w-2.5 shrink-0">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
@@ -312,15 +317,6 @@ export function WMonView() {
                   : `Loading… (${loadedExchanges.join(", ")} ready)`}
               </span>
             </div>
-          ) : (
-            <button
-              onClick={() => runFetch(true)}
-              disabled={loading}
-              className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              Refresh
-            </button>
           )}
         </div>
       </div>

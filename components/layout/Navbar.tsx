@@ -1,14 +1,15 @@
 'use client'
 
-import { useState, useRef } from "react"
+import { useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
 import { ThemeToggle } from "./ThemeToggle"
+import { RefreshButton } from "./RefreshButton"
 import { ApiKeysModal } from "@/components/settings/ApiKeysModal"
 import { ShareModal } from "@/components/settings/ShareModal"
 import { useUserStore } from "@/lib/store/userStore"
-import { LogOut, Settings, Moon, Sun, Menu, X, Upload, ChevronDown, Eye, EyeOff, Share2, UserCheck } from "lucide-react"
+import { LogOut, Settings, Moon, Sun, Menu, X, Upload, ChevronDown, Eye, EyeOff, Share2, UserCheck, MoreHorizontal } from "lucide-react"
 
 // Telegram SVG logo
 function TelegramIcon({ className }: { className?: string }) {
@@ -19,32 +20,43 @@ function TelegramIcon({ className }: { className?: string }) {
   )
 }
 
-// Shared nav link list — used by both desktop and mobile
+// Shared nav link lists — used by both desktop and mobile.
+// PRIMARY_LINKS sit in the bar; MORE_LINKS fold into the "More" dropdown.
 interface NavLink { label: string; href: string; adminOnly?: boolean }
-const NAV_LINKS: NavLink[] = [
+const PRIMARY_LINKS: NavLink[] = [
   { label: "Main",  href: "/" },
+  { label: "Spot",  href: "/spot" },
+]
+const MORE_LINKS: NavLink[] = [
   { label: "WMon",  href: "/wmon" },
   { label: "HMon",  href: "/hmon" },
   { label: "TMon",  href: "/tmon" },
   { label: "EMon",  href: "/emon" },
   { label: "LvsS",  href: "/lvs" },
   { label: "DPnL",  href: "/dpnl" },
-  { label: "Spot",  href: "/spot" },
   { label: "Admin", href: "/admin", adminOnly: true },
 ]
 
-const IMPORT_ITEMS = [
+const IMPORT_ITEMS: NavLink[] = [
   { label: "Jupiter Dex", href: "/import/jupiter" },
 ]
 
-function ImportDropdown({ pathname }: { pathname: string }) {
+function NavDropdown({
+  label,
+  icon,
+  items,
+  pathname,
+}: {
+  label: string
+  icon?: React.ReactNode
+  items: NavLink[]
+  pathname: string
+}) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  const isActive = pathname.startsWith("/import")
+  const isActive = items.some((item) => pathname === item.href)
 
   return (
     <div
-      ref={ref}
       className="relative"
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
@@ -54,15 +66,15 @@ function ImportDropdown({ pathname }: { pathname: string }) {
           isActive ? "text-foreground" : "text-muted-foreground"
         }`}
       >
-        <Upload className="h-3.5 w-3.5" />
-        Import
+        {icon}
+        {label}
         <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && (
         <div className="absolute left-0 top-full pt-1 z-50 min-w-[160px]">
           <div className="rounded-md border border-border bg-background shadow-md py-1">
-            {IMPORT_ITEMS.map((item) => (
+            {items.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -119,7 +131,7 @@ export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [nameHidden, setNameHidden] = useState(false)
 
-  const visibleLinks = NAV_LINKS.filter((l) => !l.adminOnly || role === "ADMIN" || originalAdmin !== null)
+  const moreLinks = MORE_LINKS.filter((l) => !l.adminOnly || role === "ADMIN" || originalAdmin !== null)
 
   const linkClass = (href: string) =>
     `text-sm font-medium transition-colors hover:text-foreground ${
@@ -157,17 +169,24 @@ export function Navbar() {
             MF Crypto Analytics
           </span>
           <nav className="hidden sm:flex items-center gap-5">
-            {visibleLinks.map((l) => (
+            {PRIMARY_LINKS.map((l) => (
               <Link key={l.href} href={l.href} className={linkClass(l.href)}>
                 {l.label}
               </Link>
             ))}
-            <ImportDropdown pathname={pathname} />
+            <NavDropdown label="More" items={moreLinks} pathname={pathname} />
+            <NavDropdown
+              label="Import"
+              icon={<Upload className="h-3.5 w-3.5" />}
+              items={IMPORT_ITEMS}
+              pathname={pathname}
+            />
           </nav>
         </div>
 
         {/* Desktop right controls */}
         <div className="hidden sm:flex items-center gap-2">
+          <RefreshButton />
           <ThemeToggle />
           {telegramId ? (
             <>
@@ -207,27 +226,48 @@ export function Navbar() {
           )}
         </div>
 
-        {/* Mobile hamburger */}
-        <button
-          className="sm:hidden inline-flex items-center justify-center rounded-md p-2 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-          onClick={() => setMobileOpen((o) => !o)}
-          aria-label="Toggle menu"
-        >
-          {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
+        {/* Mobile: refresh stays one tap away, outside the menu */}
+        <div className="sm:hidden flex items-center gap-1">
+          <RefreshButton />
+          <button
+            className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            onClick={() => setMobileOpen((o) => !o)}
+            aria-label="Toggle menu"
+          >
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+        </div>
       </div>
 
       {/* Mobile dropdown */}
       {mobileOpen && (
         <div className="sm:hidden border-t border-border/30 bg-background/95 backdrop-blur-sm px-4 py-3 flex flex-col gap-1">
           {/* Nav links */}
-          {visibleLinks.map((l) => (
+          {PRIMARY_LINKS.map((l) => (
             <Link
               key={l.href}
               href={l.href}
               onClick={() => setMobileOpen(false)}
               className={`flex items-center px-4 py-2.5 text-sm font-medium rounded-md transition-colors hover:bg-accent ${
                 pathname === l.href ? "text-foreground bg-accent/50" : "text-muted-foreground"
+              }`}
+            >
+              {l.label}
+            </Link>
+          ))}
+
+          {/* More sub-items */}
+          <div className="flex items-center gap-2 px-4 py-1.5">
+            <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">More</span>
+          </div>
+          {moreLinks.map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              onClick={() => setMobileOpen(false)}
+              className={`flex items-center pl-9 pr-4 py-2 text-sm rounded-md transition-colors hover:bg-accent ${
+                pathname === l.href ? "text-foreground bg-accent/50 font-medium" : "text-muted-foreground"
               }`}
             >
               {l.label}

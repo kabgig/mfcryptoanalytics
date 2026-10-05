@@ -1,11 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
  import { useUserStore } from "@/lib/store/userStore"
 import { Navbar } from "@/components/layout/Navbar"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { RefreshCw } from "lucide-react"
+import { useNavbarRefresh } from "@/components/layout/useNavbarRefresh"
 
 interface UserRow {
   telegramId: string
@@ -41,7 +41,7 @@ export default function AdminPage() {
     }
   }, [hydrated, role, telegramId, router])
 
-  const fetchUsers = () => {
+  const fetchUsers = useCallback(() => {
     setLoading(true)
     setError(null)
     fetch('/api/admin/users')
@@ -52,12 +52,13 @@ export default function AdminPage() {
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false))
-  }
+  }, [])
 
   useEffect(() => {
     if (hydrated && role === "ADMIN" && telegramId) fetchUsers()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, role, telegramId])
+  }, [hydrated, role, telegramId, fetchUsers])
+
+  useNavbarRefresh(hydrated && role === "ADMIN" && telegramId ? fetchUsers : null, loading, "users")
 
   if (!hydrated || !telegramId || role === null) {
     return (
@@ -80,14 +81,6 @@ export default function AdminPage() {
       <main className="flex-1 mx-auto w-full max-w-7xl px-4 sm:px-6 py-6 space-y-6">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <h1 className="text-2xl font-semibold tracking-tight">Admin Dashboard</h1>
-          <button
-            onClick={fetchUsers}
-            disabled={loading}
-            className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
         </div>
 
         {/* Summary strip */}
