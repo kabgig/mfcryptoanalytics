@@ -4,6 +4,8 @@ import type { OKXPositionsHistoryResponse, OKXPosition } from "./types"
 
 const LIMIT = 100
 const DELAY_MS = 200
+/** Safety cap per instType — 2,000 positions in OKX's 3-month window. */
+const MAX_PAGES = 20
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -46,8 +48,14 @@ export function positionToTrade(p: OKXPosition): Trade {
 
 /**
  * Fetches all closed futures/swap positions from OKX.
- * Uses GET /api/v5/account/positions-history — cursor-based pagination via posId.
+ * Uses GET /api/v5/account/positions-history, newest first.
  * Covers SWAP (perpetuals) and FUTURES (delivery) instruments.
+ *
+ * Pagination: `after` is a **uTime** in ms ("records earlier than"), not a posId.
+ * It used to be passed the last posId — a ~4.5e17 number that OKX reads as a
+ * date far in the future, so it re-served the first page forever. That was
+ * invisible until an account first held 100+ positions in the window; from then
+ * on every sync failed and the dashboard froze on its last stored trades.
  */
 export async function fetchFuturesTrades(
   apiKey: string,
@@ -59,7 +67,7 @@ export async function fetchFuturesTrades(
   for (const instType of ["SWAP", "FUTURES"]) {
     let after = ""
 
-    while (true) {
+    for (let page = 1; ; page++) {
       const params: Record<string, string> = {
         instType,
         limit: String(LIMIT),
@@ -93,13 +101,27 @@ export async function fetchFuturesTrades(
 
       if (items.length < LIMIT) break
 
-      // Cursor: use posId of last record to get next page
-      after = items[items.length - 1].posId
+      // Cursor: the oldest uTime on this page. OKX returns every record sharing
+      // a uTime in one page, so "earlier than" neither skips nor repeats any.
+      const next = Math.min(...items.map((p) => Number(p.uTime)))
+      // A cursor that does not move backwards would refetch the same page forever.
+      if (!Number.isFinite(next) || (after && next >= Number(after))) {
+        console.warn(`[okx] ${instType} pagination stalled at uTime=${after}; stopping`)
+        break
+      }
+      if (page >= MAX_PAGES) {
+        console.warn(`[okx] ${instType} hit ${MAX_PAGES}-page cap; older positions skipped`)
+        break
+      }
+      after = String(next)
       await sleep(DELAY_MS)
     }
   }
 
+  // Ids are unique per position, so a repeat can only be a re-served page.
+  const seen = new Set<string>()
   return allPositions
     .filter((p) => parseFloat(p.pnl) !== 0)
     .map(positionToTrade)
+    .filter((t) => !seen.has(t.id) && seen.add(t.id))
 }

@@ -84,12 +84,17 @@ async function fetchExchangeTradesClientSide(
     : trades
 }
 
+/**
+ * `stale` means the server could not reach the exchange and answered with the
+ * trades it had stored. Those still render, but the user must be told — when
+ * this was ignored, a broken OKX sync showed week-old data with no hint.
+ */
 async function fetchExchangeTrades(
   cfg: ExchangeConfig,
   force: boolean
-): Promise<Trade[]> {
+): Promise<{ trades: Trade[]; stale: boolean }> {
   if (CLIENT_FETCH_EXCHANGES.has(cfg.name)) {
-    return fetchExchangeTradesClientSide(cfg, force)
+    return { trades: await fetchExchangeTradesClientSide(cfg, force), stale: false }
   }
   const endpoint = ASIA_EXCHANGES.has(cfg.name) ? '/api/trades-asia' : '/api/trades-global'
   const res = await fetch(endpoint, {
@@ -105,8 +110,8 @@ async function fetchExchangeTrades(
   })
   const data = await res.json()
   if (data.error) throw new Error(data.error)
-  console.log(`[HomeView] ${cfg.name} fromCache=${data.fromCache} trades=${data.trades?.length}`)
-  return data.trades as Trade[]
+  console.log(`[HomeView] ${cfg.name} fromCache=${data.fromCache} stale=${!!data.stale} trades=${data.trades?.length}`)
+  return { trades: data.trades as Trade[], stale: data.stale === true }
 }
 
 export function HomeView() {
@@ -118,6 +123,7 @@ export function HomeView() {
   const [importedTrades, setImportedTrades] = useState<Trade[]>([])
   const [loadedExchanges, setLoadedExchanges] = useState<string[]>([])
   const [exchangeErrors, setExchangeErrors] = useState<Record<string, string>>({})
+  const [staleExchanges, setStaleExchanges] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [balanceResult, setBalanceResult] = useState<BalanceResult | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(false)
@@ -171,6 +177,7 @@ export function HomeView() {
       setTrades([])
       setLoadedExchanges([])
       setExchangeErrors({})
+      setStaleExchanges([])
       setLoading(true)
       fetch('/api/trades-cache/all', {
         method: 'POST',
@@ -192,6 +199,7 @@ export function HomeView() {
     setTrades([])
     setLoadedExchanges([])
     setExchangeErrors({})
+    setStaleExchanges([])
     setLoading(true)
 
     function addTrades(newTrades: Trade[], name: string) {
@@ -206,8 +214,11 @@ export function HomeView() {
     Promise.all(
       configs.map(async (cfg) => {
         try {
-          const newTrades = await fetchExchangeTrades(cfg, force)
-          if (!cancelled) addTrades(newTrades, cfg.name)
+          const { trades: newTrades, stale } = await fetchExchangeTrades(cfg, force)
+          if (!cancelled) {
+            addTrades(newTrades, cfg.name)
+            if (stale) setStaleExchanges((prev) => [...prev, cfg.name])
+          }
         } catch (err) {
           if (!cancelled) {
             setExchangeErrors((prev) => ({ ...prev, [cfg.name]: String(err) }))
@@ -495,6 +506,18 @@ export function HomeView() {
       </div>
       <StatsBar stats={stats} balanceResult={balanceResult} balanceLoading={balanceLoading} />
       <PnlChart chartData={stats.chartData} trades={filteredTrades} />
+      {staleExchanges.length > 0 && (
+        <div
+          data-testid="stale-sync-warning"
+          className="flex items-center gap-3 rounded-lg border border-yellow-400/50 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-700 dark:text-yellow-300"
+        >
+          <TriangleAlert className="h-4 w-4 shrink-0" />
+          <span>
+            Could not sync <strong>{staleExchanges.join(', ')}</strong> — showing previously saved trades.
+            Check the API key in <strong>Settings</strong>, then refresh.
+          </span>
+        </div>
+      )}
       {Object.entries(exchangeErrors).length > 0 && (
         <div className="text-xs text-destructive space-y-1 border border-destructive/30 rounded p-3 bg-destructive/5">
           <p className="font-semibold">Exchange errors:</p>
