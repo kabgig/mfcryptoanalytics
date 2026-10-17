@@ -30,6 +30,7 @@
     "test:futures-journal": "node --env-file=.env.local --experimental-strip-types --import ./scripts/test/alias-hooks.mjs scripts/test/futuresJournal.integration.ts",
     "test:ui:nav-refresh": "node --env-file=.env.local scripts/test/navRefresh.ui.mjs",
     "test:ui:nav-menu": "node --env-file=.env.local scripts/test/navMenu.ui.mjs",
+    "test:ui:favicon": "node --env-file=.env.local scripts/test/favicon.ui.mjs",
     "test:ui:okx-stale": "node --env-file=.env.local scripts/test/okxStale.ui.mjs"
   },
   "dependencies": {
