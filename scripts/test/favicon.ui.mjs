@@ -73,8 +73,16 @@ async function bestContrast(page, href, strip) {
       }
       // Glyph pixels: near-white ink, which only the glyph (not the tile) has.
       let glyph = 0
-      for (let i = 0; i < px.length; i += 4) if (px[i] > 230 && px[i + 1] > 230 && px[i + 2] > 230) glyph++
-      return { best, glyph }
+      let minX = size, minY = size, maxX = -1, maxY = -1
+      for (let i = 0; i < px.length; i += 4) {
+        if (px[i] > 230 && px[i + 1] > 230 && px[i + 2] > 230) {
+          glyph++
+          const x = (i / 4) % size, y = Math.floor(i / 4 / size)
+          minX = Math.min(minX, x); maxX = Math.max(maxX, x)
+          minY = Math.min(minY, y); maxY = Math.max(maxY, y)
+        }
+      }
+      return { best, glyph, glyphW: maxX - minX + 1, glyphH: maxY - minY + 1 }
     },
     { href, strip }
   )
@@ -113,6 +121,11 @@ try {
         // The strip itself is near-white on light, so measure on the dark strip.
         const { glyph } = await bestContrast(page, svg.href, STRIPS.dark)
         assert.ok(glyph > 150, `only ${glyph} white glyph pixels`)
+      })
+      await check(`OS ${scheme} · ${stripName} tab strip: glyph at full size`, async () => {
+        // Bare glyph spans ~54px of 64; the shrunken one in the first tile spanned ~42.
+        const { glyphW, glyphH } = await bestContrast(page, svg.href, STRIPS.dark)
+        assert.ok(glyphW >= 48 && glyphH >= 48, `glyph ${glyphW}×${glyphH}px of 64`)
       })
     }
   }
