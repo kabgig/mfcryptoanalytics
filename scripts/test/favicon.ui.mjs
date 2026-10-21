@@ -123,9 +123,10 @@ try {
         assert.ok(glyph > 150, `only ${glyph} white glyph pixels`)
       })
       await check(`OS ${scheme} · ${stripName} tab strip: glyph at full size`, async () => {
-        // Bare glyph spans ~54px of 64; the shrunken one in the first tile spanned ~42.
+        // Cropped viewBox: the glyph spans ~61px of 64. Uncropped it was ~54,
+        // and the shrunken one in the first tile ~42.
         const { glyphW, glyphH } = await bestContrast(page, svg.href, STRIPS.dark)
-        assert.ok(glyphW >= 48 && glyphH >= 48, `glyph ${glyphW}×${glyphH}px of 64`)
+        assert.ok(glyphW >= 58 && glyphH >= 58, `glyph ${glyphW}×${glyphH}px of 64`)
       })
     }
   }

@@ -1,8 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="1.5 1.365 24.27 24.27" width="28" height="28" fill="none">
   <!-- Solid tile instead of a prefers-color-scheme swap: inside a favicon that
        query follows the OS, not the browser theme, so a dark OS with a light
-       browser rendered a white glyph on a white tab strip. -->
-  <rect width="28" height="28" rx="6" fill="#111111"/>
+       browser rendered a white glyph on a white tab strip.
+       The viewBox is cropped to the glyph's bounds (2..25.27 × 2..25) plus a
+       0.5 margin, so the glyph fills as much of the tab icon as it can. -->
+  <rect x="1.5" y="1.365" width="24.27" height="24.27" rx="5" fill="#111111"/>
   <g fill="#ffffff">
     <path d="M17 17h1v6h-1v-6zM17 2h1v5h-1V2z"/>
     <path d="M16 17h3V8h-3v9zM15 7h5v11h-5V7zM10 5h1v5h-1V5zM10 22h1v3h-1v-3z"/>
