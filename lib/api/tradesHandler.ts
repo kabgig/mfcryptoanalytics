@@ -6,6 +6,8 @@ import { MEXCAdapter } from "@/lib/exchanges/adapters/mexc"
 import { BitunixAdapter } from "@/lib/exchanges/adapters/bitunix"
 import { BYDFiAdapter } from "@/lib/exchanges/adapters/bydfi"
 import { getIfFresh, upsertTrades, getStoredTrades, getDeletedKeys, filterDeleted } from "@/lib/db/trades"
+import { getServerCooldown, setServerCooldown } from "@/lib/db/cooldowns"
+import { rateLimitFromErrorMessage, FORCE_REFRESH_MIN_INTERVAL_MS } from "@/lib/exchanges/rateLimitParse"
 import type { Trade } from "@/types"
 import { serverError } from "@/lib/api/errors"
 import { requireUser } from "@/lib/auth/session"
@@ -61,6 +63,30 @@ export async function handleTradesRequest(request: Request): Promise<Response> {
       return Response.json({ trades: cached.trades, fromCache: true })
     }
 
+    // A forced refresh moments after a real fetch is almost always a double
+    // click or an impatient retry — serve the cache instead of another burst.
+    // The exchange-side fetches fan out into a dozen-plus API calls, and the
+    // shared egress IP is what Binance rate-limits.
+    if (force && cached.fresh && Date.now() - cached.fetchedAt.getTime() < FORCE_REFRESH_MIN_INTERVAL_MS) {
+      console.log(`[trades] ${exchange} forced refresh throttled, served FROM CACHE`)
+      return Response.json({ trades: cached.trades, fromCache: true, throttled: true })
+    }
+
+    // Global cooldown: some instance already got this exchange rate-limited
+    // (418/429 bans hit the shared egress IP, not the user's key). Calling
+    // again would only extend the ban — serve what we have stored.
+    const cooldownUntil = await getServerCooldown(exchange)
+    if (cooldownUntil) {
+      const stored = cached.fresh ? cached.trades : await getStoredTrades(telegramId, exchange)
+      console.log(`[trades] ${exchange} in cooldown until ${cooldownUntil.toISOString()}, served stored trades`)
+      return Response.json({
+        trades: stored,
+        fromCache: true,
+        stale: true,
+        cooldownUntil: cooldownUntil.toISOString(),
+      })
+    }
+
     try {
       const t2 = Date.now()
       const fetched = await fetchFromExchange(body)
@@ -81,8 +107,23 @@ export async function handleTradesRequest(request: Request): Promise<Response> {
       return Response.json({ trades, fromCache: false })
     } catch (fetchErr) {
       console.warn(`[trades] ${exchange} live fetch failed, falling back to stored trades:`, fetchErr)
+      // A rate limit (418 IP ban / 429) must stop every instance from retrying,
+      // not just this one — record it globally before answering. Never let a
+      // cooldown write failure mask the fallback.
+      const rateLimit = rateLimitFromErrorMessage(
+        fetchErr instanceof Error ? fetchErr.message : String(fetchErr)
+      )
+      let cooldownUntil: string | undefined
+      if (rateLimit) {
+        try {
+          await setServerCooldown(exchange, new Date(rateLimit.untilMs), rateLimit.reason)
+          cooldownUntil = new Date(rateLimit.untilMs).toISOString()
+        } catch (cdErr) {
+          console.error(`[trades] ${exchange} cooldown write failed:`, cdErr)
+        }
+      }
       const storedTrades = cached.fresh ? cached.trades : await getStoredTrades(telegramId, exchange)
-      return Response.json({ trades: storedTrades, fromCache: true, stale: true })
+      return Response.json({ trades: storedTrades, fromCache: true, stale: true, cooldownUntil })
     }
   } catch (err) {
     return serverError("trades", err, 502)

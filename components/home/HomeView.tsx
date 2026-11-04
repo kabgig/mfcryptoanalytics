@@ -17,6 +17,8 @@ import { mergeOverride, type OverridePatch, type ResolvedTrade } from '@/lib/ser
 import { mergeServerList, mergeServerSnapshot } from '@/lib/services/snapshot'
 import { fetchFuturesTrades as fetchBinanceFutures } from '@/lib/exchanges/adapters/binance/futures'
 import { fetchFuturesTrades as fetchBybitFutures } from '@/lib/exchanges/adapters/bybit/futures'
+import { rateLimitFromErrorMessage, shouldForceRefresh } from '@/lib/exchanges/rateLimitParse'
+import { getClientCooldown, setClientCooldown, getLastForceAt, markForceAttempt } from '@/lib/exchanges/clientCooldown'
 import { PeriodSelector } from '@/components/ui/PeriodSelector'
 import { usePeriodStore } from '@/lib/store/periodStore'
 import { filterTradesBySelection } from '@/lib/constants/periods'
@@ -34,12 +36,44 @@ const ASIA_EXCHANGES = new Set(['BingX', 'MEXC'])
 // Exchanges geo-blocked on Vercel servers — fetch directly from the browser instead
 const CLIENT_FETCH_EXCHANGES = new Set(['Binance', 'Bybit'])
 
+/** Stored trades from the server, freshness rules waived — the fallback when a
+ *  rate-limit cooldown makes a live fetch impossible. Returns [] on any error. */
+async function fetchStoredTradesFromServer(exchange: string): Promise<Trade[]> {
+  const res = await fetch('/api/trades-cache', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ exchange, allowStale: true }),
+  })
+  if (!res.ok) return []
+  const data = await res.json().catch(() => ({}))
+  return (data.trades ?? []) as Trade[]
+}
+
 async function fetchExchangeTradesClientSide(
   cfg: ExchangeConfig,
   force: boolean
-): Promise<Trade[]> {
-  // 1. Check for a fresh cache first
-  if (!force) {
+): Promise<{ trades: Trade[]; stale: boolean; cooldownUntil?: number }> {
+  // 0. This browser already got rate-limited (418 IP ban / 429) for this
+  //    exchange. Retrying during a ban extends it, so do not call at all —
+  //    serve stored trades, flagged stale so the yellow banner explains why.
+  const cooldown = getClientCooldown(cfg.name)
+  if (cooldown) {
+    const stored = await fetchStoredTradesFromServer(cfg.name)
+    if (stored.length > 0) {
+      console.log(`[HomeView] ${cfg.name} rate-limit cooldown, served ${stored.length} stored trades`)
+      return { trades: stored, stale: true, cooldownUntil: cooldown.untilMs }
+    }
+    throw new Error(
+      `${cfg.name} is rate-limited until ${new Date(cooldown.untilMs).toLocaleTimeString()} — retry then`
+    )
+  }
+
+  // 1. Check for a fresh cache first. A forced refresh within the min-interval
+  //    of the last one is served the same way: refresh-click bursts were part
+  //    of the request storms that earned Binance IP bans.
+  let effectiveForce = force
+  if (force && !shouldForceRefresh(getLastForceAt(cfg.name))) effectiveForce = false
+  if (!effectiveForce) {
     const cacheRes = await fetch('/api/trades-cache', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -48,18 +82,37 @@ async function fetchExchangeTradesClientSide(
     const cacheData = await cacheRes.json()
     if (cacheData.fresh) {
       console.log(`[HomeView] ${cfg.name} fromCache=true trades=${cacheData.trades.length}`)
-      return cacheData.trades as Trade[]
+      return { trades: cacheData.trades as Trade[], stale: false }
     }
   }
+  // Marked even when the fetch is about to fail — a failing retry loop must
+  // not become a request storm.
+  if (force) markForceAttempt(cfg.name)
 
   // 2. Fetch directly from the exchange in the browser (bypasses Vercel geo-blocks)
   let trades: Trade[]
-  if (cfg.name === 'Binance') {
-    trades = await fetchBinanceFutures(cfg.apiKey, cfg.apiSecret)
-  } else if (cfg.name === 'Bybit') {
-    trades = await fetchBybitFutures(cfg.apiKey, cfg.apiSecret)
-  } else {
-    throw new Error(`Unexpected client-fetch exchange: ${cfg.name}`)
+  try {
+    if (cfg.name === 'Binance') {
+      trades = await fetchBinanceFutures(cfg.apiKey, cfg.apiSecret)
+    } else if (cfg.name === 'Bybit') {
+      trades = await fetchBybitFutures(cfg.apiKey, cfg.apiSecret)
+    } else {
+      throw new Error(`Unexpected client-fetch exchange: ${cfg.name}`)
+    }
+  } catch (err) {
+    // A rate limit is not the keys' fault: record the cooldown (this browser
+    // stops calling until it lifts) and fall back to stored trades if any.
+    const message = err instanceof Error ? err.message : String(err)
+    const rateLimit = rateLimitFromErrorMessage(message)
+    if (rateLimit) {
+      setClientCooldown(cfg.name, rateLimit)
+      const stored = await fetchStoredTradesFromServer(cfg.name)
+      if (stored.length > 0) {
+        console.warn(`[HomeView] ${cfg.name} rate-limited, cooldown until ${new Date(rateLimit.untilMs).toISOString()}`)
+        return { trades: stored, stale: true, cooldownUntil: rateLimit.untilMs }
+      }
+    }
+    throw err
   }
   console.log(`[HomeView] ${cfg.name} fromCache=false trades=${trades.length} (client-side)`)
 
@@ -72,16 +125,17 @@ async function fetchExchangeTradesClientSide(
   if (!storeRes.ok) {
     const err = await storeRes.json().catch(() => ({}))
     console.warn(`[HomeView] ${cfg.name} store failed:`, err.error ?? storeRes.status)
-    return trades
+    return { trades, stale: false }
   }
 
   // These trades came straight from the exchange in the browser, so they still
   // contain anything the user soft-deleted — the store response tells us which.
   const { deletedIds } = await storeRes.json().catch(() => ({ deletedIds: [] }))
   const deleted = new Set<string>(deletedIds ?? [])
-  return deleted.size > 0
+  const visible = deleted.size > 0
     ? trades.filter((t) => !deleted.has(`${t.exchange}|${t.id}`))
     : trades
+  return { trades: visible, stale: false }
 }
 
 /**
@@ -94,7 +148,7 @@ async function fetchExchangeTrades(
   force: boolean
 ): Promise<{ trades: Trade[]; stale: boolean }> {
   if (CLIENT_FETCH_EXCHANGES.has(cfg.name)) {
-    return { trades: await fetchExchangeTradesClientSide(cfg, force), stale: false }
+    return fetchExchangeTradesClientSide(cfg, force)
   }
   const endpoint = ASIA_EXCHANGES.has(cfg.name) ? '/api/trades-asia' : '/api/trades-global'
   const res = await fetch(endpoint, {

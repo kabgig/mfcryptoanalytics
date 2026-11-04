@@ -1,7 +1,7 @@
 \restrict dbmate
 
--- Dumped from database version 17.11 (8a81ecb)
--- Dumped by pg_dump version 18.3
+-- Dumped from database version 17.11 (9045acd)
+-- Dumped by pg_dump version 18.6
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -51,12 +51,35 @@ CREATE TABLE public.cached_trades (
 
 
 --
+-- Name: exchange_cooldowns; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.exchange_cooldowns (
+    exchange text NOT NULL,
+    blocked_until timestamp with time zone NOT NULL,
+    reason text,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: exchange_fetch_log; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.exchange_fetch_log (
     telegram_id bigint NOT NULL,
     exchange text NOT NULL,
+    fetched_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: live_prices; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.live_prices (
+    ticker text NOT NULL,
+    price double precision NOT NULL,
     fetched_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
@@ -294,11 +317,27 @@ ALTER TABLE ONLY public.cached_trades
 
 
 --
+-- Name: exchange_cooldowns exchange_cooldowns_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.exchange_cooldowns
+    ADD CONSTRAINT exchange_cooldowns_pkey PRIMARY KEY (exchange);
+
+
+--
 -- Name: exchange_fetch_log exchange_fetch_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.exchange_fetch_log
     ADD CONSTRAINT exchange_fetch_log_pkey PRIMARY KEY (telegram_id, exchange);
+
+
+--
+-- Name: live_prices live_prices_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.live_prices
+    ADD CONSTRAINT live_prices_pkey PRIMARY KEY (ticker);
 
 
 --
@@ -541,4 +580,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260920000001'),
     ('20260928000001'),
     ('20260929000001'),
-    ('20260929000002');
+    ('20260929000002'),
+    ('20261104034905');

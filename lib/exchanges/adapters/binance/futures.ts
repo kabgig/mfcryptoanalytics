@@ -9,6 +9,13 @@ const FUTURES_BASE_URL = "https://fapi.binance.com"
 const LOOKBACK_DAYS = 90
 const WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
+// Binance rate-limits per IP and 13+ instant requests were part of what earned
+// this fetch 418 bans. The same delay Coinbase's candle walker uses; it costs
+// ~2.5 s worst case on a 90-day sync.
+const REQUEST_DELAY_MS = 200
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
 /**
  * Fetches all REALIZED_PNL income records from Binance USDM Futures
  * for the past 90 days (paginated in 7-day windows).
@@ -30,9 +37,13 @@ export async function fetchFuturesTrades(
 
   const allRecords: BinanceFuturesIncomeRecord[] = []
 
+  let firstRequest = true
+
   for (const window of windows) {
     let page = 1
     while (true) {
+      if (!firstRequest) await sleep(REQUEST_DELAY_MS)
+      firstRequest = false
       const params = await signParams(
         {
           incomeType: "REALIZED_PNL",

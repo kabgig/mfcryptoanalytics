@@ -4,6 +4,7 @@ import {
   getPriceHistory,
   insertPricesSkipExisting,
 } from "@/lib/db/spot"
+import { getLivePrices, upsertLivePrices, LIVE_PRICE_TTL_MS } from "@/lib/db/livePrices"
 import { fetchCurrentPrices, fetchDailyCloses } from "@/lib/prices/spot"
 import { computeBackfillGaps, firstTradeDay, tickersOf } from "@/lib/services/spotService"
 import { requireUser } from "@/lib/auth/session"
@@ -62,10 +63,31 @@ export async function GET() {
       if (!range && fetched === 0) unpriced.push(ticker)
     }
 
-    const [history, current] = await Promise.all([
-      getPriceHistory(tickers, start),
-      fetchCurrentPrices(tickers),
-    ])
+    const history = await getPriceHistory(tickers, start)
+
+    // Serve live prices from the shared cache; only refresh what is missing or
+    // past the TTL. Concurrent requests within the TTL read the same rows and
+    // make zero upstream calls — the global limiter the refresh button needs.
+    const cachedLive = await getLivePrices(tickers)
+    const nowMs = Date.now()
+    const expired = tickers.filter(
+      (t) => !(t in cachedLive) || nowMs - cachedLive[t].fetchedAt.getTime() >= LIVE_PRICE_TTL_MS
+    )
+    const current: Record<string, number> = {}
+    if (expired.length > 0) {
+      const fetched = await fetchCurrentPrices(expired)
+      const rows = Object.entries(fetched).map(([ticker, price]) => ({ ticker, price }))
+      try {
+        await upsertLivePrices(rows)
+      } catch (err) {
+        // A cache write failure must not blank prices for this user.
+        console.error("[spot/prices] live price cache write failed:", err)
+      }
+      Object.assign(current, fetched)
+    }
+    for (const t of tickers) {
+      if (!(t in current) && t in cachedLive) current[t] = cachedLive[t].price
+    }
 
     return Response.json({ history, current, unpriced })
   } catch (err) {

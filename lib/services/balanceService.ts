@@ -2,6 +2,8 @@ import type { ClientApiKeys } from "@/lib/exchanges/client"
 import { fetchBalance as fetchBinanceBalance } from "@/lib/exchanges/adapters/binance/balance"
 import { fetchBalance as fetchBybitBalance } from "@/lib/exchanges/adapters/bybit/balance"
 import { fetchBalance as fetchOKXBalance } from "@/lib/exchanges/adapters/okx/balance"
+import { rateLimitFromErrorMessage } from "@/lib/exchanges/rateLimitParse"
+import { getClientCooldown, setClientCooldown } from "@/lib/exchanges/clientCooldown"
 
 export interface ExchangeBalance {
   exchange: string
@@ -26,15 +28,18 @@ async function fetchViaBalanceRoute(exchange: string, apiKey: string, apiSecret:
 }
 
 export async function fetchAllBalances(keys: ClientApiKeys): Promise<BalanceResult> {
+  // Binance/Bybit/OKX are called from the browser on the user's own IP, and a
+  // balance call is another hit on the same rate-limit budget as the trades
+  // sync — skip them entirely while a cooldown is in force.
   const tasks: Array<{ name: string; fn: () => Promise<number> }> = []
 
-  if (keys.binanceApiKey && keys.binanceApiSecret)
+  if (keys.binanceApiKey && keys.binanceApiSecret && !getClientCooldown("Binance"))
     tasks.push({ name: "Binance", fn: () => fetchBinanceBalance(keys.binanceApiKey, keys.binanceApiSecret) })
 
-  if (keys.bybitApiKey && keys.bybitApiSecret)
+  if (keys.bybitApiKey && keys.bybitApiSecret && !getClientCooldown("Bybit"))
     tasks.push({ name: "Bybit", fn: () => fetchBybitBalance(keys.bybitApiKey, keys.bybitApiSecret) })
 
-  if (keys.okxApiKey && keys.okxApiSecret && keys.okxPassphrase)
+  if (keys.okxApiKey && keys.okxApiSecret && keys.okxPassphrase && !getClientCooldown("OKX"))
     tasks.push({ name: "OKX", fn: () => fetchOKXBalance(keys.okxApiKey, keys.okxApiSecret, keys.okxPassphrase) })
 
   if (keys.bingxApiKey && keys.bingxApiSecret)
@@ -53,7 +58,12 @@ export async function fetchAllBalances(keys: ClientApiKeys): Promise<BalanceResu
     if (result.status === "fulfilled") {
       exchanges.push({ exchange: name, balance: result.value })
     } else {
-      errors[name] = String(result.reason)
+      const message = String(result.reason)
+      // A rate-limited balance call means the trades sync is banned too —
+      // record it so the next load skips both.
+      const rateLimit = rateLimitFromErrorMessage(message)
+      if (rateLimit) setClientCooldown(name, rateLimit)
+      errors[name] = message
     }
   })
 

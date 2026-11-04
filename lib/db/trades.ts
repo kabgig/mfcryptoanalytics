@@ -42,7 +42,7 @@ export async function getStoredTrades(telegramId: string, exchange: string): Pro
 export async function getIfFresh(
   telegramId: string,
   exchange: string
-): Promise<{ fresh: true; trades: Trade[] } | { fresh: false }> {
+): Promise<{ fresh: true; trades: Trade[]; fetchedAt: Date } | { fresh: false }> {
   const sql = getSql()
   // LEFT JOIN: if efl row exists & is fresh, ct rows are returned (even if 0 trades stored).
   // If efl row missing or stale, 0 rows returned.
@@ -68,7 +68,10 @@ export async function getIfFresh(
 
   // Filter out the sentinel NULL row (fresh log but 0 trades)
   const trades = rows.filter((r) => r.id != null).map(rowToTrade)
-  return { fresh: true, trades }
+  // The fetch log's timestamp rides along on every row; callers use it for the
+  // force-refresh throttle (a forced refresh moments after a fetch is served
+  // from cache instead of re-hitting the exchange).
+  return { fresh: true, trades, fetchedAt: rows[0].fetched_at as Date }
 }
 
 /**
